@@ -129,6 +129,8 @@ export function Field({
   keyboardType,
   secureTextEntry,
   required,
+  maxLength,
+  autoFocus,
 }: {
   label: string;
   value?: string;
@@ -137,6 +139,8 @@ export function Field({
   keyboardType?: 'default' | 'phone-pad' | 'numeric' | 'decimal-pad';
   secureTextEntry?: boolean;
   required?: boolean;
+  maxLength?: number;
+  autoFocus?: boolean;
 }) {
   return (
     <View style={styles.field}>
@@ -151,6 +155,8 @@ export function Field({
         placeholderTextColor={colors.textMuted}
         keyboardType={keyboardType}
         secureTextEntry={secureTextEntry}
+        maxLength={maxLength}
+        autoFocus={autoFocus}
         style={styles.input}
         autoCorrect={false}
       />

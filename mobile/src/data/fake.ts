@@ -54,8 +54,8 @@ export const products: Product[] = [
     defaultSellPrice: kwacha(280),
     discount: { enabled: true, type: 'percent', value: 10 },
     variants: [
-      { id: 'var-1', createdAt: at('07:10'), updatedAt: at('07:10'), productId: 'prod-1', size: '40', barcode: '6001234500011', buyPrice: kwacha(180), sellPrice: kwacha(280), lowStockLevel: 3 },
-      { id: 'var-2', createdAt: at('07:10'), updatedAt: at('07:10'), productId: 'prod-1', size: '42', barcode: '6001234500028', buyPrice: kwacha(180), sellPrice: kwacha(280), lowStockLevel: 3 },
+      { id: 'var-1', createdAt: at('07:10'), updatedAt: at('07:10'), productId: 'prod-1', size: '40', barcode: '6001234500018', buyPrice: kwacha(180), sellPrice: kwacha(280), lowStockLevel: 3 },
+      { id: 'var-2', createdAt: at('07:10'), updatedAt: at('07:10'), productId: 'prod-1', size: '42', barcode: '6001234500025', buyPrice: kwacha(180), sellPrice: kwacha(280), lowStockLevel: 3 },
     ],
   },
   {
@@ -67,8 +67,8 @@ export const products: Product[] = [
     defaultBuyPrice: kwacha(90),
     defaultSellPrice: kwacha(160),
     variants: [
-      { id: 'var-3', createdAt: at('07:12'), updatedAt: at('07:12'), productId: 'prod-2', size: 'M', barcode: '6001234500035', buyPrice: kwacha(90), sellPrice: kwacha(160), lowStockLevel: 3 },
-      { id: 'var-4', createdAt: at('07:12'), updatedAt: at('07:12'), productId: 'prod-2', size: 'L', barcode: '6001234500042', buyPrice: kwacha(90), sellPrice: kwacha(160), lowStockLevel: 3 },
+      { id: 'var-3', createdAt: at('07:12'), updatedAt: at('07:12'), productId: 'prod-2', size: 'M', barcode: '6001234500032', buyPrice: kwacha(90), sellPrice: kwacha(160), lowStockLevel: 3 },
+      { id: 'var-4', createdAt: at('07:12'), updatedAt: at('07:12'), productId: 'prod-2', size: 'L', barcode: '6001234500049', buyPrice: kwacha(90), sellPrice: kwacha(160), lowStockLevel: 3 },
     ],
   },
   {
@@ -80,7 +80,7 @@ export const products: Product[] = [
     defaultBuyPrice: kwacha(250),
     defaultSellPrice: kwacha(450),
     variants: [
-      { id: 'var-5', createdAt: at('07:15'), updatedAt: at('07:15'), productId: 'prod-3', colour: 'Brown', barcode: 'SS0000000001', buyPrice: kwacha(250), sellPrice: kwacha(450), lowStockLevel: 2 },
+      { id: 'var-5', createdAt: at('07:15'), updatedAt: at('07:15'), productId: 'prod-3', colour: 'Brown', barcode: '2000000000015', buyPrice: kwacha(250), sellPrice: kwacha(450), lowStockLevel: 2 },
     ],
   },
   {
@@ -92,7 +92,7 @@ export const products: Product[] = [
     defaultBuyPrice: kwacha(25),
     defaultSellPrice: kwacha(60),
     variants: [
-      { id: 'var-6', createdAt: at('07:18'), updatedAt: at('07:18'), productId: 'prod-4', colour: 'White', barcode: 'SS0000000002', buyPrice: kwacha(25), sellPrice: kwacha(60), lowStockLevel: 5 },
+      { id: 'var-6', createdAt: at('07:18'), updatedAt: at('07:18'), productId: 'prod-4', colour: 'White', barcode: '2000000000022', buyPrice: kwacha(25), sellPrice: kwacha(60), lowStockLevel: 5 },
     ],
   },
   {
@@ -104,7 +104,7 @@ export const products: Product[] = [
     defaultBuyPrice: kwacha(200),
     defaultSellPrice: kwacha(320),
     variants: [
-      { id: 'var-7', createdAt: at('07:20'), updatedAt: at('07:20'), productId: 'prod-5', size: '41', barcode: 'SS0000000003', buyPrice: kwacha(200), sellPrice: kwacha(320), lowStockLevel: 3 },
+      { id: 'var-7', createdAt: at('07:20'), updatedAt: at('07:20'), productId: 'prod-5', size: '41', barcode: '2000000000039', buyPrice: kwacha(200), sellPrice: kwacha(320), lowStockLevel: 3 },
     ],
   },
 ];

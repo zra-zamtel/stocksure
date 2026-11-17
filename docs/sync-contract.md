@@ -68,7 +68,7 @@ Every table has `id`, `created_at`, `updated_at`.
 | `stock_movement` | variant_id, quantity_change (never 0), reason (`opening` \| `restock` \| `sale` \| `void` \| `correction`), note, sale_id |
 | `sale` | recorded_by, subtotal, discount_total, total, status (`active` \| `void`), void_reason, reconcile_status |
 | `sale_line` | sale_id, variant_id, quantity, buy_price, list_price, discount, final_price |
-| `payment` | sale_id, method (`cash` \| `mobile_money`), provider, amount, mobile_money_reference |
+| `payment` | sale_id, method (`cash` \| `mobile_money`), provider, amount, mobile_money_reference, confirmed_at, matched_txn_id |
 | `mobile_money_txn` | provider, amount, sender, reference, received_at, raw_message, parsed (0/1) |
 | `reconciliation` | day (unique), matched_count, sale_no_payment_count, payment_no_sale_count, opening_float, counted_cash, expected_cash, note |
 | `tax_period` | starts_on, ends_on, turnover, rate_used, estimated_tax, due_on, paid (0/1) |

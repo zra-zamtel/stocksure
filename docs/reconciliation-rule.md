@@ -45,6 +45,11 @@ moves money into the turnover tax estimate.
   and is not re-matched, so it stays resolved and cannot claim a message.
 - A sale near midnight is matched against messages up to the window either side
   of the day, so a payment that lands after midnight still finds its sale.
+- A match, once made, is stored as a pair on the payment (`matched_txn_id`) and
+  is not re-decided. A later run may not see the other half (it fell on the
+  neighbouring day), and a sale recorded later must not turn a settled match
+  into needs review. Voiding the sale releases the message, because only
+  active sales hold a pair.
 
 ## What this does not change
 
@@ -57,7 +62,9 @@ moves money into the turnover tax estimate.
 
 `mobile/src/core/core.test.ts` covers: reference agreement, no-reference single
 candidate, one-sided reference refusal, provider mismatch, time window, and the
-ambiguous case where two payments fit one sale.
+ambiguous case where two payments fit one sale. `mobile/src/db/repos.integration.test.ts`
+(IT-REC) covers the stored decisions: hand confirmation, ignored messages,
+cross-midnight pairs in both directions, and release on void.
 
 ## Decision needed
 

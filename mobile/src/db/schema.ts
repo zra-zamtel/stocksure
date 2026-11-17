@@ -223,4 +223,20 @@ export const migrations: string[] = [
   `
   ALTER TABLE payment ADD COLUMN confirmed_at TEXT;
   `,
+
+  // v4 - onboarding creates the shop itself, so the app needs to know whether
+  // the three setup screens were finished. A shop row exists from step 1; this
+  // flag is what opens the tabs.
+  `
+  ALTER TABLE shop ADD COLUMN onboarding_completed INTEGER NOT NULL DEFAULT 0
+    CHECK (onboarding_completed IN (0, 1));
+  `,
+
+  // v5 - a match is stored as a pair, so a later run that cannot see the
+  // partner (it fell on the neighbouring day) does not undo it. A void releases
+  // the pair, because only active sales count.
+  `
+  ALTER TABLE payment ADD COLUMN matched_txn_id TEXT REFERENCES mobile_money_txn (id);
+  CREATE INDEX idx_payment_matched_txn ON payment (matched_txn_id);
+  `,
 ];

@@ -1,4 +1,4 @@
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useState } from 'react';
 import { StyleSheet, Text } from 'react-native';
@@ -8,6 +8,7 @@ import { findVariantByBarcode } from '@/db/repos';
 export default function ScanScreen() {
   const router = useRouter();
   const db = useSQLiteContext();
+  const { from } = useLocalSearchParams<{ from?: string }>();
   const [error, setError] = useState<string | null>(null);
 
   async function handleScanned(code: string) {
@@ -16,7 +17,10 @@ export default function ScanScreen() {
       if (match) {
         router.replace(`/product/${match.productId}`);
       } else {
-        router.replace({ pathname: '/product/new', params: { barcode: code } });
+        router.replace({
+          pathname: '/product/new',
+          params: from ? { barcode: code, from } : { barcode: code },
+        });
       }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not read that barcode');

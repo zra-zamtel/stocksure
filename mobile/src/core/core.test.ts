@@ -12,7 +12,14 @@ import {
   isValidEan13,
   normaliseBarcode,
 } from './barcode';
-import { autoSetAside, dueDateFor, estimateTurnoverTax, potStatus, reminderDates } from './tax';
+import {
+  autoSetAside,
+  dueDateFor,
+  estimateTurnoverTax,
+  potStatus,
+  reminderDates,
+  taxPeriodForMonth,
+} from './tax';
 import type { StockMovement, TaxRules } from './types';
 
 const rules: TaxRules = {
@@ -244,6 +251,19 @@ describe('turnover tax', () => {
   it('derives the due date and reminder dates from the rules file', () => {
     expect(dueDateFor('2026-11-30', rules)).toBe('2026-12-14');
     expect(reminderDates('2026-12-14', rules)).toEqual(['2026-12-07', '2026-12-11', '2026-12-14']);
+  });
+
+  it('builds a calendar-month period for a fresh shop', () => {
+    expect(taxPeriodForMonth('2026-11-17', rules)).toEqual({
+      startsOn: '2026-11-01',
+      endsOn: '2026-11-30',
+      dueOn: '2026-12-14',
+    });
+    expect(taxPeriodForMonth('2026-02-28', rules)).toEqual({
+      startsOn: '2026-02-01',
+      endsOn: '2026-02-28',
+      dueOn: '2026-03-14',
+    });
   });
 
   it('sets aside without overstating cover', () => {

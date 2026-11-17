@@ -11,6 +11,7 @@ import {
   priceSale,
   reversalFor,
   stockState,
+  taxPeriodForMonth,
   todayLocal,
   validatePayments,
   validateRestock,
@@ -18,8 +19,10 @@ import {
   type Ngwee,
   type PaymentInput,
   type ProductDiscount,
+  type ShopType,
   type StockMovement,
   type StockState,
+  type TaxRules,
 } from '@/core';
 
 /** SQL fragment: column falls in [?, ?). julianday() copes with both Z and +02:00 stamps. */
@@ -474,7 +477,7 @@ export async function voidSale(db: SQLiteDatabase, saleId: string, reason: strin
 export interface ShopRecord {
   id: string;
   name: string;
-  type: string;
+  type: ShopType;
   town: string;
   language: 'en' | 'ny';
   usesBarcodes: boolean;
@@ -482,6 +485,7 @@ export interface ShopRecord {
   turnoverTaxRegistered: boolean;
   tpin?: string;
   providers: string[];
+  onboardingCompleted: boolean;
 }
 
 export async function getShop(db: SQLiteDatabase): Promise<ShopRecord | null> {
@@ -496,17 +500,18 @@ export async function getShop(db: SQLiteDatabase): Promise<ShopRecord | null> {
     turnoverTaxRegistered: number;
     tpin: string | null;
     providersJson: string;
+    onboardingCompleted: number;
   }>(
     `SELECT id, name, type, town, language, uses_barcodes AS usesBarcodes,
             low_stock_default AS lowStockDefault, turnover_tax_registered AS turnoverTaxRegistered,
-            tpin, providers_json AS providersJson
+            tpin, providers_json AS providersJson, onboarding_completed AS onboardingCompleted
        FROM shop LIMIT 1`
   );
   if (!row) return null;
   return {
     id: row.id,
     name: row.name,
-    type: row.type,
+    type: row.type as ShopType,
     town: row.town,
     language: row.language,
     usesBarcodes: row.usesBarcodes === 1,
@@ -514,7 +519,275 @@ export async function getShop(db: SQLiteDatabase): Promise<ShopRecord | null> {
     turnoverTaxRegistered: row.turnoverTaxRegistered === 1,
     tpin: row.tpin ?? undefined,
     providers: JSON.parse(row.providersJson) as string[],
+    onboardingCompleted: row.onboardingCompleted === 1,
   };
+}
+
+export interface OwnerRecord {
+  id: string;
+  name: string;
+  phone: string;
+  pinHash: string;
+}
+
+export async function getOwner(db: SQLiteDatabase): Promise<OwnerRecord | null> {
+  return db.getFirstAsync<OwnerRecord>(
+    `SELECT id, name, phone, pin_hash AS pinHash
+       FROM owner
+      ORDER BY created_at ASC
+      LIMIT 1`
+  );
+}
+
+export interface CreateOwnerInput {
+  /** The ID the server accepted; the phone and the backend share it. */
+  id: string;
+  name: string;
+  phone: string;
+  pinHash: string;
+}
+
+/**
+ * Caches an owner the server has already registered, so PIN sign-in works with
+ * no connection afterwards. This is not an outbox write: the server is the
+ * source of this row, not the phone.
+ */
+export async function createOwner(
+  db: SQLiteDatabase,
+  input: CreateOwnerInput
+): Promise<OwnerRecord> {
+  const existing = await getOwner(db);
+  if (existing) throw new Error('An account already exists on this phone');
+
+  const phoneClash = await db.getFirstAsync<{ id: string }>(
+    'SELECT id FROM owner WHERE phone = ?',
+    input.phone
+  );
+  if (phoneClash) throw new Error('That phone number already has an account on this phone');
+
+  const owner: OwnerRecord = {
+    id: input.id,
+    name: input.name.trim(),
+    phone: input.phone,
+    pinHash: input.pinHash,
+  };
+  const stamp = nowIso();
+
+  await db.runAsync(
+    `INSERT INTO owner (id, name, phone, pin_hash, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    owner.id,
+    owner.name,
+    owner.phone,
+    owner.pinHash,
+    stamp,
+    stamp
+  );
+
+  return owner;
+}
+
+export interface OnboardingState {
+  hasShop: boolean;
+  onboardingComplete: boolean;
+  hasProducts: boolean;
+}
+
+export async function getOnboardingState(db: SQLiteDatabase): Promise<OnboardingState> {
+  const shop = await db.getFirstAsync<{ onboardingCompleted: number }>(
+    'SELECT onboarding_completed AS onboardingCompleted FROM shop LIMIT 1'
+  );
+  const products = await db.getFirstAsync<{ count: number }>('SELECT COUNT(*) AS count FROM product');
+  return {
+    hasShop: Boolean(shop),
+    onboardingComplete: shop?.onboardingCompleted === 1,
+    hasProducts: (products?.count ?? 0) > 0,
+  };
+}
+
+export interface ShopDetailsInput {
+  name: string;
+  type: ShopType;
+  town: string;
+  language: 'en' | 'ny';
+  usesBarcodes: boolean;
+}
+
+/**
+ * Step 1 of onboarding. The first save creates the shop row; a later edit (from
+ * Settings, or a resumed onboarding) updates the same row.
+ */
+export async function saveShopDetails(
+  db: SQLiteDatabase,
+  input: ShopDetailsInput
+): Promise<string> {
+  const name = input.name.trim();
+  const town = input.town.trim();
+  if (!name) throw new Error('Shop name is required');
+  if (!town) throw new Error('Town is required');
+
+  const current = await db.getFirstAsync<{ id: string; lowStockDefault: number }>(
+    'SELECT id, low_stock_default AS lowStockDefault FROM shop LIMIT 1'
+  );
+  const shopId = current?.id ?? newId('shop');
+  const stamp = nowIso();
+
+  await db.withTransactionAsync(async () => {
+    if (current) {
+      await db.runAsync(
+        `UPDATE shop
+            SET name = ?, type = ?, town = ?, language = ?, uses_barcodes = ?, updated_at = ?
+          WHERE id = ?`,
+        name,
+        input.type,
+        town,
+        input.language,
+        input.usesBarcodes ? 1 : 0,
+        stamp,
+        shopId
+      );
+    } else {
+      await db.runAsync(
+        `INSERT INTO shop (id, name, type, town, currency, language, uses_barcodes, low_stock_default,
+           turnover_tax_registered, tpin, providers_json, onboarding_completed, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 'ZMW', ?, ?, 3, 0, NULL, '[]', 0, ?, ?)`,
+        shopId,
+        name,
+        input.type,
+        town,
+        input.language,
+        input.usesBarcodes ? 1 : 0,
+        stamp,
+        stamp
+      );
+    }
+
+    await enqueueSync(db, 'shop', shopId, current ? 'update' : 'create', {
+      id: shopId,
+      name,
+      type: input.type,
+      town,
+      currency: 'ZMW',
+      language: input.language,
+      usesBarcodes: input.usesBarcodes,
+      lowStockDefault: current?.lowStockDefault ?? 3,
+      ...(current
+        ? {}
+        : { providers: [], turnoverTaxRegistered: false, tpin: null, createdAt: stamp }),
+      updatedAt: stamp,
+    });
+  });
+
+  return shopId;
+}
+
+export interface MoneySettingsInput {
+  providers: string[];
+  turnoverTaxRegistered: boolean;
+  tpin?: string;
+}
+
+const PROVIDERS = ['MTN', 'Airtel', 'Zamtel'] as const;
+
+/** Step 2 of onboarding: which payments the shop receives, and its tax status. */
+export async function saveMoneySettings(
+  db: SQLiteDatabase,
+  input: MoneySettingsInput
+): Promise<void> {
+  const shop = await db.getFirstAsync<{ id: string }>('SELECT id FROM shop LIMIT 1');
+  if (!shop) throw new Error('Complete the shop details first');
+
+  const providers = [...new Set(input.providers)].filter((provider) =>
+    PROVIDERS.includes(provider as (typeof PROVIDERS)[number])
+  );
+  const tpin = input.tpin?.trim() || null;
+  if (tpin && !/^\d{10}$/.test(tpin)) {
+    throw new Error('TPIN should be 10 digits, or left blank');
+  }
+
+  const stamp = nowIso();
+  await db.withTransactionAsync(async () => {
+    await db.runAsync(
+      `UPDATE shop
+          SET providers_json = ?, turnover_tax_registered = ?, tpin = ?, updated_at = ?
+        WHERE id = ?`,
+      JSON.stringify(providers),
+      input.turnoverTaxRegistered ? 1 : 0,
+      tpin,
+      stamp,
+      shop.id
+    );
+    await enqueueSync(db, 'shop', shop.id, 'update', {
+      id: shop.id,
+      providers,
+      turnoverTaxRegistered: input.turnoverTaxRegistered,
+      tpin,
+      updatedAt: stamp,
+    });
+  });
+}
+
+/**
+ * The first tax period, so Tax and TaxPot have a due date from day one. The
+ * demo seed used to provide this; onboarding now creates it. It uses the
+ * current calendar month while the rules file still carries placeholder values.
+ */
+export async function ensureTaxPeriod(
+  db: SQLiteDatabase,
+  rules: TaxRules,
+  today: string = todayLocal()
+): Promise<void> {
+  const existing = await db.getFirstAsync<{ id: string }>(
+    'SELECT id FROM tax_period WHERE ? BETWEEN starts_on AND ends_on LIMIT 1',
+    today
+  );
+  if (existing) return;
+
+  const { startsOn, endsOn, dueOn } = taxPeriodForMonth(today, rules);
+  const id = newId('tax');
+  const stamp = nowIso();
+
+  await db.withTransactionAsync(async () => {
+    await db.runAsync(
+      `INSERT INTO tax_period (id, starts_on, ends_on, turnover, rate_used, estimated_tax, due_on, paid,
+         created_at, updated_at)
+       VALUES (?, ?, ?, 0, ?, 0, ?, 0, ?, ?)`,
+      id,
+      startsOn,
+      endsOn,
+      rules.rate,
+      dueOn,
+      stamp,
+      stamp
+    );
+    await enqueueSync(db, 'tax_period', id, 'create', {
+      id,
+      startsOn,
+      endsOn,
+      turnover: 0,
+      rateUsed: rules.rate,
+      estimatedTax: 0,
+      dueOn,
+      paid: false,
+      createdAt: stamp,
+      updatedAt: stamp,
+    });
+  });
+}
+
+/**
+ * Step 3 is skippable, but the finish still needs to be recorded. This flag is
+ * phone-only UI state, so it does not go into the sync queue.
+ */
+export async function completeOnboarding(db: SQLiteDatabase): Promise<void> {
+  const shop = await db.getFirstAsync<{ id: string }>('SELECT id FROM shop LIMIT 1');
+  if (!shop) throw new Error('Complete the shop details first');
+
+  await db.runAsync(
+    'UPDATE shop SET onboarding_completed = 1, updated_at = ? WHERE id = ?',
+    nowIso(),
+    shop.id
+  );
 }
 
 export interface BarcodeMatch {
@@ -1222,12 +1495,14 @@ export async function reconcileDay(
     provider: string | null;
     createdAt: string;
     confirmedAt: string | null;
+    matchedTxnId: string | null;
     saleStatus: string;
     inDay: number;
   }>(
     `SELECT p.id AS paymentId, p.sale_id AS saleId, p.amount,
             p.mobile_money_reference AS reference, p.provider, s.created_at AS createdAt,
-            p.confirmed_at AS confirmedAt, s.reconcile_status AS saleStatus,
+            p.confirmed_at AS confirmedAt, p.matched_txn_id AS matchedTxnId,
+            s.reconcile_status AS saleStatus,
             (${inRange('s.created_at')}) AS inDay
        FROM payment p
        JOIN sale s ON s.id = p.sale_id
@@ -1252,9 +1527,12 @@ export async function reconcileDay(
     receivedAt: string;
     status: string;
     inDay: number;
+    settled: number;
   }>(
     `SELECT id, provider, amount, sender, reference, received_at AS receivedAt, status,
-            (${inRange('received_at')}) AS inDay
+            (${inRange('received_at')}) AS inDay,
+            EXISTS (SELECT 1 FROM payment p JOIN sale s ON s.id = p.sale_id
+                     WHERE p.matched_txn_id = mobile_money_txn.id AND s.status = 'active') AS settled
        FROM mobile_money_txn
       WHERE status <> 'ignored'
         AND ${inRange('received_at')}
@@ -1267,8 +1545,11 @@ export async function reconcileDay(
     end
   );
 
-  // Payments the owner confirmed by hand are settled; only the rest are matched.
-  const open = payments.filter((payment) => !payment.confirmedAt);
+  // Payments confirmed by hand or paired by an earlier run are settled, and so
+  // are messages paired to an active sale. Only the rest go to the matcher, so
+  // a run that cannot see a pair's other half never undoes it.
+  const open = payments.filter((payment) => !payment.confirmedAt && !payment.matchedTxnId);
+  const openTxns = txns.filter((txn) => txn.settled !== 1);
 
   const result = matchPayments(
     open.map((payment) => ({
@@ -1278,7 +1559,7 @@ export async function reconcileDay(
       provider: payment.provider ?? undefined,
       at: payment.createdAt,
     })),
-    txns.map((txn) => ({
+    openTxns.map((txn) => ({
       id: txn.id,
       amount: txn.amount,
       reference: txn.reference ?? undefined,
@@ -1289,8 +1570,15 @@ export async function reconcileDay(
   );
 
   // matchPayments calls its first argument "sales"; here those are payment ids.
-  const txnByPaymentId = new Map(result.matched.map((match) => [match.saleId, match.receivedId]));
-  const matchedTxnIds = new Set(txnByPaymentId.values());
+  const newPairs = new Map(result.matched.map((match) => [match.saleId, match.receivedId]));
+  const txnByPaymentId = new Map(newPairs);
+  for (const payment of payments) {
+    if (payment.matchedTxnId) txnByPaymentId.set(payment.paymentId, payment.matchedTxnId);
+  }
+  const matchedTxnIds = new Set([
+    ...newPairs.values(),
+    ...txns.filter((txn) => txn.settled === 1).map((txn) => txn.id),
+  ]);
   const ambiguousPaymentIds = new Set(result.ambiguousSales);
   const stamp = nowIso();
 
@@ -1331,8 +1619,13 @@ export async function reconcileDay(
   const paymentsWithoutSale = txns.filter((txn) => txn.inDay === 1 && !matchedTxnIds.has(txn.id));
 
   await db.withTransactionAsync(async () => {
+    for (const [paymentId, txnId] of newPairs) {
+      await db.runAsync('UPDATE payment SET matched_txn_id = ?, updated_at = ? WHERE id = ?', txnId, stamp, paymentId);
+      await enqueueSync(db, 'payment', paymentId, 'update', { id: paymentId, matchedTxnId: txnId, updatedAt: stamp });
+    }
+
     for (const payment of open) {
-      const matched = txnByPaymentId.has(payment.paymentId);
+      const matched = newPairs.has(payment.paymentId);
       // A neighbouring day's sale is only touched when it matched here.
       if (!matched && payment.inDay !== 1) continue;
       const status = matched

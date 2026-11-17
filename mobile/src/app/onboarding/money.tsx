@@ -1,51 +1,121 @@
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { useSQLiteContext } from 'expo-sqlite';
+import { useEffect, useRef, useState } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
+import { useAuth } from '@/auth/session';
 import { Button, Card, Choice, Field, Row, Screen } from '@/components/ui';
+import { isValidTpin } from '@/core';
+import { useShop } from '@/db/hooks';
+import { saveMoneySettings } from '@/db/repos';
 import { useI18n } from '@/i18n';
-import { spacing } from '@/theme/tokens';
+import { colors, spacing, typeScale } from '@/theme/tokens';
 
 const PROVIDERS = ['MTN', 'Airtel', 'Zamtel'] as const;
 
 export default function MoneyScreen() {
   const { t } = useI18n();
   const router = useRouter();
-  const [providers, setProviders] = useState<string[]>(['MTN', 'Airtel']);
-  const [registered, setRegistered] = useState(true);
+  const db = useSQLiteContext();
+  const { refresh } = useAuth();
+  const { data: shop } = useShop();
+
+  const [providers, setProviders] = useState<string[]>([...PROVIDERS]);
+  const [registered, setRegistered] = useState(false);
+  const [tpin, setTpin] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const hydrated = useRef(false);
+  useEffect(() => {
+    if (!shop || hydrated.current) return;
+    setProviders(shop.providers.length > 0 ? shop.providers : [...PROVIDERS]);
+    setRegistered(shop.turnoverTaxRegistered);
+    setTpin(shop.tpin ?? '');
+    hydrated.current = true;
+  }, [shop]);
 
   const toggle = (provider: string) =>
     setProviders((current) =>
       current.includes(provider) ? current.filter((item) => item !== provider) : [...current, provider]
     );
 
+  async function handleNext() {
+    if (saving) return;
+    setError(null);
+    if (tpin.trim() && !isValidTpin(tpin)) {
+      setError(t('onboarding.money.tpinInvalid'));
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await saveMoneySettings(db, {
+        providers,
+        turnoverTaxRegistered: registered,
+        tpin: tpin.trim() || undefined,
+      });
+      await refresh();
+      router.push('/onboarding/first-products');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : t('onboarding.account.error.generic'));
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <Screen
       title={t('onboarding.money.title')}
-      footer={<Button label={t('common.next')} onPress={() => router.push('/onboarding/first-products')} />}
+      footer={<Button label={t('common.next')} disabled={saving} onPress={handleNext} />}
     >
       <Card>
         <Row label={t('onboarding.money.currency')} value="ZMW (K)" />
-        <View style={styles.group}>
-          {PROVIDERS.map((provider) => (
-            <Choice
-              key={provider}
-              label={provider}
-              selected={providers.includes(provider)}
-              onPress={() => toggle(provider)}
-            />
-          ))}
-        </View>
-        <Choice
-          label={`${t('onboarding.money.registered')}: ${registered ? 'Yes' : 'No'}`}
-          selected={registered}
-          onPress={() => setRegistered((value) => !value)}
-        />
-        <Field label={t('onboarding.money.tpin')} placeholder={t('common.optional')} keyboardType="numeric" />
       </Card>
+
+      <Text style={styles.sectionLabel}>{t('onboarding.money.providers')}</Text>
+      <View style={styles.group}>
+        {PROVIDERS.map((provider) => (
+          <Choice
+            key={provider}
+            label={provider}
+            selected={providers.includes(provider)}
+            onPress={() => toggle(provider)}
+          />
+        ))}
+      </View>
+
+      <Text style={styles.sectionLabel}>{t('onboarding.money.registered')}</Text>
+      <View style={styles.row}>
+        <View style={styles.rowChoice}>
+          <Choice label={t('common.yes')} selected={registered} onPress={() => setRegistered(true)} />
+        </View>
+        <View style={styles.rowChoice}>
+          <Choice label={t('common.no')} selected={!registered} onPress={() => setRegistered(false)} />
+        </View>
+      </View>
+
+      <Card>
+        <Field
+          label={t('onboarding.money.tpin')}
+          value={tpin}
+          onChangeText={(value) => setTpin(value.replace(/\D/g, ''))}
+          placeholder={t('common.optional')}
+          keyboardType="numeric"
+          maxLength={10}
+        />
+        <Text style={styles.hint}>{t('onboarding.money.tpinHint')}</Text>
+      </Card>
+
+      {error ? <Text style={styles.error}>{error}</Text> : null}
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  group: { gap: spacing.sm, marginVertical: spacing.sm },
+  sectionLabel: { fontSize: typeScale.label, fontWeight: '600', color: colors.textMuted },
+  group: { gap: spacing.sm },
+  row: { flexDirection: 'row', gap: spacing.md },
+  rowChoice: { flex: 1 },
+  hint: { fontSize: typeScale.label, color: colors.textMuted },
+  error: { fontSize: typeScale.label, color: colors.danger, fontWeight: '600' },
 });

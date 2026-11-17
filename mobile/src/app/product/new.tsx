@@ -19,8 +19,9 @@ export default function NewProductScreen() {
   const { t } = useI18n();
   const router = useRouter();
   const db = useSQLiteContext();
-  const { barcode: scannedBarcode } = useLocalSearchParams<{ barcode?: string }>();
+  const { barcode: scannedBarcode, from } = useLocalSearchParams<{ barcode?: string; from?: string }>();
   const { data: shop } = useShop();
+  const onboarding = from === 'onboarding';
 
   const [name, setName] = useState('');
   const [category, setCategory] = useState('');
@@ -62,7 +63,13 @@ export default function NewProductScreen() {
         openingQuantity: opening,
         lowStockLevel: Number.parseInt(lowStock, 10) || shop?.lowStockDefault,
       });
-      router.replace(`/product/${result.productId}`);
+      if (onboarding) {
+        // Return to the setup screen that opened this form, dismissing any
+        // intermediate scan/form screens and refreshing its product count.
+        router.dismissTo('/onboarding/first-products');
+      } else {
+        router.replace(`/product/${result.productId}`);
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not save the product');
     } finally {
@@ -117,7 +124,9 @@ export default function NewProductScreen() {
         <Button
           label={t('products.scanBarcode')}
           variant="secondary"
-          onPress={() => router.push('/scan')}
+          onPress={() =>
+            router.push(from ? { pathname: '/scan', params: { from } } : '/scan')
+          }
         />
       ) : null}
 

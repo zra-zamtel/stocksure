@@ -2,6 +2,7 @@ import { useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useMemo, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useAuth } from '@/auth/session';
 import { BarcodeScanner } from '@/components/barcode-scanner';
 import { Button, Card, Choice, EmptyState, Field, Pill, Row, Screen, SectionTitle } from '@/components/ui';
 import { priceSale, toNgwee, type LineInput, type PaymentInput, type Provider } from '@/core';
@@ -12,9 +13,6 @@ import { formatKwacha } from '@/lib/format';
 import { colors, radii, spacing, touch, typeScale } from '@/theme/tokens';
 
 const PROVIDERS: Provider[] = ['MTN', 'Airtel', 'Zamtel'];
-
-// Until staff sign-in lands (#29), every sale is attributed to the seeded cashier.
-const RECORDED_BY = 'staff-1';
 
 function Stepper({ value, onChange }: { value: number; onChange: (next: number) => void }) {
   return (
@@ -44,6 +42,7 @@ export default function NewSaleScreen() {
   const { t } = useI18n();
   const router = useRouter();
   const db = useSQLiteContext();
+  const { user } = useAuth();
   const { data: products, loading, error: loadError } = useProducts();
   const { data: shop } = useShop();
 
@@ -140,17 +139,21 @@ export default function NewSaleScreen() {
 
   async function submit(approved: StockShortfall[] | null) {
     if (submitting) return;
+    if (!user) {
+      setError(t('sale.new.signInRequired'));
+      return;
+    }
     setError(null);
     setShortfalls(null);
     setSubmitting(true);
     try {
       const result = await recordSale(db, {
-        recordedBy: RECORDED_BY,
+        recordedBy: user.id,
         lines,
         payments,
-        // Until staff sign-in (#29) there is no separate owner to check, so the
-        // approval is attributed to the signed-in user and noted on the movement.
-        override: approved ? { approvedBy: RECORDED_BY, shortfalls: approved } : undefined,
+        // Staff sign-in (#29) will add a second person; today the signed-in
+        // owner approves an override and the movement records that.
+        override: approved ? { approvedBy: user.id, shortfalls: approved } : undefined,
       });
       setQuantityByVariant({});
       router.replace(`/sale/${result.saleId}`);

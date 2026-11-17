@@ -99,13 +99,49 @@ npx expo prebuild --platform android
 npx expo run:android
 ```
 
-The backend is not wired up yet — every screen reads from `mobile/src/data/fake.ts`.
+A fresh install starts at the language and account screens. Account creation
+needs one online moment so the backend can register the owner; after that,
+PIN sign-in and the rest of the app work offline. The shop, products and sales
+are stored in SQLite, and the remaining sync work is still being wired up. The
+demo-shop seed remains in `mobile/src/db/seed.ts` for #41 and is not loaded
+automatically.
+
+### Registration backend
+
+The one online call is a minimal Django + DRF service in `backend/`:
+
+```bash
+cd backend
+python -m venv .venv
+# Windows: .venv\Scripts\activate
+# macOS/Linux: source .venv/bin/activate
+pip install -r requirements.txt
+python manage.py migrate
+python manage.py runserver 0.0.0.0:8000
+```
+
+The app derives the backend host from the Expo development server. If that does
+not work on your setup (an emulator, a tunnel or a deployed server), start Expo
+with:
+
+```bash
+# macOS/Linux
+EXPO_PUBLIC_API_URL=http://<host>:8000 npx expo start
+```
+
+```powershell
+# Windows PowerShell
+$env:EXPO_PUBLIC_API_URL="http://<host>:8000"; npx expo start
+```
+
+See [`backend/README.md`](./backend/README.md).
 
 ## Status
 
-Early build. The repository is scaffolded, the scope is locked, and the work is
-tracked on the project board. Nothing runs yet — see the board for what is in
-flight.
+The demo path is being built. Owner registration runs against the local Django
+API. Onboarding, products, sales, reconciliation and TaxPot run against SQLite.
+The rest of sync, USSD and the remaining demo steps are in flight — see the
+board for what is next.
 
 ## Working agreements
 

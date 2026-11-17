@@ -2,8 +2,8 @@ import { Link, useRouter } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Button, Card, Pill, Row, Screen, SectionTitle } from '@/components/ui';
 import { estimateTurnoverTax } from '@/core';
-import { useDayTotals, useLowStock, useShop, useTaxSnapshot } from '@/db/hooks';
-import { reconciliation, shop, taxRules } from '@/data/fake';
+import { taxRules } from '@/data/fake';
+import { useDayTotals, useLowStock, useReconciliation, useShop, useTaxSnapshot } from '@/db/hooks';
 import { useI18n } from '@/i18n';
 import { formatCount, formatKwacha } from '@/lib/format';
 import { colors, spacing, typeScale } from '@/theme/tokens';
@@ -15,11 +15,16 @@ export default function HomeScreen() {
   const { data: alerts } = useLowStock();
   const { data: tax } = useTaxSnapshot();
   const { data: shopRecord } = useShop();
+  const { data: reconciliation } = useReconciliation();
   const estimate = estimateTurnoverTax(tax.turnover, taxRules);
+  const matched = reconciliation?.matched.length ?? 0;
+  const unmatchedSales = reconciliation?.salesWithoutPayment.length ?? 0;
+  const unmatchedPayments = reconciliation?.paymentsWithoutSale.length ?? 0;
+  const cashVariance = reconciliation?.cash.variance;
 
   return (
     <Screen
-      title={shop.name}
+      title={shopRecord?.name ?? t('app.name')}
       subtitle={t('common.today')}
       footer={
         <View style={styles.footerRow}>
@@ -78,12 +83,12 @@ export default function HomeScreen() {
 
       <SectionTitle>{t('home.reconcile.title')}</SectionTitle>
       <Card>
-        <Row label={t('home.reconcile.matched')} value={formatCount(reconciliation.matchedCount)} />
-        <Row label={t('home.reconcile.unmatchedSales')} value={formatCount(reconciliation.saleNoPaymentCount)} />
-        <Row label={t('home.reconcile.unmatchedPayments')} value={formatCount(reconciliation.paymentNoSaleCount)} />
+        <Row label={t('home.reconcile.matched')} value={formatCount(matched)} />
+        <Row label={t('home.reconcile.unmatchedSales')} value={formatCount(unmatchedSales)} />
+        <Row label={t('home.reconcile.unmatchedPayments')} value={formatCount(unmatchedPayments)} />
         <Row
           label={t('home.reconcile.cashVariance')}
-          value={reconciliation.countedCash === undefined ? t('common.notYet') : formatKwacha(0)}
+          value={cashVariance === undefined ? t('common.notYet') : formatKwacha(cashVariance)}
         />
       </Card>
 

@@ -16,10 +16,15 @@ import {
 
 /**
  * Demo data for the seeded shop. It is inserted once, on an empty database, so
- * the presenter always starts from the same figures. Replace or extend this
- * when the seed becomes Henry's demo-shop script (#41).
+ * the presenter always starts from the same figures. It is not called by
+ * initializeDatabase: a real first run goes through onboarding. Replace or
+ * extend this when the seed becomes Henry's demo-shop script (#41), and call
+ * it explicitly from the demo setup.
  */
 export async function seedDemoShop(db: SQLiteDatabase): Promise<void> {
+  const existingShop = await db.getFirstAsync<{ id: string }>('SELECT id FROM shop LIMIT 1');
+  if (existingShop) return;
+
   const existing = await db.getFirstAsync<{ count: number }>('SELECT COUNT(*) AS count FROM product');
   if (existing && existing.count > 0) return;
 

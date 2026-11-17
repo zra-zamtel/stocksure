@@ -6,3 +6,4 @@ export * from './tax';
 export * from './reconcile';
 export * from './barcode';
 export * from './ids';
+export * from './identity';

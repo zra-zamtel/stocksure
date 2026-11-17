@@ -1,6 +1,5 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { migrations } from './schema';
-import { seedDemoShop } from './seed';
 
 /**
  * Runs before any screen renders (SQLiteProvider onInit). Connection pragmas go
@@ -26,5 +25,7 @@ export async function initializeDatabase(db: SQLiteDatabase): Promise<void> {
     });
   }
 
-  await seedDemoShop(db);
+  // A fresh install starts empty on purpose: the owner creates the shop during
+  // onboarding. The demo seed stays in seed.ts for the demo-shop work (#41) and
+  // for tests; it is not part of a real first run.
 }

@@ -1,3 +1,4 @@
+import Storage from 'expo-sqlite/kv-store';
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
 import en from './en.json';
 import ny from './ny.json';
@@ -5,6 +6,20 @@ import ny from './ny.json';
 export type Language = 'en' | 'ny';
 
 const bundles: Record<Language, Record<string, string>> = { en, ny };
+const LANGUAGE_KEY = 'stocksure.language';
+
+/**
+ * The language is chosen before an account or shop exists, so it cannot live in
+ * the shop row yet. The key-value store keeps the choice across restarts; the
+ * shop row records it once setup reaches the shop step.
+ */
+function readStoredLanguage(): Language {
+  try {
+    return Storage.getItemSync(LANGUAGE_KEY) === 'ny' ? 'ny' : 'en';
+  } catch {
+    return 'en';
+  }
+}
 
 type Vars = Record<string, string | number>;
 
@@ -22,7 +37,16 @@ export const LANGUAGE_LABELS: Record<Language, string> = {
 };
 
 export function I18nProvider({ children }: { children: ReactNode }) {
-  const [language, setLanguage] = useState<Language>('en');
+  const [language, setLanguageState] = useState<Language>(readStoredLanguage);
+
+  const setLanguage = useCallback((next: Language) => {
+    setLanguageState(next);
+    try {
+      Storage.setItemSync(LANGUAGE_KEY, next);
+    } catch {
+      // A storage failure must not block the language switch on screen.
+    }
+  }, []);
 
   const t = useCallback(
     (key: string, vars?: Vars) => {
@@ -33,7 +57,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     [language]
   );
 
-  const value = useMemo(() => ({ language, setLanguage, t }), [language, t]);
+  const value = useMemo(() => ({ language, setLanguage, t }), [language, setLanguage, t]);
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
 }
 

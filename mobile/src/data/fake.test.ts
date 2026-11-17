@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { isValidEan13 } from '@/core/barcode';
 import { products, saleLinesData, salesData, stockMovements, taxRules } from './fake';
 
 /**
@@ -31,5 +32,11 @@ describe('seed data', () => {
     expect(taxRules.rate).toBeGreaterThan(0);
     expect(taxRules.threshold).toBeGreaterThan(0);
     expect(taxRules.reminderDaysBefore.length).toBeGreaterThan(0);
+  });
+
+  // The demo prints labels from these, and an invalid code draws nothing.
+  it('only uses barcodes with a valid EAN-13 check digit', () => {
+    const codes = products.flatMap((product) => product.variants.map((variant) => variant.barcode)).filter(Boolean);
+    expect(codes.filter((code) => !isValidEan13(code!))).toEqual([]);
   });
 });
