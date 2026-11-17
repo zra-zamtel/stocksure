@@ -134,6 +134,14 @@ DATABASE_URL=postgresql://postgres.<project-ref>:<password>@aws-0-<region>.poole
 5. Run `python manage.py migrate` once.
 6. Use the same value in the host's environment settings.
 
+The hosted StockSure project uses a dedicated `stocksure` schema, not the
+exposed `public` schema, so the owner, staff and token tables are not reachable
+through Supabase's public PostgREST API. Use the `stocksure_app` role; its
+default `search_path` is `stocksure, public`, so migrations and queries land in
+the right place. Ask the project owner for that role's connection string. If you
+connect as `postgres` instead, set `search_path=stocksure` for the session
+before running migrations, or the tables will be created in `public`.
+
 Use the **session pooler on port 5432** for a long-running Django process. It
 is IPv4 and supports the session features migrations need. The direct
 connection is IPv6-only on the free plan unless the IPv4 add-on is purchased.
