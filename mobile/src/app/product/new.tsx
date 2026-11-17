@@ -1,3 +1,4 @@
+import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
@@ -10,6 +11,8 @@ import { generateInStoreBarcode, isValidEan13, toNgwee } from '@/core';
 import { useShop } from '@/db/hooks';
 import { createProduct } from '@/db/repos';
 import { useI18n } from '@/i18n';
+import { formatKwacha } from '@/lib/format';
+import { labelHtml } from '@/lib/label';
 import { colors, spacing, typeScale } from '@/theme/tokens';
 
 export default function NewProductScreen() {
@@ -84,6 +87,25 @@ export default function NewProductScreen() {
     }
   }
 
+  async function handlePrintLabel() {
+    if (!scannable) return;
+    setError(null);
+    const priceValue = Number.parseFloat(sellPrice.replace(',', '.'));
+    const priceText = Number.isFinite(priceValue) ? formatKwacha(toNgwee(priceValue)) : '';
+    try {
+      await Print.printAsync({
+        html: labelHtml({
+          shopName: shop?.name ?? 'StockSure',
+          productName: name.trim() || 'New product',
+          priceText,
+          code: barcode.trim(),
+        }),
+      });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not open printing');
+    }
+  }
+
   return (
     <Screen
       title={t('product.new.title')}
@@ -125,7 +147,14 @@ export default function NewProductScreen() {
           {scannable ? (
             <>
               <BarcodeLabel code={barcode.trim()} viewRef={labelRef} />
-              <Button label={t('products.shareLabel')} variant="secondary" onPress={handleShareLabel} />
+              <View style={styles.labelActions}>
+                <View style={styles.rowButton}>
+                  <Button label={t('products.shareLabel')} variant="secondary" onPress={handleShareLabel} />
+                </View>
+                <View style={styles.rowButton}>
+                  <Button label={t('products.printLabel')} variant="secondary" onPress={handlePrintLabel} />
+                </View>
+              </View>
             </>
           ) : (
             <Text style={styles.muted}>{t('products.notScannable')}</Text>
@@ -160,6 +189,7 @@ export default function NewProductScreen() {
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', gap: spacing.md },
   rowButton: { flex: 1 },
+  labelActions: { flexDirection: 'row', gap: spacing.md },
   muted: { fontSize: typeScale.label, color: colors.textMuted },
   success: { fontSize: typeScale.label, color: colors.success, fontWeight: '600' },
   error: { fontSize: typeScale.label, color: colors.danger, fontWeight: '600' },

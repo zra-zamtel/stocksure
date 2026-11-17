@@ -1,13 +1,15 @@
+import * as Print from 'expo-print';
 import { useLocalSearchParams } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { Button, Card, Choice, EmptyState, Field, Pill, Row, Screen, SectionTitle } from '@/components/ui';
 import { toNgwee } from '@/core';
-import { useMovements, useProducts } from '@/db/hooks';
-import { restockVariant } from '@/db/repos';
+import { useMovements, useProducts, useShop } from '@/db/hooks';
+import { restockVariant, setVariantBarcode } from '@/db/repos';
 import { useI18n } from '@/i18n';
 import { formatKwacha } from '@/lib/format';
+import { labelHtml } from '@/lib/label';
 import { colors, spacing, typeScale } from '@/theme/tokens';
 
 export default function ProductScreen() {
@@ -15,6 +17,7 @@ export default function ProductScreen() {
   const db = useSQLiteContext();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { data: products, loading, error, reload: reloadProducts } = useProducts();
+  const { data: shop } = useShop();
 
   const product = products.find((candidate) => candidate.id === id);
   const [chosenVariantId, setChosenVariantId] = useState<string | null>(null);
@@ -28,6 +31,7 @@ export default function ProductScreen() {
   const [priceDraft, setPriceDraft] = useState<string | null>(null);
   const [note, setNote] = useState('');
   const [message, setMessage] = useState<string | null>(null);
+  const [barcodeMessage, setBarcodeMessage] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -58,6 +62,36 @@ export default function ProductScreen() {
       setSubmitError(cause instanceof Error ? cause.message : 'Could not restock');
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function handlePrintLabel(code: string) {
+    if (!selectedVariant) return;
+    setSubmitError(null);
+    try {
+      await Print.printAsync({
+        html: labelHtml({
+          shopName: shop?.name ?? 'StockSure',
+          productName: product?.name ?? '',
+          priceText: formatKwacha(selectedVariant.sellPrice),
+          code,
+        }),
+      });
+    } catch (cause) {
+      setSubmitError(cause instanceof Error ? cause.message : 'Could not open printing');
+    }
+  }
+
+  async function handleGenerateBarcode() {
+    if (!selectedVariant) return;
+    setSubmitError(null);
+    setBarcodeMessage(null);
+    try {
+      const code = await setVariantBarcode(db, selectedVariant.id);
+      setBarcodeMessage(t('products.barcodeAdded', { code }));
+      reloadProducts();
+    } catch (cause) {
+      setSubmitError(cause instanceof Error ? cause.message : 'Could not add a barcode');
     }
   }
 
@@ -134,7 +168,28 @@ export default function ProductScreen() {
                 }
               />
             </View>
-            <Row label="Barcode" value={selectedVariant.barcode ?? t('common.notYet')} />
+            {selectedVariant.barcode ? (
+              <>
+                <Row label="Barcode" value={selectedVariant.barcode} />
+                <Button
+                  label={t('products.printLabel')}
+                  variant="secondary"
+                  onPress={() => handlePrintLabel(selectedVariant.barcode!)}
+                />
+              </>
+            ) : shop?.usesBarcodes ? (
+              <>
+                <Row label="Barcode" value={t('products.noBarcodeYet')} />
+                <Button
+                  label={t('products.generateBarcode')}
+                  variant="secondary"
+                  onPress={handleGenerateBarcode}
+                />
+              </>
+            ) : (
+              <Row label="Barcode" value={t('common.notYet')} />
+            )}
+            {barcodeMessage ? <Text style={styles.success}>{barcodeMessage}</Text> : null}
             <Row label={t('products.buyPrice')} value={formatKwacha(selectedVariant.buyPrice)} />
             <Row label={t('products.sellPrice')} value={formatKwacha(selectedVariant.sellPrice)} />
           </Card>

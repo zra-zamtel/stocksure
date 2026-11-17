@@ -1,5 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 import {
+  generateInStoreBarcode,
   localDayBounds,
   needsOverride,
   newId,
@@ -547,7 +548,7 @@ export async function createProduct(
     throw new Error('Opening quantity must be a whole number, zero or more');
   }
 
-  const barcode = input.barcode?.trim() ? normaliseBarcode(input.barcode) : undefined;
+  const barcode = input.barcode?.trim() ? normaliseBarcode(input.barcode) : await autoBarcode(db);
   if (barcode) {
     const clash = await db.getFirstAsync<{ id: string }>(
       'SELECT id FROM product_variant WHERE barcode = ?',
@@ -621,6 +622,61 @@ export async function createProduct(
   });
 
   return { productId, variantId, barcode };
+}
+
+/**
+ * A shop that uses barcodes should never end up with a product that has none,
+ * so a missing code is allocated automatically instead of being nagged for.
+ * Only shops with barcodes switched on get one; for the others the field stays
+ * empty on purpose.
+ */
+async function autoBarcode(db: SQLiteDatabase): Promise<string | undefined> {
+  const shop = await getShop(db);
+  if (!shop?.usesBarcodes) return undefined;
+
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const candidate = generateInStoreBarcode();
+    const clash = await db.getFirstAsync<{ id: string }>(
+      'SELECT id FROM product_variant WHERE barcode = ?',
+      candidate
+    );
+    if (!clash) return candidate;
+  }
+  throw new Error('Could not allocate a unique barcode');
+}
+
+/** Adds a barcode to a product that was created without one. */
+export async function setVariantBarcode(
+  db: SQLiteDatabase,
+  variantId: string,
+  barcode?: string
+): Promise<string> {
+  const next = barcode?.trim() ? normaliseBarcode(barcode) : await autoBarcode(db);
+  if (!next) throw new Error('This shop does not use barcodes');
+
+  const clash = await db.getFirstAsync<{ id: string }>(
+    'SELECT id FROM product_variant WHERE barcode = ? AND id <> ?',
+    next,
+    variantId
+  );
+  if (clash) throw new Error('That barcode already belongs to another product');
+
+  const stamp = nowIso();
+  await db.withTransactionAsync(async () => {
+    await db.runAsync(
+      'UPDATE product_variant SET barcode = ?, updated_at = ? WHERE id = ?',
+      next,
+      stamp,
+      variantId
+    );
+    await enqueueSync(db, 'product_variant', variantId, 'update', {
+      id: variantId,
+      barcode: next,
+      updatedAt: stamp,
+    });
+  });
+
+  return next;
 }
 
 export interface RestockInput {
