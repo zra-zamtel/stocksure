@@ -60,6 +60,18 @@ StockSure/
 
 See section 9 of the scope sheet for the full app/backend split.
 
+## Team
+
+Five people, one owner per area.
+
+| Person | Role | Owns | GitHub |
+| --- | --- | --- | --- |
+| Tabo | Backend developer | The API and database, accounts and roles, sync and backup | [@TaboMwewa](https://github.com/TaboMwewa) |
+| Elton | Mobile developer | React Native screens; stock, reconciliation and tax logic on the phone; local database and sync; barcode scanning; payment message reading; USSD menus | _handle pending_ |
+| Henry | QA and demo data | Testing each piece, the seeded demo shop with one fixed shortfall, checking the tax rules, checking the Nyanja wording | _handle pending_ |
+| Given | Designer and storyteller | Colours, logo, fonts, wording sheet, components, MVP screens, clickable demo flow, visual story | _handle pending_ |
+| Happy | Pitch lead | Demo script, PowerPoint, video and the live presentation | [@happymukande](https://github.com/happymukande) |
+
 ## Status
 
 Early build. The repository is scaffolded, the scope is locked, and the work is

@@ -269,6 +269,7 @@ Thirteen record types cover the whole MVP; the detailed fields and the API go in
 | Time runs out before the demo | Build and polish the demo path (section 12) first; edge cases after |
 | Mobile money message formats differ or change, and the SMS permission is restricted outside a prototype | Collect real sample messages early, keep one reader per provider, let the owner enter a payment by hand, and share the prototype as an APK |
 | USSD needs a public server address and already-synced data; a live short code needs separate approval | Use the Africa's Talking sandbox for the demo, deploy the backend early, and sync before demonstrating USSD |
+| Most of the build sits with one mobile developer | Build the demo path first, keep the shared logic module small, and let the backend and QA absorb anything they can (sync, sample data, tax rules) |
 
 **Open questions**
 
@@ -277,6 +278,7 @@ Thirteen record types cover the whole MVP; the detailed fields and the API go in
 3. What are the exact turnover tax rate, threshold, filing period and due date to put in the tax rules file?
 4. Which backend: Django with Django REST Framework (settled), because the business logic lives in the app.
 5. How does mobile money payments reach the app? Settled: read automatically from the provider's confirmation messages on the phone. Still needed: sample messages from MTN, Airtel and Zamtel to build the readers.
+6. Settled: the stock, reconciliation and tax logic runs on the phone and Elton writes it; Elton also owns the USSD menus, which run on the backend through Africa's Talking.
 
 ## 12. Demo path and phase 2
 
@@ -308,3 +310,15 @@ Thirteen record types cover the whole MVP; the detailed fields and the API go in
 4. UX pack: user flows, wireframes, Nyanja and English text list
 5. Demo script and storyboard, then the pitch deck outline
 6. Work breakdown, timeline and team roles
+
+## 14. Team and owners
+
+Five people, one owner per area, as set out in the StockSure: Team Roles and Daily Standup doc, which also holds the handoffs between people and the daily standup rules..
+
+| Person | Role | Owns |
+| --- | --- | --- |
+| Tabo | Backend developer | The API and database, accounts and roles, sync and backup |
+| Elton | Mobile developer | React Native screens, the stock, reconciliation and tax logic on the phone, local database and sync, barcode scanning, payment message reading, and the USSD menus through Africa's Talking (kept in the backend project, agreed with Tabo) |
+| Henry | QA and demo data | Testing each piece, the seeded demo shop with one fixed shortfall, checking the tax rules, checking the Nyanja wording |
+| Given | Designer and storyteller | Colours, logo, fonts, wording sheet, components, MVP screens, clickable demo flow and the visual story |
+| Happy | Pitch lead | Demo script, PowerPoint, video and the live presentation |
