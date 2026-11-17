@@ -1,14 +1,9 @@
 import { Link, useRouter } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Button, Card, Pill, Row, Screen, SectionTitle } from '@/components/ui';
-import {
-  lowStockItems,
-  reconciliation,
-  shop,
-  taxEstimate,
-  taxPeriod,
-  todayTotals,
-} from '@/data/fake';
+import { estimateTurnoverTax } from '@/core';
+import { useDayTotals, useLowStock, useTaxSnapshot } from '@/db/hooks';
+import { reconciliation, shop, taxPeriod, taxRules } from '@/data/fake';
 import { useI18n } from '@/i18n';
 import { formatCount, formatKwacha } from '@/lib/format';
 import { colors, spacing, typeScale } from '@/theme/tokens';
@@ -16,9 +11,10 @@ import { colors, spacing, typeScale } from '@/theme/tokens';
 export default function HomeScreen() {
   const { t } = useI18n();
   const router = useRouter();
-  const totals = todayTotals();
-  const alerts = lowStockItems();
-  const tax = taxEstimate();
+  const { data: totals } = useDayTotals();
+  const { data: alerts } = useLowStock();
+  const { data: tax } = useTaxSnapshot();
+  const estimate = estimateTurnoverTax(tax.turnover, taxRules);
 
   return (
     <Screen
@@ -40,7 +36,7 @@ export default function HomeScreen() {
       <Card>
         <Text style={styles.cardTitle}>{t('home.today.title')}</Text>
         <Row label={t('home.today.sales')} value={formatKwacha(totals.salesTotal)} emphasis />
-        <Row label={t('home.today.count')} value={formatCount(totals.count)} />
+        <Row label={t('home.today.count')} value={formatCount(totals.saleCount)} />
         <Row label={t('home.today.profit')} value={formatKwacha(totals.grossProfit)} />
         <Row label={t('home.today.discounts')} value={formatKwacha(totals.discounts)} />
       </Card>
@@ -90,7 +86,7 @@ export default function HomeScreen() {
 
       <SectionTitle>{t('home.tax.title')}</SectionTitle>
       <Card>
-        <Row label={t('home.tax.estimate')} value={formatKwacha(tax.estimatedTax)} emphasis />
+        <Row label={t('home.tax.estimate')} value={formatKwacha(estimate.estimatedTax)} emphasis />
         <Row label={t('home.tax.pot')} value={formatKwacha(tax.potBalance)} />
         <Row label={t('home.tax.due')} value={taxPeriod.dueOn} />
       </Card>

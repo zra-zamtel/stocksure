@@ -1,18 +1,20 @@
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { DatabaseProvider } from '@/db/provider';
 import { I18nProvider } from '@/i18n';
 
-// The whole app is wrapped here so every screen reads strings through useI18n
-// and every layout sits inside the safe area. Design tokens are not provided
-// through context on purpose: they are plain imports, replaced in one file.
+// The database is initialised once here, before any screen renders, so screens
+// can read real data on their very first paint instead of a loading flicker.
 export default function RootLayout() {
   return (
     <SafeAreaProvider>
-      <I18nProvider>
-        <StatusBar style="dark" />
-        <Stack screenOptions={{ headerShown: false }} />
-      </I18nProvider>
+      <DatabaseProvider>
+        <I18nProvider>
+          <StatusBar style="dark" />
+          <Stack screenOptions={{ headerShown: false }} />
+        </I18nProvider>
+      </DatabaseProvider>
     </SafeAreaProvider>
   );
 }

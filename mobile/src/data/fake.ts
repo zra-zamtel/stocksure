@@ -10,7 +10,7 @@ import type {
   TaxPeriod,
   TaxPotEntry,
   TaxRules,
-} from './types';
+} from '@/core/types';
 
 const kwacha = (amount: number) => Math.round(amount * 100);
 const at = (time: string) => `2026-11-17T${time}:00+02:00`;

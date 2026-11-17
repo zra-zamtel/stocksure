@@ -1,7 +1,7 @@
 import { useRouter } from 'expo-router';
 import { StyleSheet, Text, View } from 'react-native';
 import { Button, Card, EmptyState, Pill, Row, Screen, SectionTitle } from '@/components/ui';
-import { salesData, todayTotals } from '@/data/fake';
+import { useDayTotals, useSales } from '@/db/hooks';
 import { useI18n } from '@/i18n';
 import { formatKwacha } from '@/lib/format';
 import { colors, spacing, typeScale } from '@/theme/tokens';
@@ -15,7 +15,8 @@ function statusTone(status: string) {
 export default function SalesScreen() {
   const { t } = useI18n();
   const router = useRouter();
-  const totals = todayTotals();
+  const { data: totals } = useDayTotals();
+  const { data: sales, loading, error } = useSales();
 
   return (
     <Screen
@@ -31,26 +32,25 @@ export default function SalesScreen() {
       </Card>
 
       <SectionTitle>{t('sales.items')}</SectionTitle>
-      {salesData.length === 0 ? (
-        <EmptyState message={t('sales.empty')} />
-      ) : (
-        salesData.map((sale) => (
-          <Card key={sale.id}>
-            <View style={styles.row}>
-              <Text style={styles.time}>{sale.createdAt.slice(11, 16)}</Text>
-              <View style={styles.right}>
-                <Text style={styles.amount}>{formatKwacha(sale.total)}</Text>
-                {sale.status === 'void' ? <Pill label={t('sales.voided')} tone="danger" /> : null}
-              </View>
+      {error ? <EmptyState message={error} /> : null}
+      {!loading && !error && sales.length === 0 ? <EmptyState message={t('sales.empty')} /> : null}
+
+      {sales.map((sale) => (
+        <Card key={sale.id}>
+          <View style={styles.row}>
+            <Text style={styles.time}>{sale.createdAt.slice(11, 16)}</Text>
+            <View style={styles.right}>
+              <Text style={styles.amount}>{formatKwacha(sale.total)}</Text>
+              {sale.status === 'void' ? <Pill label={t('sales.voided')} tone="danger" /> : null}
             </View>
-            <View style={styles.row}>
-              <Text style={styles.muted}>{t('sales.status')}</Text>
-              <Pill label={sale.reconcileStatus} tone={statusTone(sale.reconcileStatus)} />
-            </View>
-            <Button label={t('sales.void')} variant="secondary" onPress={() => router.push(`/sale/${sale.id}`)} />
-          </Card>
-        ))
-      )}
+          </View>
+          <View style={styles.row}>
+            <Text style={styles.muted}>{t('sales.status')}</Text>
+            <Pill label={sale.reconcileStatus} tone={statusTone(sale.reconcileStatus)} />
+          </View>
+          <Button label={t('sales.void')} variant="secondary" onPress={() => router.push(`/sale/${sale.id}`)} />
+        </Card>
+      ))}
     </Screen>
   );
 }

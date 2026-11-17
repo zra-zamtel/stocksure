@@ -1,9 +1,10 @@
-// The thirteen record types from section 10 of the scope sheet.
-// Every record carries a phone-generated ID and timestamps, so a synced
-// change can be replayed without creating a duplicate.
+// Domain types for the thirteen records in section 10 of the scope sheet.
+// Every record carries a phone-generated ID and timestamps, so a replayed
+// sync change can never create a duplicate.
 
 export type Id = string;
 export type IsoDate = string;
+export type Ngwee = number; // integer minor units; 100 ngwee = K1.00
 
 export type Role = 'owner' | 'staff';
 export type Provider = 'MTN' | 'Airtel' | 'Zamtel';
@@ -13,6 +14,7 @@ export type SaleStatus = 'active' | 'void';
 export type ReconcileStatus = 'matched' | 'sale_no_payment' | 'payment_no_sale' | 'unresolved';
 export type ShopType = 'clothes' | 'shoes' | 'general' | 'other';
 export type DiscountType = 'percent' | 'fixed';
+export type StockState = 'out' | 'low' | 'ok';
 
 export interface BaseRecord {
   id: Id;
@@ -46,16 +48,6 @@ export interface Shop extends BaseRecord {
   providers: Provider[];
 }
 
-export interface Product extends BaseRecord {
-  name: string;
-  category?: string;
-  photoUri?: string;
-  defaultBuyPrice: number; // ngwee
-  defaultSellPrice: number; // ngwee
-  discount?: ProductDiscount;
-  variants: ProductVariant[];
-}
-
 export interface ProductDiscount {
   enabled: boolean;
   type: DiscountType;
@@ -69,9 +61,19 @@ export interface ProductVariant extends BaseRecord {
   size?: string;
   colour?: string;
   barcode?: string;
-  buyPrice: number;
-  sellPrice: number;
+  buyPrice: Ngwee;
+  sellPrice: Ngwee;
   lowStockLevel: number;
+}
+
+export interface Product extends BaseRecord {
+  name: string;
+  category?: string;
+  photoUri?: string;
+  defaultBuyPrice: Ngwee;
+  defaultSellPrice: Ngwee;
+  discount?: ProductDiscount;
+  variants: ProductVariant[];
 }
 
 export interface StockMovement extends BaseRecord {
@@ -84,9 +86,9 @@ export interface StockMovement extends BaseRecord {
 
 export interface Sale extends BaseRecord {
   recordedBy: Id;
-  subtotal: number;
-  discountTotal: number;
-  total: number;
+  subtotal: Ngwee;
+  discountTotal: Ngwee;
+  total: Ngwee;
   status: SaleStatus;
   voidReason?: string;
   reconcileStatus: ReconcileStatus;
@@ -96,23 +98,23 @@ export interface SaleLine extends BaseRecord {
   saleId: Id;
   variantId: Id;
   quantity: number;
-  buyPrice: number;
-  listPrice: number;
-  discount: number;
-  finalPrice: number;
+  buyPrice: Ngwee;
+  listPrice: Ngwee;
+  discount: Ngwee;
+  finalPrice: Ngwee;
 }
 
 export interface Payment extends BaseRecord {
   saleId: Id;
   method: PaymentMethod;
   provider?: Provider;
-  amount: number;
+  amount: Ngwee;
   mobileMoneyReference?: string;
 }
 
 export interface MobileMoneyTxn extends BaseRecord {
   provider: Provider;
-  amount: number;
+  amount: Ngwee;
   sender?: string;
   reference?: string;
   receivedAt: IsoDate;
@@ -125,24 +127,24 @@ export interface Reconciliation extends BaseRecord {
   matchedCount: number;
   saleNoPaymentCount: number;
   paymentNoSaleCount: number;
-  openingFloat: number;
-  countedCash?: number;
-  expectedCash: number;
+  openingFloat: Ngwee;
+  countedCash?: Ngwee;
+  expectedCash: Ngwee;
   note?: string;
 }
 
 export interface TaxPeriod extends BaseRecord {
   startsOn: string;
   endsOn: string;
-  turnover: number;
+  turnover: Ngwee;
   rateUsed: number;
-  estimatedTax: number;
+  estimatedTax: Ngwee;
   dueOn: string;
   paid: boolean;
 }
 
 export interface TaxPotEntry extends BaseRecord {
-  amount: number;
+  amount: Ngwee;
   kind: 'set_aside' | 'top_up' | 'paid';
   periodId: Id;
   saleId?: Id;
@@ -156,10 +158,11 @@ export interface SyncQueueItem extends BaseRecord {
   attempts: number;
 }
 
+// Configuration that ships with the app and refreshes from the backend.
 export interface TaxRules {
   version: number;
-  rate: number;
-  threshold: number;
+  rate: number; // 0.04 = 4%
+  threshold: Ngwee;
   periodDays: number;
   dueDaysAfterPeriod: number;
   reminderDaysBefore: number[];

@@ -2,7 +2,7 @@ import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
 import { Button, Card, EmptyState, Pill, Screen } from '@/components/ui';
-import { lowStockItems, products, stockOnHand } from '@/data/fake';
+import { useProducts } from '@/db/hooks';
 import { useI18n } from '@/i18n';
 import { formatKwacha } from '@/lib/format';
 import { colors, radii, spacing, typeScale } from '@/theme/tokens';
@@ -10,8 +10,8 @@ import { colors, radii, spacing, typeScale } from '@/theme/tokens';
 export default function ProductsScreen() {
   const { t } = useI18n();
   const router = useRouter();
+  const { data: products, loading, error } = useProducts();
   const [query, setQuery] = useState('');
-  const alerts = lowStockItems();
 
   const needle = query.trim().toLowerCase();
   const visible = needle
@@ -50,40 +50,48 @@ export default function ProductsScreen() {
         autoCorrect={false}
       />
 
-      {visible.length === 0 ? (
-        <EmptyState message={t('products.empty')} />
-      ) : (
-        visible.map((product) => {
-          const quantity = product.variants.reduce((sum, variant) => sum + stockOnHand(variant.id), 0);
-          const isLow = alerts.some((alert) => alert.label.startsWith(product.name));
-          return (
-            <Card key={product.id}>
-              <View style={styles.headerRow}>
-                <Text style={styles.name}>{product.name}</Text>
-                <Pill
-                  label={`${quantity} ${t('products.inStock')}`}
-                  tone={quantity === 0 ? 'danger' : isLow ? 'warning' : 'success'}
-                />
-              </View>
-              <Text style={styles.muted}>
-                {t('products.buyPrice')} {formatKwacha(product.defaultBuyPrice)} ·{' '}
-                {t('products.sellPrice')} {formatKwacha(product.defaultSellPrice)}
-              </Text>
-              {product.variants.length > 1 ? (
-                <Text style={styles.muted}>
-                  {t('products.variants')}:{' '}
-                  {product.variants.map((variant) => variant.size ?? variant.colour).filter(Boolean).join(', ')}
-                </Text>
-              ) : null}
-              <Button
-                label={t('products.restock')}
-                variant="secondary"
-                onPress={() => router.push(`/product/${product.id}`)}
+      {error ? <EmptyState message={error} /> : null}
+      {loading ? <Text style={styles.muted}>{t('common.syncing')}</Text> : null}
+
+      {!loading && !error && visible.length === 0 ? <EmptyState message={t('products.empty')} /> : null}
+
+      {visible.map((product) => {
+        const lowest = product.variants.reduce<'ok' | 'low' | 'out'>((worst, variant) => {
+          if (variant.state === 'out') return 'out';
+          if (variant.state === 'low' && worst === 'ok') return 'low';
+          return worst;
+        }, 'ok');
+
+        return (
+          <Card key={product.id}>
+            <View style={styles.headerRow}>
+              <Text style={styles.name}>{product.name}</Text>
+              <Pill
+                label={`${product.stock} ${t('products.inStock')}`}
+                tone={lowest === 'out' ? 'danger' : lowest === 'low' ? 'warning' : 'success'}
               />
-            </Card>
-          );
-        })
-      )}
+            </View>
+            <Text style={styles.muted}>
+              {t('products.buyPrice')} {formatKwacha(product.defaultBuyPrice)} ·{' '}
+              {t('products.sellPrice')} {formatKwacha(product.defaultSellPrice)}
+            </Text>
+            {product.variants.length > 1 ? (
+              <Text style={styles.muted}>
+                {t('products.variants')}:{' '}
+                {product.variants
+                  .map((variant) => variant.size ?? variant.colour)
+                  .filter(Boolean)
+                  .join(', ')}
+              </Text>
+            ) : null}
+            <Button
+              label={t('products.restock')}
+              variant="secondary"
+              onPress={() => router.push(`/product/${product.id}`)}
+            />
+          </Card>
+        );
+      })}
     </Screen>
   );
 }
