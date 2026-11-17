@@ -1,0 +1,27 @@
+# Optional local Postgres for checking the deployed database path.
+# Run from the repository root:
+#   docker compose -f backend/docker-compose.yml up -d
+# Then set in backend/.env:
+#   DATABASE_URL=postgresql://stocksure:stocksure-dev@127.0.0.1:5432/stocksure
+# Stop it with:
+#   docker compose -f backend/docker-compose.yml down
+# This password is for local development only.
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: stocksure
+      POSTGRES_USER: stocksure
+      POSTGRES_PASSWORD: stocksure-dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - stocksure_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U stocksure -d stocksure"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  stocksure_postgres:

@@ -95,5 +95,10 @@ tmp/
 tools/agent-board/*.db
 tools/agent-board/*.db-wal
 tools/agent-board/*.db-shm
+tools/
 .playwright-mcp/
 .claude/settings.local.json
+.claude
+tools
+opencode.json
+.mcp.json
