@@ -209,4 +209,12 @@ export const migrations: string[] = [
   LEFT JOIN stock_movement m ON m.variant_id = v.id
   GROUP BY v.id;
   `,
+
+  // v2 - a received payment needs a state of its own: it can be matched to a
+  // sale, still waiting, or dismissed by the owner as "not a sale".
+  `
+  ALTER TABLE mobile_money_txn ADD COLUMN status TEXT NOT NULL DEFAULT 'unmatched'
+    CHECK (status IN ('unmatched', 'matched', 'ignored'));
+  CREATE INDEX idx_txn_status ON mobile_money_txn (status);
+  `,
 ];

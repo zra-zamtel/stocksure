@@ -169,6 +169,12 @@
   "reconcile.cash.variance": "Difference",
   "reconcile.cash.note": "Note",
   "reconcile.cash.save": "Save cash count",
+  "reconcile.markPaid": "Money arrived",
+  "reconcile.ignore": "Not a sale",
+  "reconcile.demo": "Add demo messages",
+  "reconcile.demoAdded": "Demo messages added",
+  "reconcile.cashSaved": "Cash count saved",
+  "reconcile.receivedFrom": "From",
   "reconcile.empty": "Nothing to reconcile today.",
 
   "tax.title": "Tax",

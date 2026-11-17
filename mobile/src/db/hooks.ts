@@ -9,11 +9,13 @@ import {
   listProductsWithStock,
   listSales,
   lowStockVariants,
+  reconcileDay,
   taxSnapshot,
   totalsForDay,
   type LowStockRow,
   type MovementRow,
   type ProductWithStock,
+  type ReconcileDayResult,
   type SaleDetail,
   type SaleSummary,
   type ShopRecord,
@@ -102,4 +104,12 @@ export function useLowStock() {
 
 export function useTaxSnapshot() {
   return useQuery<TaxSnapshot>({ turnover: 0, potBalance: 0, period: null }, (db) => taxSnapshot(db));
+}
+
+/**
+ * Matching is idempotent, so it is safe to run every time the screen gains
+ * focus: previously resolved items keep their state, and new payments appear.
+ */
+export function useReconciliation() {
+  return useQuery<ReconcileDayResult | null>(null, (db) => reconcileDay(db));
 }

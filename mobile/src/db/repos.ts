@@ -1,7 +1,9 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 import {
+  cashVariance,
   generateInStoreBarcode,
   localDayBounds,
+  matchPayments,
   needsOverride,
   newId,
   normaliseBarcode,
@@ -1007,3 +1009,345 @@ export async function enqueueSync(
     stamp
   );
 }
+
+export interface ReconciledMatch {
+  saleId: string;
+  paymentId: string;
+  txnId: string;
+  amount: Ngwee;
+  reference?: string;
+  at: string;
+}
+
+export interface SaleWithoutPayment {
+  saleId: string;
+  total: Ngwee;
+  createdAt: string;
+  provider?: string;
+  reference?: string;
+}
+
+export interface PaymentWithoutSale {
+  txnId: string;
+  provider: string;
+  amount: Ngwee;
+  sender?: string;
+  reference?: string;
+  receivedAt: string;
+}
+
+export interface ReconcileCash {
+  openingFloat: Ngwee;
+  expected: Ngwee;
+  countedCash?: Ngwee;
+  variance?: Ngwee;
+  note?: string;
+}
+
+export interface ReconcileDayResult {
+  day: string;
+  matched: ReconciledMatch[];
+  salesWithoutPayment: SaleWithoutPayment[];
+  paymentsWithoutSale: PaymentWithoutSale[];
+  cash: ReconcileCash;
+}
+
+/**
+ * Runs the matching engine over one day and persists the outcome, so the Sales
+ * tab and the Tax screen can trust `sale.reconcile_status` without recomputing.
+ *
+ * A matched sale is only as good as its reference: matching without one would
+ * pair the wrong payment to the wrong sale and quietly move the tax estimate.
+ */
+export async function reconcileDay(
+  db: SQLiteDatabase,
+  day: string = todayLocal(),
+  windowMinutes = 30
+): Promise<ReconcileDayResult> {
+  const [start, end] = localDayBounds(day);
+
+  const payments = await db.getAllAsync<{
+    paymentId: string;
+    saleId: string;
+    amount: number;
+    reference: string | null;
+    provider: string | null;
+    createdAt: string;
+  }>(
+    `SELECT p.id AS paymentId, p.sale_id AS saleId, p.amount,
+            p.mobile_money_reference AS reference, p.provider, s.created_at AS createdAt
+       FROM payment p
+       JOIN sale s ON s.id = p.sale_id
+      WHERE p.method = 'mobile_money'
+        AND s.status = 'active'
+        AND julianday(s.created_at) >= julianday(?)
+        AND julianday(s.created_at) < julianday(?)`,
+    start,
+    end
+  );
+
+  const txns = await db.getAllAsync<{
+    id: string;
+    provider: string;
+    amount: number;
+    sender: string | null;
+    reference: string | null;
+    receivedAt: string;
+  }>(
+    `SELECT id, provider, amount, sender, reference, received_at AS receivedAt
+       FROM mobile_money_txn
+      WHERE status <> 'ignored'
+        AND julianday(received_at) >= julianday(?)
+        AND julianday(received_at) < julianday(?)`,
+    start,
+    end
+  );
+
+  const result = matchPayments(
+    payments.map((payment) => ({
+      id: payment.paymentId,
+      amount: payment.amount,
+      reference: payment.reference ?? undefined,
+      at: payment.createdAt,
+    })),
+    txns.map((txn) => ({
+      id: txn.id,
+      amount: txn.amount,
+      reference: txn.reference ?? undefined,
+      at: txn.receivedAt,
+    })),
+    windowMinutes
+  );
+
+  const matchedPaymentIds = new Set(result.matched.map((match) => match.saleId));
+  const matchedTxnIds = new Set(result.matched.map((match) => match.receivedId));
+  const stamp = nowIso();
+
+  const cashRow = await db.getFirstAsync<{ cashSales: number }>(
+    `SELECT COALESCE(SUM(p.amount), 0) AS cashSales
+       FROM payment p
+       JOIN sale s ON s.id = p.sale_id
+      WHERE p.method = 'cash'
+        AND s.status = 'active'
+        AND julianday(s.created_at) >= julianday(?)
+        AND julianday(s.created_at) < julianday(?)`,
+    start,
+    end
+  );
+
+  const existing = await db.getFirstAsync<{
+    openingFloat: number;
+    countedCash: number | null;
+    note: string | null;
+  }>(
+    `SELECT opening_float AS openingFloat, counted_cash AS countedCash, note
+       FROM reconciliation WHERE day = ?`,
+    day
+  );
+
+  const openingFloat = existing?.openingFloat ?? 0;
+  const countedCash = existing?.countedCash ?? undefined;
+  // Expected cash comes from the same helper the UI uses, so the two cannot drift.
+  const cash = cashVariance(openingFloat, cashRow?.cashSales ?? 0, countedCash ?? 0);
+
+  const salesWithoutPayment = payments.filter((payment) => !matchedPaymentIds.has(payment.paymentId));
+  const paymentsWithoutSale = txns.filter((txn) => !matchedTxnIds.has(txn.id));
+
+  await db.withTransactionAsync(async () => {
+    for (const payment of payments) {
+      const status = matchedPaymentIds.has(payment.paymentId) ? 'matched' : 'sale_no_payment';
+      await db.runAsync('UPDATE sale SET reconcile_status = ?, updated_at = ? WHERE id = ?', status, stamp, payment.saleId);
+    }
+
+    for (const txn of txns) {
+      const status = matchedTxnIds.has(txn.id) ? 'matched' : 'unmatched';
+      await db.runAsync('UPDATE mobile_money_txn SET status = ?, updated_at = ? WHERE id = ?', status, stamp, txn.id);
+    }
+
+    await db.runAsync(
+      `INSERT INTO reconciliation (id, day, matched_count, sale_no_payment_count, payment_no_sale_count,
+         opening_float, counted_cash, expected_cash, note, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(day) DO UPDATE SET
+         matched_count = excluded.matched_count,
+         sale_no_payment_count = excluded.sale_no_payment_count,
+         payment_no_sale_count = excluded.payment_no_sale_count,
+         expected_cash = excluded.expected_cash,
+         updated_at = excluded.updated_at`,
+      newId('rec'),
+      day,
+      result.matched.length,
+      salesWithoutPayment.length,
+      paymentsWithoutSale.length,
+      openingFloat,
+      countedCash ?? null,
+      cash.expected,
+      existing?.note ?? null,
+      stamp,
+      stamp
+    );
+  });
+
+  const paymentById = new Map(payments.map((payment) => [payment.paymentId, payment]));
+
+  return {
+    day,
+    matched: result.matched.map((match) => {
+      const payment = paymentById.get(match.saleId);
+      return {
+        saleId: payment?.saleId ?? match.saleId,
+        paymentId: match.saleId,
+        txnId: match.receivedId,
+        amount: payment?.amount ?? 0,
+        reference: payment?.reference ?? undefined,
+        at: payment?.createdAt ?? '',
+      };
+    }),
+    salesWithoutPayment: salesWithoutPayment.map((payment) => ({
+      saleId: payment.saleId,
+      total: payment.amount,
+      createdAt: payment.createdAt,
+      provider: payment.provider ?? undefined,
+      reference: payment.reference ?? undefined,
+    })),
+    paymentsWithoutSale: paymentsWithoutSale.map((txn) => ({
+      txnId: txn.id,
+      provider: txn.provider,
+      amount: txn.amount,
+      sender: txn.sender ?? undefined,
+      reference: txn.reference ?? undefined,
+      receivedAt: txn.receivedAt,
+    })),
+    cash: {
+      openingFloat,
+      expected: cash.expected,
+      countedCash,
+      variance: countedCash === undefined ? undefined : cash.variance,
+      note: existing?.note ?? undefined,
+    },
+  };
+}
+
+/**
+ * The owner says the money did arrive. That is a manual payment with no
+ * reference, which is exactly why the scope sheet allows entering one by hand.
+ */
+export async function markSalePaid(db: SQLiteDatabase, saleId: string): Promise<void> {
+  const sale = await db.getFirstAsync<{ total: number }>('SELECT total FROM sale WHERE id = ?', saleId);
+  if (!sale) throw new Error('Sale not found');
+  if (sale.total <= 0) throw new Error('This sale has nothing to collect');
+
+  const stamp = nowIso();
+  await db.withTransactionAsync(async () => {
+    await db.runAsync(
+      `INSERT INTO payment (id, sale_id, method, provider, amount, mobile_money_reference, created_at, updated_at)
+       VALUES (?, ?, 'mobile_money', NULL, ?, NULL, ?, ?)`,
+      newId('pay'),
+      saleId,
+      sale.total,
+      stamp,
+      stamp
+    );
+    await db.runAsync("UPDATE sale SET reconcile_status = 'matched', updated_at = ? WHERE id = ?", stamp, saleId);
+    await enqueueSync(db, 'payment', saleId, 'create', {
+      saleId,
+      amount: sale.total,
+      method: 'mobile_money',
+      manual: true,
+      createdAt: stamp,
+    });
+  });
+}
+
+/** A payment that was not a sale at all: dismissed, kept for the audit trail. */
+export async function ignorePayment(db: SQLiteDatabase, txnId: string): Promise<void> {
+  const stamp = nowIso();
+  await db.runAsync("UPDATE mobile_money_txn SET status = 'ignored', updated_at = ? WHERE id = ?", stamp, txnId);
+}
+
+/**
+ * Demo helper (#20). Real provider messages cannot be triggered on cue, so this
+ * fabricates the two messages the demo needs: one that matches the newest
+ * unreconciled mobile money sale, and one that belongs to no sale.
+ */
+export async function injectDemoMessages(
+  db: SQLiteDatabase,
+  day: string = todayLocal()
+): Promise<{ matched: number; orphan: number }> {
+  const [start, end] = localDayBounds(day);
+  const stamp = nowIso();
+
+  const pending = await db.getFirstAsync<{
+    paymentId: string;
+    amount: number;
+    reference: string;
+    provider: 'MTN' | 'Airtel' | 'Zamtel';
+    saleId: string;
+  }>(
+    `SELECT p.id AS paymentId, p.amount, p.mobile_money_reference AS reference, p.provider, p.sale_id AS saleId
+       FROM payment p
+       JOIN sale s ON s.id = p.sale_id
+      WHERE p.method = 'mobile_money'
+        AND s.status = 'active'
+        AND s.reconcile_status <> 'matched'
+        AND p.mobile_money_reference IS NOT NULL
+        AND julianday(s.created_at) >= julianday(?)
+        AND julianday(s.created_at) < julianday(?)
+        AND NOT EXISTS (
+          SELECT 1 FROM mobile_money_txn t WHERE t.reference = p.mobile_money_reference
+        )
+      ORDER BY s.created_at DESC
+      LIMIT 1`,
+    start,
+    end
+  );
+
+  let matched = 0;
+  if (pending) {
+    await db.runAsync(
+      `INSERT INTO mobile_money_txn (id, provider, amount, sender, reference, received_at, raw_message, parsed, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'unmatched', ?, ?)`,
+      newId('mm'),
+      pending.provider,
+      pending.amount,
+      'Demo customer',
+      pending.reference,
+      stamp,
+      `You have received K${(pending.amount / 100).toFixed(2)}. Ref ${pending.reference}.`,
+      stamp,
+      stamp
+    );
+    matched = 1;
+  }
+
+  const orphan = await db.getFirstAsync<{ id: string }>(
+    `SELECT t.id
+       FROM mobile_money_txn t
+      WHERE NOT EXISTS (SELECT 1 FROM payment p WHERE p.mobile_money_reference = t.reference)
+        AND t.status <> 'ignored'
+        AND julianday(t.received_at) >= julianday(?)
+        AND julianday(t.received_at) < julianday(?)
+      LIMIT 1`,
+    start,
+    end
+  );
+
+  let orphanCreated = 0;
+  if (!orphan) {
+    const reference = `ZAM-DEMO-${Date.now().toString(36).toUpperCase()}`;
+    await db.runAsync(
+      `INSERT INTO mobile_money_txn (id, provider, amount, sender, reference, received_at, raw_message, parsed, status, created_at, updated_at)
+       VALUES (?, 'Zamtel', 45000, 'Grace Phiri', ?, ?, ?, 1, 'unmatched', ?, ?)`,
+      newId('mm'),
+      reference,
+      stamp,
+      `Zamtel Money: You have received K450.00 from Grace Phiri. Transaction ID ${reference}.`,
+      stamp,
+      stamp
+    );
+    orphanCreated = 1;
+  }
+
+  return { matched, orphan: orphanCreated };
+}
+
