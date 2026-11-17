@@ -44,11 +44,20 @@ deducted with no signal. The backend is for identity, backup, sync and USSD.
 
 ```
 StockSure/
-├── app/            React Native app (Android), SQLite as the local source of truth
-├── packages/core/  Shared TypeScript logic: pricing, stock, reconciliation, tax
+├── mobile/         Expo + React Native app (Android), SQLite as the local source of truth
 ├── backend/        Django + Django REST Framework: auth, sync, USSD, config files
-└── docs/           Rules spec, data model and API contract, UX pack, demo script
+├── docs/           Rules spec, data model and API contract, UX pack, demo script
+└── packages/core/  Shared TypeScript logic: pricing, stock, reconciliation, tax (not created yet)
 ```
+
+Until `packages/core` exists, the framework-free logic lives in `mobile/src/lib`, `mobile/src/data`
+and `mobile/src/theme`, so it can be lifted out without touching screens.
+
+Screens use expo-router with routes in `mobile/src/app`:
+
+- `(tabs)/` Home, Products, Sales, Reconcile, Tax
+- `onboarding/` language, account, shop, money, first products
+- `product/`, `sale/`, `tax/pot`, `settings`, `staff`
 
 - **Local first.** All reads and writes hit SQLite; screens never wait on the network.
 - **Outbox sync.** Every change is queued and replayed when a connection returns.
