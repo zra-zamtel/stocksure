@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Button, Card, Pill, Row, Screen, SectionTitle } from '@/components/ui';
 import { estimateTurnoverTax } from '@/core';
 import { useDayTotals, useLowStock, useShop, useTaxSnapshot } from '@/db/hooks';
-import { reconciliation, shop, taxPeriod, taxRules } from '@/data/fake';
+import { reconciliation, shop, taxRules } from '@/data/fake';
 import { useI18n } from '@/i18n';
 import { formatCount, formatKwacha } from '@/lib/format';
 import { colors, spacing, typeScale } from '@/theme/tokens';
@@ -91,7 +91,7 @@ export default function HomeScreen() {
       <Card>
         <Row label={t('home.tax.estimate')} value={formatKwacha(estimate.estimatedTax)} emphasis />
         <Row label={t('home.tax.pot')} value={formatKwacha(tax.potBalance)} />
-        <Row label={t('home.tax.due')} value={taxPeriod.dueOn} />
+        <Row label={t('home.tax.due')} value={tax.period?.dueOn ?? t('common.notYet')} />
       </Card>
 
       <SectionTitle>{t('home.sync.title')}</SectionTitle>

@@ -190,6 +190,13 @@
   "tax.pot.short": "Short by",
   "tax.pot.over": "Over by",
   "tax.pot.topUp": "Top up",
+  "tax.pot.amount": "Amount",
+  "tax.pot.topUpDone": "Set aside {amount}",
+  "tax.pot.paidBody": "{amount} marked as paid to ZRA. No money moved.",
+  "tax.pot.entries": "Entries",
+  "tax.pot.kind.set_aside": "Set aside",
+  "tax.pot.kind.top_up": "Top up",
+  "tax.pot.kind.paid": "Paid",
   "tax.pot.payZra": "Pay ZRA (simulated)",
   "tax.pot.simulated": "No money moves in this prototype.",
 

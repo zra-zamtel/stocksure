@@ -3,7 +3,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { Button, Card, Pill, Row, Screen, SectionTitle } from '@/components/ui';
 import { estimateTurnoverTax, potStatus } from '@/core';
 import { useTaxSnapshot } from '@/db/hooks';
-import { reconciliation, taxPeriod, taxRules } from '@/data/fake';
+import { taxRules } from '@/data/fake';
 import { useI18n } from '@/i18n';
 import { formatKwacha } from '@/lib/format';
 import { colors, spacing, typeScale } from '@/theme/tokens';
@@ -14,27 +14,32 @@ export default function TaxScreen() {
   const { data: snapshot } = useTaxSnapshot();
   const estimate = estimateTurnoverTax(snapshot.turnover, taxRules);
   const pot = potStatus(estimate.estimatedTax, snapshot.potBalance);
-  const unreconciled = reconciliation.saleNoPaymentCount + reconciliation.paymentNoSaleCount;
+  const period = snapshot.period;
 
   return (
-    <Screen title={t('tax.title')} subtitle={`${taxPeriod.startsOn} – ${taxPeriod.endsOn}`}>
+    <Screen
+      title={t('tax.title')}
+      subtitle={period ? `${period.startsOn} – ${period.endsOn}` : undefined}
+    >
       <Card>
         <Row label={t('tax.turnover')} value={formatKwacha(estimate.turnover)} />
         <Row label={t('tax.rate')} value={`${(estimate.rate * 100).toFixed(1)}%`} />
         <Row label={t('tax.estimate')} value={formatKwacha(estimate.estimatedTax)} emphasis />
-        <Row label={t('tax.due')} value={taxPeriod.dueOn} />
+        <Row label={t('tax.due')} value={period?.dueOn ?? t('common.notYet')} />
         {!estimate.eligible && estimate.turnover > 0 ? (
-          <Text style={styles.disclaimer}>Turnover is above the turnover tax threshold in the rules file.</Text>
+          <Text style={styles.disclaimer}>
+            Turnover is above the turnover tax threshold in the rules file.
+          </Text>
         ) : null}
         <Text style={styles.disclaimer}>{t('tax.warning')}</Text>
       </Card>
 
-      {unreconciled > 0 ? (
+      {snapshot.unresolvedSales > 0 ? (
         <Card style={styles.warningCard}>
           <View style={styles.warningRow}>
             <Pill label="!" tone="warning" />
             <Text style={styles.warningText}>
-              {t('tax.unreconciled')} ({unreconciled})
+              {t('tax.unreconciled')} ({snapshot.unresolvedSales})
             </Text>
           </View>
         </Card>
@@ -44,11 +49,23 @@ export default function TaxScreen() {
       <Card>
         <Row label={t('tax.pot.balance')} value={formatKwacha(snapshot.potBalance)} emphasis />
         <Row
-          label={pot.state === 'short' ? t('tax.pot.short') : pot.state === 'over' ? t('tax.pot.over') : t('tax.pot.covered')}
+          label={
+            pot.state === 'short'
+              ? t('tax.pot.short')
+              : pot.state === 'over'
+                ? t('tax.pot.over')
+                : t('tax.pot.covered')
+          }
           value={formatKwacha(Math.abs(pot.difference))}
         />
         <Pill
-          label={pot.state === 'short' ? t('tax.pot.short') : pot.state === 'over' ? t('tax.pot.over') : t('tax.pot.covered')}
+          label={
+            pot.state === 'short'
+              ? t('tax.pot.short')
+              : pot.state === 'over'
+                ? t('tax.pot.over')
+                : t('tax.pot.covered')
+          }
           tone={pot.state === 'short' ? 'warning' : pot.state === 'over' ? 'info' : 'success'}
         />
         <Button label={t('tax.pot.topUp')} variant="secondary" onPress={() => router.push('/tax/pot')} />

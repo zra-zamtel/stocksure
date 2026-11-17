@@ -910,6 +910,8 @@ export interface TaxSnapshot {
   turnover: Ngwee;
   potBalance: Ngwee;
   period: TaxPeriodRef | null;
+  /** Active sales in this period that the owner has not reconciled yet. */
+  unresolvedSales: number;
 }
 
 /**
@@ -925,21 +927,141 @@ export async function taxSnapshot(db: SQLiteDatabase, today: string = todayLocal
       LIMIT 1`,
     today
   );
-  if (!period) return { turnover: 0, potBalance: 0, period: null };
+  if (!period) return { turnover: 0, potBalance: 0, period: null, unresolvedSales: 0 };
 
   const [start] = localDayBounds(period.startsOn);
   const [, end] = localDayBounds(period.endsOn);
-  const row = await db.getFirstAsync<{ turnover: number; potBalance: number }>(
+  const row = await db.getFirstAsync<{
+    turnover: number;
+    potBalance: number;
+    unresolvedSales: number;
+  }>(
     `SELECT
        COALESCE((SELECT SUM(total) FROM sale WHERE status = 'active' AND ${inRange('created_at')}), 0) AS turnover,
+       COALESCE((SELECT COUNT(*) FROM sale
+                  WHERE status = 'active'
+                    AND reconcile_status <> 'matched'
+                    AND ${inRange('created_at')}), 0) AS unresolvedSales,
        COALESCE((SELECT SUM(CASE WHEN kind = 'paid' THEN -amount ELSE amount END)
                    FROM tax_pot_entry
                   WHERE period_id = ?), 0) AS potBalance`,
     start,
     end,
+    start,
+    end,
     period.id
   );
-  return { turnover: row?.turnover ?? 0, potBalance: row?.potBalance ?? 0, period };
+  return {
+    turnover: row?.turnover ?? 0,
+    potBalance: row?.potBalance ?? 0,
+    period,
+    unresolvedSales: row?.unresolvedSales ?? 0,
+  };
+}
+
+export interface TaxPotEntryRow {
+  id: string;
+  amount: Ngwee;
+  kind: string;
+  createdAt: string;
+  saleId?: string;
+}
+
+export interface TaxPotView extends TaxSnapshot {
+  entries: TaxPotEntryRow[];
+}
+
+export async function listTaxPotEntries(
+  db: SQLiteDatabase,
+  periodId: string
+): Promise<TaxPotEntryRow[]> {
+  return db.getAllAsync<TaxPotEntryRow>(
+    `SELECT id, amount, kind, created_at AS createdAt, sale_id AS saleId
+       FROM tax_pot_entry
+      WHERE period_id = ?
+      ORDER BY created_at DESC, id DESC`,
+    periodId
+  );
+}
+
+export async function getTaxPotView(
+  db: SQLiteDatabase,
+  today: string = todayLocal()
+): Promise<TaxPotView> {
+  const snapshot = await taxSnapshot(db, today);
+  const entries = snapshot.period ? await listTaxPotEntries(db, snapshot.period.id) : [];
+  return { ...snapshot, entries };
+}
+
+/** Money the owner sets aside by hand. The app never moves real money. */
+export async function topUpTaxPot(
+  db: SQLiteDatabase,
+  periodId: string,
+  amount: Ngwee
+): Promise<void> {
+  if (!Number.isFinite(amount) || !Number.isInteger(amount)) {
+    throw new Error('Amount must be a whole number of ngwee');
+  }
+  if (amount <= 0) throw new Error('Amount must be greater than zero');
+
+  const stamp = nowIso();
+  await db.withTransactionAsync(async () => {
+    await db.runAsync(
+      `INSERT INTO tax_pot_entry (id, amount, kind, period_id, created_at, updated_at)
+       VALUES (?, ?, 'top_up', ?, ?, ?)`,
+      newId('pot'),
+      amount,
+      periodId,
+      stamp,
+      stamp
+    );
+    await enqueueSync(db, 'tax_pot_entry', periodId, 'create', {
+      periodId,
+      amount,
+      kind: 'top_up',
+      createdAt: stamp,
+    });
+  });
+}
+
+/**
+ * Simulated ZRA payment. The full balance is marked paid with a negative entry,
+ * which zeroes the pot without deleting history, and the period is flagged paid
+ * so the due-date nag stops.
+ */
+export async function payTaxPot(
+  db: SQLiteDatabase,
+  periodId: string
+): Promise<{ amount: Ngwee; paidAt: string }> {
+  const row = await db.getFirstAsync<{ balance: number }>(
+    `SELECT COALESCE(SUM(CASE WHEN kind = 'paid' THEN -amount ELSE amount END), 0) AS balance
+       FROM tax_pot_entry WHERE period_id = ?`,
+    periodId
+  );
+  const balance = row?.balance ?? 0;
+  if (balance <= 0) throw new Error('There is nothing set aside to pay');
+
+  const stamp = nowIso();
+  await db.withTransactionAsync(async () => {
+    await db.runAsync(
+      `INSERT INTO tax_pot_entry (id, amount, kind, period_id, created_at, updated_at)
+       VALUES (?, ?, 'paid', ?, ?, ?)`,
+      newId('pot'),
+      balance,
+      periodId,
+      stamp,
+      stamp
+    );
+    await db.runAsync('UPDATE tax_period SET paid = 1, updated_at = ? WHERE id = ?', stamp, periodId);
+    await enqueueSync(db, 'tax_period', periodId, 'update', {
+      id: periodId,
+      paid: true,
+      amountPaid: balance,
+      paidAt: stamp,
+    });
+  });
+
+  return { amount: balance, paidAt: stamp };
 }
 
 /** Cash at closing is upserted per day, with expected cash derived, not typed. */

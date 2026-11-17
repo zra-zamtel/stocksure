@@ -5,6 +5,7 @@ import { todayLocal } from '@/core';
 import {
   getSaleDetail,
   getShop,
+  getTaxPotView,
   listMovements,
   listProductsWithStock,
   listSales,
@@ -19,6 +20,7 @@ import {
   type SaleDetail,
   type SaleSummary,
   type ShopRecord,
+  type TaxPotView,
   type TaxSnapshot,
 } from './repos';
 
@@ -103,7 +105,17 @@ export function useLowStock() {
 }
 
 export function useTaxSnapshot() {
-  return useQuery<TaxSnapshot>({ turnover: 0, potBalance: 0, period: null }, (db) => taxSnapshot(db));
+  return useQuery<TaxSnapshot>(
+    { turnover: 0, potBalance: 0, period: null, unresolvedSales: 0 },
+    (db) => taxSnapshot(db)
+  );
+}
+
+export function useTaxPot() {
+  return useQuery<TaxPotView>(
+    { turnover: 0, potBalance: 0, period: null, unresolvedSales: 0, entries: [] },
+    (db) => getTaxPotView(db)
+  );
 }
 
 /**
