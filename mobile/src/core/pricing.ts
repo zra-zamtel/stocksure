@@ -42,8 +42,14 @@ export function priceLine(input: LineInput, at: Date = new Date()): PricedLine {
   if (input.sellPrice < 0 || input.buyPrice < 0) throw new Error('Prices cannot be negative');
 
   const gross = input.sellPrice * input.quantity;
-  const automatic = isDiscountActive(input.productDiscount, at)
-    ? discountAmount(gross, input.productDiscount!.type, input.productDiscount!.value)
+  const product = input.productDiscount;
+  // A fixed product discount is per unit, like the shelf price; percent scales on its own.
+  const automatic = product && isDiscountActive(product, at)
+    ? discountAmount(
+        gross,
+        product.type,
+        product.type === 'fixed' ? product.value * input.quantity : product.value
+      )
     : 0;
   const counter = clampDiscount(input.lineDiscount ?? 0, gross - automatic);
   const discount = automatic + counter;

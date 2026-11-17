@@ -1,5 +1,6 @@
 import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useEffect, useState } from 'react';
+import { todayLocal } from '@/core';
 import {
   listProductsWithStock,
   listSales,
@@ -12,11 +13,6 @@ import {
   type TaxSnapshot,
 } from './repos';
 
-function todayLocal(): string {
-  const now = new Date();
-  const offset = now.getTimezoneOffset() * 60_000;
-  return new Date(now.getTime() - offset).toISOString().slice(0, 10);
-}
 
 interface QueryState<T> {
   data: T;
@@ -79,5 +75,5 @@ export function useLowStock() {
 }
 
 export function useTaxSnapshot() {
-  return useQuery<TaxSnapshot>({ turnover: 0, potBalance: 0 }, (db) => taxSnapshot(db));
+  return useQuery<TaxSnapshot>({ turnover: 0, potBalance: 0, period: null }, (db) => taxSnapshot(db));
 }

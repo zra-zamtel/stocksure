@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { percentOf, toNgwee } from './money';
 import { priceLine, priceSale, validatePayments } from './pricing';
 import { cashVariance, matchPayments } from './reconcile';
-import { needsOverride, quantityOnHand, stockState } from './stock';
+import { needsOverride, quantityOnHand, reversalFor, stockState } from './stock';
+import { localDayBounds } from './ids';
 import { autoSetAside, dueDateFor, estimateTurnoverTax, potStatus, reminderDates } from './tax';
 import type { StockMovement, TaxRules } from './types';
 
@@ -224,5 +225,34 @@ describe('reconciliation matching', () => {
 
   it('reports cash variance against the float plus cash sales', () => {
     expect(cashVariance(50000, 12000, 65000)).toEqual({ expected: 62000, variance: 3000 });
+  });
+});
+
+describe('review fixes', () => {
+  it('applies a fixed product discount per unit', () => {
+    const line = priceLine({
+      variantId: 'v1',
+      quantity: 3,
+      buyPrice: 18000,
+      sellPrice: 28000,
+      productDiscount: { enabled: true, type: 'fixed', value: 500 },
+    });
+    expect(line.discount).toBe(1500);
+  });
+
+  it('bounds a local day by local midnights', () => {
+    const [start, end] = localDayBounds('2026-11-17');
+    expect(new Date(start).getTime()).toBe(new Date(2026, 10, 17).getTime());
+    expect(new Date(end).getTime() - new Date(start).getTime()).toBe(24 * 60 * 60 * 1000);
+  });
+
+  it('gives a void the stamp and note it is made with', () => {
+    const [reversal] = reversalFor(
+      [{ id: 'mv1', variantId: 'v1', quantityChange: -2, reason: 'sale', saleId: 's1', createdAt: 'a', updatedAt: 'a' }],
+      's1',
+      'b',
+      'wrong item'
+    );
+    expect(reversal).toMatchObject({ id: 'void-mv1', quantityChange: 2, createdAt: 'b', note: 'wrong item' });
   });
 });

@@ -1,14 +1,24 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 import {
+  localDayBounds,
+  needsOverride,
   newId,
   nowIso,
   priceSale,
+  reversalFor,
+  stockState,
+  todayLocal,
   validatePayments,
   type LineInput,
   type Ngwee,
   type PaymentInput,
+  type StockMovement,
   type StockState,
 } from '@/core';
+
+/** SQL fragment: column falls in [?, ?). julianday() copes with both Z and +02:00 stamps. */
+const inRange = (column: string) =>
+  `julianday(${column}) >= julianday(?) AND julianday(${column}) < julianday(?)`;
 
 /**
  * Data access. Screens call these, never SQL directly. Everything that changes
@@ -96,7 +106,7 @@ export async function listProductsWithStock(db: SQLiteDatabase): Promise<Product
         sellPrice: row.sellPrice ?? 0,
         lowStockLevel,
         quantity,
-        state: quantity <= 0 ? 'out' : quantity <= lowStockLevel ? 'low' : 'ok',
+        state: stockState(quantity, lowStockLevel),
       });
       product.stock += quantity;
     }
@@ -132,6 +142,7 @@ export interface DayTotals {
 }
 
 export async function totalsForDay(db: SQLiteDatabase, day: string): Promise<DayTotals> {
+  const [start, end] = localDayBounds(day);
   const totals = await db.getFirstAsync<{
     salesTotal: number;
     saleCount: number;
@@ -139,17 +150,21 @@ export async function totalsForDay(db: SQLiteDatabase, day: string): Promise<Day
     cost: number;
   }>(
     `SELECT
-       COALESCE((SELECT SUM(total) FROM sale WHERE status = 'active' AND date(created_at) = date(?)), 0) AS salesTotal,
-       COALESCE((SELECT COUNT(*) FROM sale WHERE status = 'active' AND date(created_at) = date(?)), 0) AS saleCount,
-       COALESCE((SELECT SUM(discount_total) FROM sale WHERE status = 'active' AND date(created_at) = date(?)), 0) AS discounts,
+       COALESCE((SELECT SUM(total) FROM sale WHERE status = 'active' AND ${inRange('created_at')}), 0) AS salesTotal,
+       COALESCE((SELECT COUNT(*) FROM sale WHERE status = 'active' AND ${inRange('created_at')}), 0) AS saleCount,
+       COALESCE((SELECT SUM(discount_total) FROM sale WHERE status = 'active' AND ${inRange('created_at')}), 0) AS discounts,
        COALESCE((SELECT SUM(l.buy_price * l.quantity)
                    FROM sale_line l
                    JOIN sale s ON s.id = l.sale_id
-                  WHERE s.status = 'active' AND date(s.created_at) = date(?)), 0) AS cost`,
-    day,
-    day,
-    day,
-    day
+                  WHERE s.status = 'active' AND ${inRange('s.created_at')}), 0) AS cost`,
+    start,
+    end,
+    start,
+    end,
+    start,
+    end,
+    start,
+    end
   );
 
   const salesTotal = totals?.salesTotal ?? 0;
@@ -189,6 +204,21 @@ export interface RecordSaleInput {
   lines: LineInput[];
   payments: PaymentInput[];
   createdAt?: string;
+  /** Set only after the owner has approved selling more than is on hand. */
+  allowNegativeStock?: boolean;
+}
+
+export interface StockShortfall {
+  variantId: string;
+  onHand: number;
+  requested: number;
+}
+
+export class InsufficientStockError extends Error {
+  constructor(public readonly shortfalls: StockShortfall[]) {
+    super('Not enough stock for this sale. The owner must approve an override.');
+    this.name = 'InsufficientStockError';
+  }
 }
 
 export interface RecordedSale {
@@ -209,8 +239,29 @@ export async function recordSale(db: SQLiteDatabase, input: RecordSaleInput): Pr
   if (errors.length > 0) throw new Error(errors.join('. '));
 
   const saleId = newId('sale');
+  const requested = new Map<string, number>();
+  for (const line of priced.lines) {
+    requested.set(line.variantId, (requested.get(line.variantId) ?? 0) + line.quantity);
+  }
 
   await db.withTransactionAsync(async () => {
+    if (!input.allowNegativeStock) {
+      const shortfalls: StockShortfall[] = [];
+      for (const [variantId, quantity] of requested) {
+        const row = await db.getFirstAsync<{ quantity: number }>(
+          'SELECT quantity FROM variant_stock WHERE variant_id = ?',
+          variantId
+        );
+        const onHand = row?.quantity ?? 0;
+        if (needsOverride(onHand, quantity)) shortfalls.push({ variantId, onHand, requested: quantity });
+      }
+      if (shortfalls.length > 0) throw new InsufficientStockError(shortfalls);
+    }
+
+    const syncLines: object[] = [];
+    const syncMovements: object[] = [];
+    const syncPayments: object[] = [];
+
     await db.runAsync(
       `INSERT INTO sale (id, recorded_by, subtotal, discount_total, total, status, reconcile_status, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, 'active', 'unresolved', ?, ?)`,
@@ -224,10 +275,34 @@ export async function recordSale(db: SQLiteDatabase, input: RecordSaleInput): Pr
     );
 
     for (const line of priced.lines) {
+      const lineId = newId('line');
+      const movementId = newId('mv');
+      syncLines.push({
+        id: lineId,
+        saleId,
+        variantId: line.variantId,
+        quantity: line.quantity,
+        buyPrice: line.buyPrice,
+        listPrice: line.listPrice,
+        discount: line.discount,
+        finalPrice: line.finalPrice,
+        createdAt,
+        updatedAt: createdAt,
+      });
+      syncMovements.push({
+        id: movementId,
+        variantId: line.variantId,
+        quantityChange: -line.quantity,
+        reason: 'sale',
+        saleId,
+        createdAt,
+        updatedAt: createdAt,
+      });
+
       await db.runAsync(
         `INSERT INTO sale_line (id, sale_id, variant_id, quantity, buy_price, list_price, discount, final_price, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        newId('line'),
+        lineId,
         saleId,
         line.variantId,
         line.quantity,
@@ -242,7 +317,7 @@ export async function recordSale(db: SQLiteDatabase, input: RecordSaleInput): Pr
       await db.runAsync(
         `INSERT INTO stock_movement (id, variant_id, quantity_change, reason, sale_id, created_at, updated_at)
          VALUES (?, ?, ?, 'sale', ?, ?, ?)`,
-        newId('mv'),
+        movementId,
         line.variantId,
         -line.quantity,
         saleId,
@@ -252,10 +327,22 @@ export async function recordSale(db: SQLiteDatabase, input: RecordSaleInput): Pr
     }
 
     for (const payment of input.payments) {
+      const paymentId = newId('pay');
+      syncPayments.push({
+        id: paymentId,
+        saleId,
+        method: payment.method,
+        provider: payment.provider ?? null,
+        amount: payment.amount,
+        mobileMoneyReference: payment.reference ?? null,
+        createdAt,
+        updatedAt: createdAt,
+      });
+
       await db.runAsync(
         `INSERT INTO payment (id, sale_id, method, provider, amount, mobile_money_reference, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        newId('pay'),
+        paymentId,
         saleId,
         payment.method,
         payment.provider ?? null,
@@ -266,7 +353,23 @@ export async function recordSale(db: SQLiteDatabase, input: RecordSaleInput): Pr
       );
     }
 
-    await enqueueSync(db, 'sale', saleId, 'create', { saleId, total: priced.total });
+    // Full rows, per docs/sync-contract.md, so the backend can validate and rebuild the sale.
+    await enqueueSync(db, 'sale', saleId, 'create', {
+      sale: {
+        id: saleId,
+        recordedBy: input.recordedBy,
+        subtotal: priced.subtotal,
+        discountTotal: priced.discountTotal,
+        total: priced.total,
+        status: 'active',
+        reconcileStatus: 'unresolved',
+        createdAt,
+        updatedAt: createdAt,
+      },
+      lines: syncLines,
+      payments: syncPayments,
+      stockMovements: syncMovements,
+    });
   });
 
   return {
@@ -279,56 +382,97 @@ export async function recordSale(db: SQLiteDatabase, input: RecordSaleInput): Pr
   };
 }
 
-/** Voiding keeps the sale and restores stock with a linked reversing movement. */
+/**
+ * Voiding keeps the sale and restores stock with linked reversing movements.
+ * The status flip is the guard: it only succeeds while the sale is active, so a
+ * second void (double tap, replay) changes nothing and restores nothing.
+ */
 export async function voidSale(db: SQLiteDatabase, saleId: string, reason: string): Promise<void> {
-  const sale = await db.getFirstAsync<{ status: string }>('SELECT status FROM sale WHERE id = ?', saleId);
-  if (!sale) throw new Error('Sale not found');
-  if (sale.status === 'void') throw new Error('Sale is already void');
-
-  const lines = await db.getAllAsync<{ variant_id: string; quantity: number }>(
-    'SELECT variant_id, quantity FROM sale_line WHERE sale_id = ?',
-    saleId
-  );
   const stamp = nowIso();
 
   await db.withTransactionAsync(async () => {
-    for (const line of lines) {
-      await db.runAsync(
-        `INSERT INTO stock_movement (id, variant_id, quantity_change, reason, note, sale_id, created_at, updated_at)
-         VALUES (?, ?, ?, 'void', ?, ?, ?, ?)`,
-        newId('mv'),
-        line.variant_id,
-        line.quantity,
-        reason,
-        saleId,
-        stamp,
-        stamp
-      );
-    }
-
-    await db.runAsync(
-      `UPDATE sale SET status = 'void', void_reason = ?, updated_at = ? WHERE id = ?`,
+    const flipped = await db.runAsync(
+      `UPDATE sale SET status = 'void', void_reason = ?, updated_at = ? WHERE id = ? AND status = 'active'`,
       reason,
       stamp,
       saleId
     );
+    if (flipped.changes === 0) {
+      const exists = await db.getFirstAsync('SELECT 1 FROM sale WHERE id = ?', saleId);
+      throw new Error(exists ? 'Sale is already void' : 'Sale not found');
+    }
 
-    await enqueueSync(db, 'sale', saleId, 'update', { saleId, status: 'void' });
+    const saleMovements = await db.getAllAsync<StockMovement>(
+      `SELECT id, variant_id AS variantId, quantity_change AS quantityChange, reason, note,
+              sale_id AS saleId, created_at AS createdAt, updated_at AS updatedAt
+         FROM stock_movement
+        WHERE sale_id = ? AND reason = 'sale'`,
+      saleId
+    );
+    const reversals = reversalFor(saleMovements, saleId, stamp, reason);
+
+    for (const movement of reversals) {
+      await db.runAsync(
+        `INSERT INTO stock_movement (id, variant_id, quantity_change, reason, note, sale_id, created_at, updated_at)
+         VALUES (?, ?, ?, 'void', ?, ?, ?, ?)`,
+        movement.id,
+        movement.variantId,
+        movement.quantityChange,
+        movement.note ?? null,
+        saleId,
+        movement.createdAt,
+        movement.updatedAt
+      );
+    }
+
+    await enqueueSync(db, 'sale', saleId, 'update', {
+      sale: { id: saleId, status: 'void', voidReason: reason, updatedAt: stamp },
+      stockMovements: reversals,
+    });
   });
+}
+
+export interface TaxPeriodRef {
+  id: string;
+  startsOn: string;
+  endsOn: string;
+  dueOn: string;
 }
 
 export interface TaxSnapshot {
   turnover: Ngwee;
   potBalance: Ngwee;
+  period: TaxPeriodRef | null;
 }
 
-export async function taxSnapshot(db: SQLiteDatabase): Promise<TaxSnapshot> {
+/**
+ * Turnover and pot for the current tax period only: the one covering today, or
+ * the latest one if none does. Turnover tax is assessed per period, so an
+ * all-time sum would eventually cross the threshold and hide the estimate.
+ */
+export async function taxSnapshot(db: SQLiteDatabase, today: string = todayLocal()): Promise<TaxSnapshot> {
+  const period = await db.getFirstAsync<TaxPeriodRef>(
+    `SELECT id, starts_on AS startsOn, ends_on AS endsOn, due_on AS dueOn
+       FROM tax_period
+      ORDER BY (? BETWEEN starts_on AND ends_on) DESC, starts_on DESC
+      LIMIT 1`,
+    today
+  );
+  if (!period) return { turnover: 0, potBalance: 0, period: null };
+
+  const [start] = localDayBounds(period.startsOn);
+  const [, end] = localDayBounds(period.endsOn);
   const row = await db.getFirstAsync<{ turnover: number; potBalance: number }>(
     `SELECT
-       COALESCE((SELECT SUM(total) FROM sale WHERE status = 'active'), 0) AS turnover,
-       COALESCE((SELECT SUM(CASE WHEN kind = 'paid' THEN -amount ELSE amount END) FROM tax_pot_entry), 0) AS potBalance`
+       COALESCE((SELECT SUM(total) FROM sale WHERE status = 'active' AND ${inRange('created_at')}), 0) AS turnover,
+       COALESCE((SELECT SUM(CASE WHEN kind = 'paid' THEN -amount ELSE amount END)
+                   FROM tax_pot_entry
+                  WHERE period_id = ?), 0) AS potBalance`,
+    start,
+    end,
+    period.id
   );
-  return { turnover: row?.turnover ?? 0, potBalance: row?.potBalance ?? 0 };
+  return { turnover: row?.turnover ?? 0, potBalance: row?.potBalance ?? 0, period };
 }
 
 /** Cash at closing is upserted per day, with expected cash derived, not typed. */
@@ -338,14 +482,16 @@ export async function saveCashCount(
   countedCash: Ngwee,
   note?: string
 ): Promise<{ expected: Ngwee; variance: Ngwee }> {
+  const [start, end] = localDayBounds(day);
   const cash = await db.getFirstAsync<{ cashSales: number; openingFloat: number | null }>(
     `SELECT
        COALESCE((SELECT SUM(p.amount)
                    FROM payment p
                    JOIN sale s ON s.id = p.sale_id
-                  WHERE p.method = 'cash' AND s.status = 'active' AND date(s.created_at) = date(?)), 0) AS cashSales,
+                  WHERE p.method = 'cash' AND s.status = 'active' AND ${inRange('s.created_at')}), 0) AS cashSales,
        (SELECT opening_float FROM reconciliation WHERE day = ?) AS openingFloat`,
-    day,
+    start,
+    end,
     day
   );
 
@@ -375,8 +521,6 @@ export async function saveCashCount(
   return { expected, variance };
 }
 
-let queueCounter = 0;
-
 /** Every write also lands here. Idempotent on replay because the ID is local. */
 export async function enqueueSync(
   db: SQLiteDatabase,
@@ -385,12 +529,11 @@ export async function enqueueSync(
   operation: 'create' | 'update',
   payload: unknown
 ): Promise<void> {
-  queueCounter += 1;
   const stamp = nowIso();
   await db.runAsync(
     `INSERT INTO sync_queue (id, entity, entity_id, operation, payload, attempts, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, 0, ?, ?)`,
-    newId(`q${queueCounter}`),
+    newId('q'),
     entity,
     entityId,
     operation,

@@ -38,13 +38,22 @@ export function applyMovement(quantity: number, change: number): number {
  * A void reverses exactly what the sale took, as its own movement, and is
  * linked back to the sale so the pair is visible in history.
  */
-export function reversalFor(saleMovements: StockMovement[], saleId: string): StockMovement[] {
+export function reversalFor(
+  saleMovements: StockMovement[],
+  saleId: string,
+  at?: string,
+  note?: string
+): StockMovement[] {
   return saleMovements
     .filter((movement) => movement.saleId === saleId && movement.reason === 'sale')
     .map((movement) => ({
       ...movement,
+      // Deterministic, so a replayed void cannot restore stock twice.
       id: `void-${movement.id}`,
       quantityChange: -movement.quantityChange,
       reason: 'void' as const,
+      note: note ?? movement.note,
+      createdAt: at ?? movement.createdAt,
+      updatedAt: at ?? movement.updatedAt,
     }));
 }

@@ -17,3 +17,21 @@ export function newId(prefix: string): string {
 export function nowIso(): string {
   return new Date().toISOString();
 }
+
+/** Today's calendar date on the phone (YYYY-MM-DD), not the UTC date. */
+export function todayLocal(at: Date = new Date()): string {
+  const offset = at.getTimezoneOffset() * 60_000;
+  return new Date(at.getTime() - offset).toISOString().slice(0, 10);
+}
+
+/**
+ * The UTC instants that bound a local calendar day, as [start, end). Stored
+ * timestamps are UTC (or carry an offset), so filtering with SQLite's date()
+ * would cut the day at UTC midnight instead of the shop's midnight.
+ */
+export function localDayBounds(day: string): [string, string] {
+  const [year, month, date] = day.split('-').map(Number);
+  const start = new Date(year, month - 1, date);
+  const end = new Date(year, month - 1, date + 1);
+  return [start.toISOString(), end.toISOString()];
+}
