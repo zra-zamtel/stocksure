@@ -1,4 +1,4 @@
-import type { StockMovement, StockState } from './types';
+import type { Ngwee, StockMovement, StockState } from './types';
 
 /**
  * Stock is never stored as a mutable number. The quantity on hand is always the
@@ -32,6 +32,23 @@ export function needsOverride(quantity: number, requested: number): boolean {
 
 export function applyMovement(quantity: number, change: number): number {
   return quantity + change;
+}
+
+/**
+ * Restock takes a whole number of units and optionally a new buy price. A
+ * fractional quantity is always a typo, so it is rejected rather than rounded.
+ */
+export function validateRestock(quantity: number, buyPriceInNgwee?: Ngwee): string[] {
+  const errors: string[] = [];
+  if (!Number.isInteger(quantity) || quantity <= 0) {
+    errors.push('Quantity must be a whole number greater than zero');
+  }
+  if (buyPriceInNgwee !== undefined) {
+    if (!Number.isFinite(buyPriceInNgwee) || buyPriceInNgwee < 0) {
+      errors.push('Buy price cannot be negative');
+    }
+  }
+  return errors;
 }
 
 /**

@@ -4,12 +4,14 @@ import { useCallback, useState } from 'react';
 import { todayLocal } from '@/core';
 import {
   getSaleDetail,
+  listMovements,
   listProductsWithStock,
   listSales,
   lowStockVariants,
   taxSnapshot,
   totalsForDay,
   type LowStockRow,
+  type MovementRow,
   type ProductWithStock,
   type SaleDetail,
   type SaleSummary,
@@ -73,6 +75,12 @@ export function useSales() {
 
 export function useSaleDetail(saleId: string) {
   return useQuery<SaleDetail | null>(null, (db) => getSaleDetail(db, saleId), [saleId]);
+}
+
+export function useMovements(variantId: string) {
+  return useQuery<MovementRow[]>([], (db) => (variantId ? listMovements(db, variantId) : Promise.resolve([])), [
+    variantId,
+  ]);
 }
 
 export function useDayTotals() {

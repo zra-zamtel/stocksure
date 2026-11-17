@@ -9,6 +9,7 @@ import {
   stockState,
   todayLocal,
   validatePayments,
+  validateRestock,
   type LineInput,
   type Ngwee,
   type PaymentInput,
@@ -435,6 +436,116 @@ export async function voidSale(db: SQLiteDatabase, saleId: string, reason: strin
       stockMovements: reversals,
     });
   });
+}
+
+export interface RestockInput {
+  variantId: string;
+  quantity: number;
+  buyPrice?: Ngwee;
+  note?: string;
+}
+
+export interface RestockedStock {
+  variantId: string;
+  quantityAdded: number;
+  buyPrice: Ngwee;
+  quantityOnHand: number;
+}
+
+/**
+ * Adds stock and, in the same step, updates the buy price. The price change only
+ * affects future sales: past sale lines keep the cost they were sold at.
+ */
+export async function restockVariant(db: SQLiteDatabase, input: RestockInput): Promise<RestockedStock> {
+  const errors = validateRestock(input.quantity, input.buyPrice);
+  if (errors.length > 0) throw new Error(errors.join('. '));
+
+  const variant = await db.getFirstAsync<{ buyPrice: number }>(
+    'SELECT buy_price AS buyPrice FROM product_variant WHERE id = ?',
+    input.variantId
+  );
+  if (!variant) throw new Error('Product variant not found');
+
+  const stamp = nowIso();
+  const movementId = newId('mv');
+  const buyPrice = input.buyPrice ?? variant.buyPrice;
+  const priceChanged = buyPrice !== variant.buyPrice;
+
+  await db.withTransactionAsync(async () => {
+    await db.runAsync(
+      `INSERT INTO stock_movement (id, variant_id, quantity_change, reason, note, created_at, updated_at)
+       VALUES (?, ?, ?, 'restock', ?, ?, ?)`,
+      movementId,
+      input.variantId,
+      input.quantity,
+      input.note ?? null,
+      stamp,
+      stamp
+    );
+
+    if (priceChanged) {
+      await db.runAsync(
+        'UPDATE product_variant SET buy_price = ?, updated_at = ? WHERE id = ?',
+        buyPrice,
+        stamp,
+        input.variantId
+      );
+    }
+
+    await enqueueSync(db, 'stock_movement', movementId, 'create', {
+      id: movementId,
+      variantId: input.variantId,
+      quantityChange: input.quantity,
+      reason: 'restock',
+      note: input.note ?? null,
+      createdAt: stamp,
+      updatedAt: stamp,
+    });
+
+    if (priceChanged) {
+      await enqueueSync(db, 'product_variant', input.variantId, 'update', {
+        id: input.variantId,
+        buyPrice,
+        updatedAt: stamp,
+      });
+    }
+  });
+
+  const row = await db.getFirstAsync<{ quantity: number }>(
+    'SELECT quantity FROM variant_stock WHERE variant_id = ?',
+    input.variantId
+  );
+
+  return {
+    variantId: input.variantId,
+    quantityAdded: input.quantity,
+    buyPrice,
+    quantityOnHand: row?.quantity ?? 0,
+  };
+}
+
+export interface MovementRow {
+  id: string;
+  quantityChange: number;
+  reason: string;
+  note?: string;
+  createdAt: string;
+}
+
+export async function listMovements(
+  db: SQLiteDatabase,
+  variantId: string,
+  limit = 20
+): Promise<MovementRow[]> {
+  return db.getAllAsync<MovementRow>(
+    `SELECT id, quantity_change AS quantityChange, reason, note, created_at AS createdAt
+       FROM stock_movement
+      WHERE variant_id = ?
+      ORDER BY created_at DESC, id DESC
+      LIMIT ?`,
+    variantId,
+    limit
+  );
 }
 
 export interface SaleDetail {

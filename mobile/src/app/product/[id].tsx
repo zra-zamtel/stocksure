@@ -1,16 +1,81 @@
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
+import { useSQLiteContext } from 'expo-sqlite';
+import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { Button, Card, EmptyState, Pill, Row, Screen } from '@/components/ui';
-import { products, stockMovements, stockOnHand } from '@/data/fake';
+import { Button, Card, Choice, EmptyState, Field, Pill, Row, Screen, SectionTitle } from '@/components/ui';
+import { toNgwee } from '@/core';
+import { useMovements, useProducts } from '@/db/hooks';
+import { restockVariant } from '@/db/repos';
 import { useI18n } from '@/i18n';
 import { formatKwacha } from '@/lib/format';
 import { colors, spacing, typeScale } from '@/theme/tokens';
 
 export default function ProductScreen() {
   const { t } = useI18n();
-  const router = useRouter();
+  const db = useSQLiteContext();
   const { id } = useLocalSearchParams<{ id: string }>();
+  const { data: products, loading, error, reload: reloadProducts } = useProducts();
+
   const product = products.find((candidate) => candidate.id === id);
+  const [chosenVariantId, setChosenVariantId] = useState<string | null>(null);
+  const selectedVariantId = chosenVariantId ?? product?.variants[0]?.id ?? '';
+  const selectedVariant = product?.variants.find((variant) => variant.id === selectedVariantId);
+
+  const { data: movements, reload: reloadMovements } = useMovements(selectedVariantId);
+
+  const [quantity, setQuantity] = useState('1');
+  // null means "show the stored cost"; a string means the owner is editing it.
+  const [priceDraft, setPriceDraft] = useState<string | null>(null);
+  const [note, setNote] = useState('');
+  const [message, setMessage] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const buyPrice = priceDraft ?? (selectedVariant ? (selectedVariant.buyPrice / 100).toFixed(2) : '');
+
+  async function handleRestock() {
+    if (!selectedVariant) return;
+    setSubmitError(null);
+    setMessage(null);
+    setSubmitting(true);
+    try {
+      const parsedPrice = Number.parseFloat(buyPrice.replace(',', '.'));
+      const result = await restockVariant(db, {
+        variantId: selectedVariant.id,
+        quantity: Number.parseInt(quantity, 10),
+        buyPrice: Number.isFinite(parsedPrice) ? toNgwee(parsedPrice) : undefined,
+        note: note.trim() || undefined,
+      });
+      setMessage(
+        t('products.restockDone', { added: result.quantityAdded, onHand: result.quantityOnHand })
+      );
+      setQuantity('1');
+      setNote('');
+      setPriceDraft(null);
+      reloadProducts();
+      reloadMovements();
+    } catch (cause) {
+      setSubmitError(cause instanceof Error ? cause.message : 'Could not restock');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  if (loading && !product) {
+    return (
+      <Screen title={t('products.title')}>
+        <Text style={styles.muted}>{t('common.syncing')}</Text>
+      </Screen>
+    );
+  }
+
+  if (error) {
+    return (
+      <Screen title={t('products.title')}>
+        <EmptyState message={error} />
+      </Screen>
+    );
+  }
 
   if (!product) {
     return (
@@ -21,11 +86,7 @@ export default function ProductScreen() {
   }
 
   return (
-    <Screen
-      title={product.name}
-      subtitle={product.category}
-      footer={<Button label={t('products.restock')} onPress={() => router.back()} />}
-    >
+    <Screen title={product.name} subtitle={product.category}>
       <Card>
         <Row label={t('products.buyPrice')} value={formatKwacha(product.defaultBuyPrice)} />
         <Row label={t('products.sellPrice')} value={formatKwacha(product.defaultSellPrice)} />
@@ -35,47 +96,103 @@ export default function ProductScreen() {
         />
       </Card>
 
-      <Text style={styles.section}>{t('products.variants')}</Text>
-      {product.variants.map((variant) => {
-        const quantity = stockOnHand(variant.id);
-        return (
-          <Card key={variant.id}>
-            <View style={styles.row}>
-              <Text style={styles.name}>{[variant.size, variant.colour].filter(Boolean).join(' · ') || 'Single'}</Text>
+      {product.variants.length > 1 ? (
+        <>
+          <SectionTitle>{t('products.selectVariant')}</SectionTitle>
+          <View style={styles.choices}>
+            {product.variants.map((variant) => (
+              <Choice
+                key={variant.id}
+                label={[variant.size, variant.colour].filter(Boolean).join(' · ') || 'Single'}
+                selected={variant.id === selectedVariantId}
+                onPress={() => {
+                  setChosenVariantId(variant.id);
+                  setPriceDraft(null);
+                }}
+              />
+            ))}
+          </View>
+        </>
+      ) : null}
+
+      {selectedVariant ? (
+        <>
+          <SectionTitle>{t('products.inStock')}</SectionTitle>
+          <Card>
+            <View style={styles.headerRow}>
+              <Text style={styles.name}>
+                {[selectedVariant.size, selectedVariant.colour].filter(Boolean).join(' · ') || 'Single'}
+              </Text>
               <Pill
-                label={`${quantity}`}
-                tone={quantity === 0 ? 'danger' : quantity <= variant.lowStockLevel ? 'warning' : 'success'}
+                label={`${selectedVariant.quantity}`}
+                tone={
+                  selectedVariant.state === 'out'
+                    ? 'danger'
+                    : selectedVariant.state === 'low'
+                      ? 'warning'
+                      : 'success'
+                }
               />
             </View>
-            <Row label="Barcode" value={variant.barcode ?? t('common.notYet')} />
-            <Row label={t('products.sellPrice')} value={formatKwacha(variant.sellPrice)} />
+            <Row label="Barcode" value={selectedVariant.barcode ?? t('common.notYet')} />
+            <Row label={t('products.buyPrice')} value={formatKwacha(selectedVariant.buyPrice)} />
+            <Row label={t('products.sellPrice')} value={formatKwacha(selectedVariant.sellPrice)} />
           </Card>
-        );
-      })}
 
-      <Text style={styles.section}>{t('products.recentMovements')}</Text>
-      {stockMovements
-        .filter((movement) => product.variants.some((variant) => variant.id === movement.variantId))
-        .map((movement) => (
-          <Row
-            key={movement.id}
-            label={`${movement.reason} · ${movement.createdAt.slice(11, 16)}`}
-            value={String(movement.quantityChange)}
-          />
-        ))}
+          <SectionTitle>{t('products.restock')}</SectionTitle>
+          <Card>
+            <Field
+              label={t('products.restockQty')}
+              value={quantity}
+              onChangeText={setQuantity}
+              keyboardType="numeric"
+            />
+            <Field
+              label={t('products.restockPrice')}
+              value={buyPrice}
+              onChangeText={setPriceDraft}
+              keyboardType="decimal-pad"
+            />
+            <Field
+              label={t('products.restockNote')}
+              value={note}
+              onChangeText={setNote}
+              placeholder={t('common.optional')}
+            />
+            <Button
+              label={t('products.restock')}
+              disabled={submitting}
+              onPress={handleRestock}
+            />
+            {message ? <Text style={styles.success}>{message}</Text> : null}
+            {submitError ? <Text style={styles.error}>{submitError}</Text> : null}
+          </Card>
+        </>
+      ) : null}
+
+      <SectionTitle>{t('products.recentMovements')}</SectionTitle>
+      <Card>
+        {movements.length === 0 ? (
+          <EmptyState message={t('common.none')} />
+        ) : (
+          movements.map((movement) => (
+            <Row
+              key={movement.id}
+              label={`${t(`movement.${movement.reason}`)} · ${movement.createdAt.slice(0, 10)}`}
+              value={`${movement.quantityChange > 0 ? '+' : ''}${movement.quantityChange}`}
+            />
+          ))
+        )}
+      </Card>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.md },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.md },
   name: { fontSize: typeScale.body, fontWeight: '700', color: colors.text },
-  section: {
-    fontSize: typeScale.label,
-    fontWeight: '700',
-    letterSpacing: 0.6,
-    textTransform: 'uppercase',
-    color: colors.textMuted,
-    marginTop: spacing.sm,
-  },
+  muted: { fontSize: typeScale.label, color: colors.textMuted },
+  choices: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  success: { fontSize: typeScale.label, color: colors.success, fontWeight: '600' },
+  error: { fontSize: typeScale.label, color: colors.danger, fontWeight: '600' },
 });

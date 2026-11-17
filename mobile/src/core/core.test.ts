@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { percentOf, toNgwee } from './money';
 import { priceLine, priceSale, validatePayments } from './pricing';
 import { cashVariance, matchPayments } from './reconcile';
-import { needsOverride, quantityOnHand, reversalFor, stockState } from './stock';
+import { needsOverride, quantityOnHand, reversalFor, stockState, validateRestock } from './stock';
 import { localDayBounds } from './ids';
 import { autoSetAside, dueDateFor, estimateTurnoverTax, potStatus, reminderDates } from './tax';
 import type { StockMovement, TaxRules } from './types';
@@ -147,6 +147,19 @@ describe('stock', () => {
   it('asks for an override only when selling past zero', () => {
     expect(needsOverride(2, 2)).toBe(false);
     expect(needsOverride(2, 3)).toBe(true);
+  });
+
+  it('rejects a restock quantity that is fractional or not positive', () => {
+    expect(validateRestock(3)).toEqual([]);
+    expect(validateRestock(1.5)).toHaveLength(1);
+    expect(validateRestock(0)).toHaveLength(1);
+    expect(validateRestock(-2)).toHaveLength(1);
+  });
+
+  it('rejects a negative buy price but allows zero', () => {
+    expect(validateRestock(2, 18000)).toEqual([]);
+    expect(validateRestock(2, 0)).toEqual([]);
+    expect(validateRestock(2, -1)).toHaveLength(1);
   });
 });
 
