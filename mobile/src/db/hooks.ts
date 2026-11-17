@@ -4,6 +4,7 @@ import { useCallback, useState } from 'react';
 import { todayLocal } from '@/core';
 import {
   getSaleDetail,
+  getShop,
   listMovements,
   listProductsWithStock,
   listSales,
@@ -15,6 +16,7 @@ import {
   type ProductWithStock,
   type SaleDetail,
   type SaleSummary,
+  type ShopRecord,
   type TaxSnapshot,
 } from './repos';
 
@@ -67,6 +69,10 @@ function useQuery<T>(
 
 export function useProducts() {
   return useQuery<ProductWithStock[]>([], (db) => listProductsWithStock(db));
+}
+
+export function useShop() {
+  return useQuery<ShopRecord | null>(null, (db) => getShop(db));
 }
 
 export function useSales() {

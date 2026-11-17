@@ -2,7 +2,7 @@ import { Link, useRouter } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Button, Card, Pill, Row, Screen, SectionTitle } from '@/components/ui';
 import { estimateTurnoverTax } from '@/core';
-import { useDayTotals, useLowStock, useTaxSnapshot } from '@/db/hooks';
+import { useDayTotals, useLowStock, useShop, useTaxSnapshot } from '@/db/hooks';
 import { reconciliation, shop, taxPeriod, taxRules } from '@/data/fake';
 import { useI18n } from '@/i18n';
 import { formatCount, formatKwacha } from '@/lib/format';
@@ -14,6 +14,7 @@ export default function HomeScreen() {
   const { data: totals } = useDayTotals();
   const { data: alerts } = useLowStock();
   const { data: tax } = useTaxSnapshot();
+  const { data: shopRecord } = useShop();
   const estimate = estimateTurnoverTax(tax.turnover, taxRules);
 
   return (
@@ -68,9 +69,11 @@ export default function HomeScreen() {
         <View style={styles.actionButton}>
           <Button label={t('home.actions.addProduct')} variant="secondary" onPress={() => router.push('/product/new')} />
         </View>
-        <View style={styles.actionButton}>
-          <Button label={t('home.actions.scanBarcode')} variant="secondary" onPress={() => router.push('/product/new')} />
-        </View>
+        {shopRecord?.usesBarcodes ? (
+          <View style={styles.actionButton}>
+            <Button label={t('home.actions.scanBarcode')} variant="secondary" onPress={() => router.push('/scan')} />
+          </View>
+        ) : null}
       </View>
 
       <SectionTitle>{t('home.reconcile.title')}</SectionTitle>

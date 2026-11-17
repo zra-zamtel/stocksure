@@ -3,6 +3,7 @@ import {
   localDayBounds,
   needsOverride,
   newId,
+  normaliseBarcode,
   nowIso,
   priceSale,
   reversalFor,
@@ -436,6 +437,190 @@ export async function voidSale(db: SQLiteDatabase, saleId: string, reason: strin
       stockMovements: reversals,
     });
   });
+}
+
+export interface ShopRecord {
+  id: string;
+  name: string;
+  type: string;
+  town: string;
+  language: 'en' | 'ny';
+  usesBarcodes: boolean;
+  lowStockDefault: number;
+  turnoverTaxRegistered: boolean;
+  tpin?: string;
+  providers: string[];
+}
+
+export async function getShop(db: SQLiteDatabase): Promise<ShopRecord | null> {
+  const row = await db.getFirstAsync<{
+    id: string;
+    name: string;
+    type: string;
+    town: string;
+    language: 'en' | 'ny';
+    usesBarcodes: number;
+    lowStockDefault: number;
+    turnoverTaxRegistered: number;
+    tpin: string | null;
+    providersJson: string;
+  }>(
+    `SELECT id, name, type, town, language, uses_barcodes AS usesBarcodes,
+            low_stock_default AS lowStockDefault, turnover_tax_registered AS turnoverTaxRegistered,
+            tpin, providers_json AS providersJson
+       FROM shop LIMIT 1`
+  );
+  if (!row) return null;
+  return {
+    id: row.id,
+    name: row.name,
+    type: row.type,
+    town: row.town,
+    language: row.language,
+    usesBarcodes: row.usesBarcodes === 1,
+    lowStockDefault: row.lowStockDefault,
+    turnoverTaxRegistered: row.turnoverTaxRegistered === 1,
+    tpin: row.tpin ?? undefined,
+    providers: JSON.parse(row.providersJson) as string[],
+  };
+}
+
+export interface BarcodeMatch {
+  variantId: string;
+  productId: string;
+  productName: string;
+  variantLabel: string;
+}
+
+/** Finds the product a scanned code belongs to, if it belongs to one. */
+export async function findVariantByBarcode(
+  db: SQLiteDatabase,
+  barcode: string
+): Promise<BarcodeMatch | null> {
+  const normalised = normaliseBarcode(barcode);
+  const row = await db.getFirstAsync<{
+    variantId: string;
+    productId: string;
+    productName: string;
+    size: string | null;
+    colour: string | null;
+  }>(
+    `SELECT v.id AS variantId, p.id AS productId, p.name AS productName, v.size, v.colour
+       FROM product_variant v
+       JOIN product p ON p.id = v.product_id
+      WHERE v.barcode = ? OR v.barcode = ?
+      LIMIT 1`,
+    normalised,
+    barcode.trim()
+  );
+  if (!row) return null;
+  return {
+    variantId: row.variantId,
+    productId: row.productId,
+    productName: row.productName,
+    variantLabel: [row.size, row.colour].filter(Boolean).join(' · ') || 'Single',
+  };
+}
+
+export interface CreateProductInput {
+  name: string;
+  category?: string;
+  barcode?: string;
+  buyPrice: Ngwee;
+  sellPrice: Ngwee;
+  openingQuantity: number;
+  lowStockLevel?: number;
+}
+
+/**
+ * Creates a product with a single variant and its opening stock. Sizes and
+ * colours as extra variants land with #30; this is the demo-path shape.
+ */
+export async function createProduct(
+  db: SQLiteDatabase,
+  input: CreateProductInput
+): Promise<{ productId: string; variantId: string; barcode?: string }> {
+  const name = input.name.trim();
+  if (!name) throw new Error('Product name is required');
+  if (input.buyPrice < 0 || input.sellPrice < 0) throw new Error('Prices cannot be negative');
+  if (!Number.isInteger(input.openingQuantity) || input.openingQuantity < 0) {
+    throw new Error('Opening quantity must be a whole number, zero or more');
+  }
+
+  const barcode = input.barcode?.trim() ? normaliseBarcode(input.barcode) : undefined;
+  if (barcode) {
+    const clash = await db.getFirstAsync<{ id: string }>(
+      'SELECT id FROM product_variant WHERE barcode = ?',
+      barcode
+    );
+    if (clash) throw new Error('That barcode already belongs to another product');
+  }
+
+  const productId = newId('prod');
+  const variantId = newId('var');
+  const stamp = nowIso();
+  const lowStockLevel = input.lowStockLevel ?? 3;
+
+  await db.withTransactionAsync(async () => {
+    await db.runAsync(
+      `INSERT INTO product (id, name, category, default_buy_price, default_sell_price, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      productId,
+      name,
+      input.category?.trim() || null,
+      input.buyPrice,
+      input.sellPrice,
+      stamp,
+      stamp
+    );
+
+    await db.runAsync(
+      `INSERT INTO product_variant (id, product_id, barcode, buy_price, sell_price, low_stock_level, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      variantId,
+      productId,
+      barcode ?? null,
+      input.buyPrice,
+      input.sellPrice,
+      lowStockLevel,
+      stamp,
+      stamp
+    );
+
+    if (input.openingQuantity > 0) {
+      await db.runAsync(
+        `INSERT INTO stock_movement (id, variant_id, quantity_change, reason, created_at, updated_at)
+         VALUES (?, ?, ?, 'opening', ?, ?)`,
+        newId('mv'),
+        variantId,
+        input.openingQuantity,
+        stamp,
+        stamp
+      );
+    }
+
+    await enqueueSync(db, 'product', productId, 'create', {
+      id: productId,
+      name,
+      category: input.category?.trim() || null,
+      defaultBuyPrice: input.buyPrice,
+      defaultSellPrice: input.sellPrice,
+      createdAt: stamp,
+      updatedAt: stamp,
+    });
+    await enqueueSync(db, 'product_variant', variantId, 'create', {
+      id: variantId,
+      productId,
+      barcode: barcode ?? null,
+      buyPrice: input.buyPrice,
+      sellPrice: input.sellPrice,
+      lowStockLevel,
+      createdAt: stamp,
+      updatedAt: stamp,
+    });
+  });
+
+  return { productId, variantId, barcode };
 }
 
 export interface RestockInput {

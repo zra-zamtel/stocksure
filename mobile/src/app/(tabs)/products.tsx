@@ -2,7 +2,7 @@ import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
 import { Button, Card, EmptyState, Pill, Screen } from '@/components/ui';
-import { useProducts } from '@/db/hooks';
+import { useProducts, useShop } from '@/db/hooks';
 import { useI18n } from '@/i18n';
 import { formatKwacha } from '@/lib/format';
 import { colors, radii, spacing, typeScale } from '@/theme/tokens';
@@ -11,6 +11,7 @@ export default function ProductsScreen() {
   const { t } = useI18n();
   const router = useRouter();
   const { data: products, loading, error } = useProducts();
+  const { data: shop } = useShop();
   const [query, setQuery] = useState('');
 
   const needle = query.trim().toLowerCase();
@@ -31,13 +32,15 @@ export default function ProductsScreen() {
           <View style={styles.footerButton}>
             <Button label={t('products.addProduct')} onPress={() => router.push('/product/new')} />
           </View>
-          <View style={styles.footerButton}>
-            <Button
-              label={t('products.scanBarcode')}
-              variant="secondary"
-              onPress={() => router.push('/product/new')}
-            />
-          </View>
+          {shop?.usesBarcodes ? (
+            <View style={styles.footerButton}>
+              <Button
+                label={t('products.scanBarcode')}
+                variant="secondary"
+                onPress={() => router.push('/scan')}
+              />
+            </View>
+          ) : null}
         </View>
       }
     >

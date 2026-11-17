@@ -4,6 +4,14 @@ import { priceLine, priceSale, validatePayments } from './pricing';
 import { cashVariance, matchPayments } from './reconcile';
 import { needsOverride, quantityOnHand, reversalFor, stockState, validateRestock } from './stock';
 import { localDayBounds } from './ids';
+import {
+  encodeEan13,
+  ean13CheckDigit,
+  generateInStoreBarcode,
+  isInStoreBarcode,
+  isValidEan13,
+  normaliseBarcode,
+} from './barcode';
 import { autoSetAside, dueDateFor, estimateTurnoverTax, potStatus, reminderDates } from './tax';
 import type { StockMovement, TaxRules } from './types';
 
@@ -160,6 +168,49 @@ describe('stock', () => {
     expect(validateRestock(2, 18000)).toEqual([]);
     expect(validateRestock(2, 0)).toEqual([]);
     expect(validateRestock(2, -1)).toHaveLength(1);
+  });
+});
+
+describe('barcodes', () => {
+  it('computes the EAN-13 check digit', () => {
+    expect(ean13CheckDigit('590123412345')).toBe(7);
+  });
+
+  it('accepts a valid code and rejects a wrong check digit', () => {
+    expect(isValidEan13('5901234123457')).toBe(true);
+    expect(isValidEan13('5901234123458')).toBe(false);
+    expect(isValidEan13('not-a-code')).toBe(false);
+  });
+
+  it('encodes 95 modules with the EAN-13 guards', () => {
+    const bits = encodeEan13('5901234123457');
+    expect(bits).toHaveLength(95);
+    expect(bits.startsWith('101')).toBe(true);
+    expect(bits.slice(45, 50)).toBe('01010');
+    expect(bits.endsWith('101')).toBe(true);
+    expect(/^[01]+$/.test(bits)).toBe(true);
+  });
+
+  it('refuses to encode an invalid code', () => {
+    expect(() => encodeEan13('5901234123458')).toThrow();
+  });
+
+  it('generates in-store codes that are valid and in the GS1 2 range', () => {
+    let seed = 0.42;
+    const random = () => {
+      seed = (seed * 9301 + 49297) % 233280 / 233280;
+      return seed;
+    };
+    const code = generateInStoreBarcode(random);
+    expect(code).toHaveLength(13);
+    expect(code.startsWith('2')).toBe(true);
+    expect(isValidEan13(code)).toBe(true);
+    expect(isInStoreBarcode(code)).toBe(true);
+  });
+
+  it('treats a 12-digit UPC-A as the same product as its EAN-13 form', () => {
+    expect(normaliseBarcode('012345678905')).toBe('0012345678905');
+    expect(normaliseBarcode(' 5901234123457 ')).toBe('5901234123457');
   });
 });
 

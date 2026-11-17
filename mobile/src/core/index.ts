@@ -4,4 +4,5 @@ export * from './pricing';
 export * from './stock';
 export * from './tax';
 export * from './reconcile';
+export * from './barcode';
 export * from './ids';
