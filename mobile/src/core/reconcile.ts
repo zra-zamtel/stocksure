@@ -37,6 +37,18 @@ function minutesBetween(a: string, b: string): number {
   return Math.abs(new Date(a).getTime() - new Date(b).getTime()) / 60_000;
 }
 
+function fitsSale(sale: MatchCandidate, payment: MatchCandidate, windowMinutes: number): boolean {
+  if (payment.amount !== sale.amount) return false;
+  if (sale.provider && payment.provider && sale.provider !== payment.provider) return false;
+  if (minutesBetween(sale.at, payment.at) > windowMinutes) return false;
+
+  const saleRef = normaliseReference(sale.reference);
+  const paymentRef = normaliseReference(payment.reference);
+  if (saleRef && paymentRef) return saleRef === paymentRef;
+  // Only one side has a reference: not enough to say these are the same payment.
+  return !saleRef && !paymentRef;
+}
+
 export function matchPayments(
   sales: MatchCandidate[],
   received: MatchCandidate[],
@@ -49,29 +61,26 @@ export function matchPayments(
 
   const ordered = [...sales].sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
 
+  // Every fitting pair, computed up front, so ambiguity is judged from both
+  // sides: a payment that fits two sales is as ambiguous as a sale that fits
+  // two payments, and neither is decided by which sale happened to come first.
+  const fits = new Map(ordered.map((sale) => [sale.id, received.filter((payment) => fitsSale(sale, payment, windowMinutes))]));
+  const salesPerPayment = new Map<string, number>();
+  for (const candidates of fits.values()) {
+    for (const payment of candidates) {
+      salesPerPayment.set(payment.id, (salesPerPayment.get(payment.id) ?? 0) + 1);
+    }
+  }
+
   for (const sale of ordered) {
-    const saleRef = normaliseReference(sale.reference);
-
-    const candidates = received.filter((payment) => {
-      if (used.has(payment.id)) return false;
-      if (payment.amount !== sale.amount) return false;
-      if (sale.provider && payment.provider && sale.provider !== payment.provider) return false;
-      if (minutesBetween(sale.at, payment.at) > windowMinutes) return false;
-
-      const paymentRef = normaliseReference(payment.reference);
-      if (saleRef && paymentRef) return saleRef === paymentRef;
-      if (!saleRef && !paymentRef) return true;
-      // Only one side has a reference: not enough to say these are the same payment.
-      return false;
-    });
-
-    if (candidates.length === 1) {
+    const candidates = fits.get(sale.id) ?? [];
+    if (candidates.length === 0) {
+      unmatchedSales.push(sale.id);
+    } else if (candidates.length === 1 && salesPerPayment.get(candidates[0].id) === 1) {
       used.add(candidates[0].id);
       matched.push({ saleId: sale.id, receivedId: candidates[0].id });
-    } else if (candidates.length > 1) {
-      ambiguousSales.push(sale.id);
     } else {
-      unmatchedSales.push(sale.id);
+      ambiguousSales.push(sale.id);
     }
   }
 

@@ -92,6 +92,7 @@
   "products.printLabel": "Print label",
   "products.barcodeAuto": "Added automatically when left blank",
   "products.noBarcodeYet": "No barcode yet",
+  "products.barcodeAdded": "Barcode {code} added",
   "products.labelShared": "Label ready to share",
   "products.notScannable": "This code is not a valid EAN-13, so no barcode can be drawn. It will still be saved.",
   "products.buyPrice": "Buy price",

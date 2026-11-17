@@ -217,4 +217,10 @@ export const migrations: string[] = [
     CHECK (status IN ('unmatched', 'matched', 'ignored'));
   CREATE INDEX idx_txn_status ON mobile_money_txn (status);
   `,
+
+  // v3 - the owner can confirm by hand that a mobile money payment arrived.
+  // It lives on the payment so re-running the matcher cannot undo it.
+  `
+  ALTER TABLE payment ADD COLUMN confirmed_at TEXT;
+  `,
 ];

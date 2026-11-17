@@ -87,6 +87,7 @@
   "products.printLabel": "[NY] Print label",
   "products.barcodeAuto": "[NY] Added automatically when left blank",
   "products.noBarcodeYet": "[NY] No barcode yet",
+  "products.barcodeAdded": "[NY] Barcode {code} added",
   "products.labelShared": "[NY] Label ready to share",
   "products.notScannable": "[NY] This code is not a valid EAN-13, so no barcode can be drawn. It will still be saved.",
   "products.buyPrice": "[NY] Buy price",

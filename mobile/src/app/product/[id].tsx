@@ -6,7 +6,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { Button, Card, Choice, EmptyState, Field, Pill, Row, Screen, SectionTitle } from '@/components/ui';
 import { isValidEan13, toNgwee } from '@/core';
 import { useMovements, useProducts, useShop } from '@/db/hooks';
-import { restockVariant } from '@/db/repos';
+import { restockVariant, setVariantBarcode } from '@/db/repos';
 import { useI18n } from '@/i18n';
 import { formatKwacha } from '@/lib/format';
 import { labelHtml } from '@/lib/label';
@@ -59,6 +59,22 @@ export default function ProductScreen() {
       reloadMovements();
     } catch (cause) {
       setSubmitError(cause instanceof Error ? cause.message : 'Could not restock');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleGenerateBarcode() {
+    if (!selectedVariant || submitting) return;
+    setSubmitError(null);
+    setMessage(null);
+    setSubmitting(true);
+    try {
+      const code = await setVariantBarcode(db, selectedVariant.id);
+      setMessage(t('products.barcodeAdded', { code }));
+      reloadProducts();
+    } catch (cause) {
+      setSubmitError(cause instanceof Error ? cause.message : 'Could not add a barcode');
     } finally {
       setSubmitting(false);
     }
@@ -165,11 +181,20 @@ export default function ProductScreen() {
                   />
                 ) : null}
               </>
+            ) : shop?.usesBarcodes ? (
+              // New products get one automatically; this covers products made
+              // before barcodes were switched on.
+              <>
+                <Row label="Barcode" value={t('products.noBarcodeYet')} />
+                <Button
+                  label={t('products.generateBarcode')}
+                  variant="secondary"
+                  disabled={submitting}
+                  onPress={handleGenerateBarcode}
+                />
+              </>
             ) : (
-              <Row
-                label="Barcode"
-                value={shop?.usesBarcodes ? t('products.barcodeAuto') : t('common.notYet')}
-              />
+              <Row label="Barcode" value={t('common.notYet')} />
             )}
             <Row label={t('products.buyPrice')} value={formatKwacha(selectedVariant.buyPrice)} />
             <Row label={t('products.sellPrice')} value={formatKwacha(selectedVariant.sellPrice)} />

@@ -319,6 +319,15 @@ describe('reconciliation matching', () => {
     expect([...result.ambiguousSales].sort()).toEqual(['s1', 's2']);
   });
 
+  it('does not hand one payment to the older of two fitting sales', () => {
+    const noRef = { id: 's1', amount: 28000, provider: 'MTN', at: '2026-11-17T10:00:00+02:00' };
+    const later = { ...noRef, id: 's2', at: '2026-11-17T10:05:00+02:00' };
+    const result = matchPayments([noRef, later], [{ ...noRef, id: 'r1', at: '2026-11-17T10:06:00+02:00' }], 30);
+    expect(result.matched).toHaveLength(0);
+    expect([...result.ambiguousSales].sort()).toEqual(['s1', 's2']);
+    expect(result.unmatchedReceived).toEqual(['r1']);
+  });
+
   it('reports cash variance against the float plus cash sales', () => {
     expect(cashVariance(50000, 12000, 65000)).toEqual({ expected: 62000, variance: 3000 });
   });

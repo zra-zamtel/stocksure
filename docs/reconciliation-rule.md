@@ -38,8 +38,13 @@ moves money into the turnover tax estimate.
 - `matchPayments()` returns `ambiguousSales` alongside matched and unmatched.
 - `sale.reconcile_status` uses `unresolved` for a needs-review sale, so the Tax
   screen keeps warning about it.
-- Matching stays one-to-one and deterministic: sales are processed oldest first,
-  and a payment already used cannot be reused.
+- Matching stays one-to-one and deterministic. Ambiguity is judged from both
+  sides: a payment that fits more than one sale is also **needs review**, so
+  the older sale never takes it just for being first.
+- A sale the owner confirms by hand ("money arrived") is stored on its payment
+  and is not re-matched, so it stays resolved and cannot claim a message.
+- A sale near midnight is matched against messages up to the window either side
+  of the day, so a payment that lands after midnight still finds its sale.
 
 ## What this does not change
 
