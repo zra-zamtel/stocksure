@@ -81,6 +81,26 @@ Five people, one owner per area.
 | Given | Designer and storyteller | Colours, logo, fonts, wording sheet, components, MVP screens, clickable demo flow, visual story | _handle pending_ |
 | Happy | Pitch lead | Demo script, PowerPoint, video and the live presentation | [@happymukande](https://github.com/happymukande) |
 
+## Running the app
+
+Requires **Node 24 LTS** (Expo 58 does not support odd-numbered releases such as 23.x).
+
+```bash
+cd mobile
+npm install
+npx expo start          # press "a" for the Android emulator or scan the QR code
+```
+
+For a development build, which the SMS reader (#36) will need:
+
+```bash
+cd mobile
+npx expo prebuild --platform android
+npx expo run:android
+```
+
+The backend is not wired up yet — every screen reads from `mobile/src/data/fake.ts`.
+
 ## Status
 
 Early build. The repository is scaffolded, the scope is locked, and the work is
