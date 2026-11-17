@@ -132,6 +132,9 @@
 
   "sale.new.title": "Record sale",
   "sale.new.addItem": "Add an item",
+  "sale.new.scan": "Scan barcode",
+  "sale.new.scanAdded": "Added {label}",
+  "sale.new.scanNotFound": "No product has the barcode {code}. Add the product first.",
   "sale.new.quantity": "Quantity",
   "sale.new.empty": "No items yet. Scan a barcode or search for a product.",
   "sale.new.paymentMethod": "Payment method",

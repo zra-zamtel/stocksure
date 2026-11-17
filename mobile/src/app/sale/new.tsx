@@ -1,11 +1,12 @@
 import { useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { BarcodeScanner } from '@/components/barcode-scanner';
 import { Button, Card, Choice, EmptyState, Field, Pill, Row, Screen, SectionTitle } from '@/components/ui';
 import { priceSale, toNgwee, type LineInput, type PaymentInput, type Provider } from '@/core';
-import { useProducts } from '@/db/hooks';
-import { InsufficientStockError, recordSale, type StockShortfall } from '@/db/repos';
+import { useProducts, useShop } from '@/db/hooks';
+import { findVariantByBarcode, InsufficientStockError, recordSale, type StockShortfall } from '@/db/repos';
 import { useI18n } from '@/i18n';
 import { formatKwacha } from '@/lib/format';
 import { colors, radii, spacing, touch, typeScale } from '@/theme/tokens';
@@ -44,8 +45,11 @@ export default function NewSaleScreen() {
   const router = useRouter();
   const db = useSQLiteContext();
   const { data: products, loading, error: loadError } = useProducts();
+  const { data: shop } = useShop();
 
   const [quantityByVariant, setQuantityByVariant] = useState<Record<string, number>>({});
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [scanMessage, setScanMessage] = useState<string | null>(null);
   const [method, setMethod] = useState<'cash' | 'mobile_money' | 'split'>('cash');
   const [provider, setProvider] = useState<Provider>('MTN');
   const [reference, setReference] = useState('');
@@ -104,6 +108,30 @@ export default function NewSaleScreen() {
   const setQuantity = (variantId: string, next: number) =>
     setQuantityByVariant((current) => ({ ...current, [variantId]: Math.min(99, Math.max(0, next)) }));
 
+  /** A scan adds one unit to the basket; the basket itself never leaves this screen. */
+  async function handleScanned(code: string) {
+    setScannerOpen(false);
+    try {
+      const match = await findVariantByBarcode(db, code);
+      if (!match) {
+        setScanMessage(t('sale.new.scanNotFound', { code }));
+        return;
+      }
+      const entry = index.get(match.variantId);
+      if (!entry) {
+        setScanMessage(t('sale.new.scanNotFound', { code }));
+        return;
+      }
+      setQuantityByVariant((current) => ({
+        ...current,
+        [match.variantId]: Math.min(99, (current[match.variantId] ?? 0) + 1),
+      }));
+      setScanMessage(t('sale.new.scanAdded', { label: entry.label }));
+    } catch (cause) {
+      setScanMessage(cause instanceof Error ? cause.message : 'Could not read that barcode');
+    }
+  }
+
   async function submit(allowNegativeStock: boolean) {
     setError(null);
     setShortfalls(null);
@@ -151,6 +179,17 @@ export default function NewSaleScreen() {
       {loading ? <Text style={styles.muted}>{t('common.syncing')}</Text> : null}
 
       <SectionTitle>{t('sale.new.addItem')}</SectionTitle>
+      {shop?.usesBarcodes ? (
+        <Button
+          label={t('sale.new.scan')}
+          variant="secondary"
+          onPress={() => {
+            setScanMessage(null);
+            setScannerOpen(true);
+          }}
+        />
+      ) : null}
+      {scanMessage ? <Text style={styles.muted}>{scanMessage}</Text> : null}
       {products.map((product) => (
         <Card key={product.id}>
           <Text style={styles.productName}>{product.name}</Text>
@@ -275,6 +314,12 @@ export default function NewSaleScreen() {
         <Card style={styles.dangerCard}>
           <Text style={styles.warningText}>{error}</Text>
         </Card>
+      ) : null}
+
+      {scannerOpen ? (
+        <Modal visible animationType="slide" onRequestClose={() => setScannerOpen(false)}>
+          <BarcodeScanner onScanned={handleScanned} onClose={() => setScannerOpen(false)} />
+        </Modal>
       ) : null}
     </Screen>
   );
