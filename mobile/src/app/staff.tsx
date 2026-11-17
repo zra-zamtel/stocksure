@@ -6,6 +6,7 @@ import { Button, Card, Field, Pill, Screen, SectionTitle } from '@/components/ui
 import {
   MAX_PIN_LENGTH,
   formatPhone,
+  isValidPin,
   newId,
   normalisePhone,
   normalisePin,
@@ -13,9 +14,20 @@ import {
   type AccountErrorCode,
 } from '@/core';
 import { useStaff } from '@/db/hooks';
-import { createStaff, getOwner, listIdentities } from '@/db/repos';
+import {
+  createStaff,
+  getOwner,
+  listIdentities,
+  updateStaffPinHash,
+  type StaffRecord,
+} from '@/db/repos';
 import { useI18n } from '@/i18n';
-import { ApiError, type ApiErrorCode, registerStaffOnServer } from '@/lib/api';
+import {
+  ApiError,
+  type ApiErrorCode,
+  registerStaffOnServer,
+  resetStaffPinOnServer,
+} from '@/lib/api';
 import { hashPin, verifyPin } from '@/lib/pin';
 import { colors, spacing, typeScale } from '@/theme/tokens';
 
@@ -31,6 +43,7 @@ const API_ERROR_KEYS: Partial<Record<ApiErrorCode, string>> = {
   unauthorized: 'staff.error.signInAgain',
   forbidden: 'staff.error.ownerMismatch',
   'duplicate-phone': 'staff.error.phoneTaken',
+  'staff-not-found': 'staff.error.staffNotFound',
   'owner-not-found': 'staff.error.ownerMissing',
   validation: 'staff.error.validation',
   server: 'staff.error.server',
@@ -47,9 +60,14 @@ export default function StaffScreen() {
   const [phone, setPhone] = useState('');
   const [pin, setPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
+  const [resettingId, setResettingId] = useState<string | null>(null);
+  const [newPin, setNewPin] = useState('');
+  const [confirmNewPin, setConfirmNewPin] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  const resetPerson = staff.find((person) => person.id === resettingId) ?? null;
 
   function resetForm() {
     setName('');
@@ -57,6 +75,29 @@ export default function StaffScreen() {
     setPin('');
     setConfirmPin('');
     setError(null);
+  }
+
+  function resetPinForm() {
+    setResettingId(null);
+    setNewPin('');
+    setConfirmNewPin('');
+    setError(null);
+  }
+
+  function startPinReset(person: StaffRecord) {
+    setAdding(false);
+    resetForm();
+    setMessage(null);
+    setResettingId(person.id);
+    setNewPin('');
+    setConfirmNewPin('');
+  }
+
+  function describeApiError(cause: unknown): string {
+    if (cause instanceof ApiError) {
+      return t(API_ERROR_KEYS[cause.code] ?? 'staff.error.server');
+    }
+    return cause instanceof Error ? cause.message : t('staff.error.server');
   }
 
   async function handleAdd() {
@@ -106,7 +147,6 @@ export default function StaffScreen() {
         name: name.trim(),
         phone: normalised,
         pin,
-        pinHash,
         deviceToken,
       });
       await createStaff(db, { id, name: name.trim(), phone: normalised, pinHash });
@@ -115,11 +155,69 @@ export default function StaffScreen() {
       setMessage(t('staff.added', { name: name.trim() }));
       reload();
     } catch (cause) {
-      if (cause instanceof ApiError) {
-        setError(t(API_ERROR_KEYS[cause.code] ?? 'staff.error.server'));
-      } else {
-        setError(cause instanceof Error ? cause.message : t('staff.error.server'));
+      setError(describeApiError(cause));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleResetPin() {
+    if (saving) return;
+    setError(null);
+    setMessage(null);
+
+    const person = resetPerson;
+    if (!person) {
+      setError(t('staff.error.staffNotFound'));
+      return;
+    }
+    if (!isValidPin(newPin)) {
+      setError(t('staff.error.pinInvalid'));
+      return;
+    }
+    if (newPin !== confirmNewPin) {
+      setError(t('staff.error.pinMismatch'));
+      return;
+    }
+    if (!deviceToken) {
+      setError(t('staff.error.signInAgain'));
+      return;
+    }
+
+    // The new PIN must still tell this person apart from everyone else who
+    // unlocks the phone. Check the other identities, not this person's old PIN.
+    const identities = await listIdentities(db);
+    for (const identity of identities) {
+      if (identity.id !== person.id && (await verifyPin(newPin, identity.pinHash))) {
+        setError(t('staff.error.pinTaken'));
+        return;
       }
+    }
+
+    setSaving(true);
+    try {
+      const pinHash = await hashPin(newPin);
+      await resetStaffPinOnServer({
+        staffId: person.id,
+        pin: newPin,
+        deviceToken,
+      });
+      try {
+        await updateStaffPinHash(db, person.id, pinHash);
+      } catch {
+        // The server already has the new PIN. Tell the owner to repeat the
+        // action so this phone's offline hash catches up, rather than saying
+        // the whole change failed.
+        setMessage(t('staff.reset.localFailed', { name: person.name }));
+        resetPinForm();
+        reload();
+        return;
+      }
+      setMessage(t('staff.reset.saved', { name: person.name }));
+      resetPinForm();
+      reload();
+    } catch (cause) {
+      setError(describeApiError(cause));
     } finally {
       setSaving(false);
     }
@@ -150,8 +248,31 @@ export default function StaffScreen() {
               />
             </View>
           </View>
+        ) : resettingId ? (
+          <View style={styles.footerRow}>
+            <View style={styles.footerButton}>
+              <Button
+                label={t('common.cancel')}
+                variant="secondary"
+                onPress={resetPinForm}
+              />
+            </View>
+            <View style={styles.footerButton}>
+              <Button
+                label={saving ? t('staff.saving') : t('common.save')}
+                disabled={saving}
+                onPress={() => void handleResetPin()}
+              />
+            </View>
+          </View>
         ) : (
-          <Button label={t('staff.add')} onPress={() => setAdding(true)} />
+          <Button
+            label={t('staff.add')}
+            onPress={() => {
+              resetPinForm();
+              setAdding(true);
+            }}
+          />
         )
       }
     >
@@ -181,8 +302,45 @@ export default function StaffScreen() {
               tone={person.firstSignedInAt ? 'success' : 'warning'}
             />
           </View>
+          {resettingId === person.id ? null : (
+            <Button
+              label={t('staff.changePin')}
+              variant="secondary"
+              onPress={() => startPinReset(person)}
+            />
+          )}
         </Card>
       ))}
+
+      {resettingId ? (
+        <Card>
+          <Text style={styles.formTitle}>
+            {t('staff.reset.title', { name: resetPerson?.name ?? '' })}
+          </Text>
+          <Field
+            label={t('staff.newPin')}
+            value={newPin}
+            onChangeText={(value) => setNewPin(normalisePin(value))}
+            placeholder="••••"
+            keyboardType="numeric"
+            secureTextEntry
+            maxLength={MAX_PIN_LENGTH}
+            autoFocus
+            required
+          />
+          <Field
+            label={t('staff.confirmNewPin')}
+            value={confirmNewPin}
+            onChangeText={(value) => setConfirmNewPin(normalisePin(value))}
+            placeholder="••••"
+            keyboardType="numeric"
+            secureTextEntry
+            maxLength={MAX_PIN_LENGTH}
+            required
+          />
+          <Text style={styles.muted}>{t('staff.reset.note')}</Text>
+        </Card>
+      ) : null}
 
       {adding ? (
         <Card>

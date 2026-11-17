@@ -36,6 +36,7 @@ import {
   topUpTaxPot,
   totalsForDay,
   updateOwnerPinHash,
+  updateStaffPinHash,
   upsertOwnerFromServer,
   upsertStaffFromServer,
   voidSale,
@@ -372,6 +373,15 @@ describe('IT-STAFF staff identity', () => {
     expect(upserted.pinHash).toBe('new-staff-hash');
     expect(await listStaff(db)).toHaveLength(1);
     expect((await listStaff(db))[0].firstSignedInAt).toBe('2026-11-17T08:00:00.000Z');
+  });
+
+  it('IT-STAFF-04b stores a new hash after an owner resets a staff PIN', async () => {
+    await createStaff(db, staff);
+
+    await updateStaffPinHash(db, 'staff_1', 'reset-staff-hash');
+
+    expect((await listStaff(db))[0].pinHash).toBe('reset-staff-hash');
+    await expect(updateStaffPinHash(db, 'staff_missing', 'x')).rejects.toThrow('not found');
   });
 
   it('IT-STAFF-05 names the owner or staff member who recorded each sale', async () => {

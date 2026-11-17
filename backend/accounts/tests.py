@@ -1,4 +1,5 @@
 import json
+import re
 from datetime import timedelta
 from unittest.mock import patch
 
@@ -59,6 +60,31 @@ class RegisterOwnerTests(TestCase):
         self.assertNotIn("password", payload)
         self.assertNotIn("password_hash", payload)
 
+    def test_registration_sends_a_verification_link(self):
+        response = self.post()
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ["elton@example.com"])
+        self.assertIn("Elton Chiwala", mail.outbox[0].body)
+        match = re.search(r"token=([A-Za-z0-9_\-]+)", mail.outbox[0].body)
+        self.assertIsNotNone(match)
+        verify = self.client.post(
+            "/api/v1/auth/magic-link/verify",
+            data=json.dumps({"token": match.group(1)}),
+            content_type="application/json",
+        )
+        self.assertEqual(verify.status_code, 200)
+        self.assertIsNotNone(Owner.objects.get().email_verified_at)
+
+    @patch("accounts.views.send_mail", side_effect=Exception("smtp down"))
+    def test_registration_succeeds_when_the_verification_email_fails(self, _send_mail):
+        response = self.post()
+
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(Owner.objects.filter(email="elton@example.com").exists())
+        self.assertEqual(DeviceSession.objects.count(), 1)
+
     def test_normalises_an_international_phone(self):
         response = self.post(phone="+260 97 123 4567")
 
@@ -79,13 +105,25 @@ class RegisterOwnerTests(TestCase):
         self.assertEqual(response.json()["code"], "phone_taken")
         self.assertEqual(Owner.objects.count(), 1)
 
-    def test_duplicate_email_gets_a_clear_conflict(self):
+    def test_duplicate_verified_email_gets_a_clear_conflict(self):
         self.post()
+        Owner.objects.filter(id="owner_1").update(email_verified_at=timezone.now())
         response = self.post(id="owner_2", phone="096 555 1122")
 
         self.assertEqual(response.status_code, 409)
         self.assertEqual(response.json()["code"], "email_taken")
         self.assertEqual(Owner.objects.count(), 1)
+
+    def test_a_new_registration_replaces_an_unverified_email_claim(self):
+        self.post()
+        response = self.post(id="owner_2", phone="096 555 1122")
+
+        self.assertEqual(response.status_code, 201)
+        old = Owner.objects.get(id="owner_1")
+        new = Owner.objects.get(id="owner_2")
+        self.assertIsNone(old.email)
+        self.assertEqual(new.email, "elton@example.com")
+        self.assertEqual(Owner.objects.count(), 2)
 
     def test_a_staff_phone_cannot_become_an_owner_login(self):
         self.post()
@@ -95,7 +133,6 @@ class RegisterOwnerTests(TestCase):
             owner=owner,
             name="Given",
             phone="0965551122",
-            pin_hash=self.pin_hash,
         )
 
         response = self.post(id="owner_2", phone="096 555 1122", email="other@example.com")
@@ -111,6 +148,19 @@ class RegisterOwnerTests(TestCase):
         self.assertEqual(first.status_code, 201)
         self.assertEqual(second.status_code, 200)
         self.assertEqual(Owner.objects.count(), 1)
+
+    def test_a_retry_after_the_window_cannot_mint_another_token(self):
+        self.post()
+        Owner.objects.filter(id="owner_1").update(
+            created_at=timezone.now() - timedelta(minutes=11)
+        )
+
+        response = self.post()
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["code"], "account_conflict")
+        self.assertEqual(Owner.objects.count(), 1)
+        self.assertEqual(DeviceSession.objects.count(), 1)
 
     def test_retry_cannot_change_credentials(self):
         self.post()
@@ -408,6 +458,7 @@ class OwnerLoginTests(TestCase):
             phone="0971234567",
             email="elton@example.com",
             password_hash=make_password("correct horse battery"),
+            email_verified_at=timezone.now(),
             pin_hash=self.pin_hash,
         )
 
@@ -443,6 +494,25 @@ class OwnerLoginTests(TestCase):
 
     def test_unknown_email_is_rejected(self):
         response = self.login(email="nobody@example.com")
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.json()["code"], "invalid_credentials")
+
+    def test_unverified_email_cannot_use_password_login(self):
+        self.owner.email_verified_at = None
+        self.owner.save(update_fields=["email_verified_at"])
+
+        response = self.login()
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["code"], "email_unverified")
+        self.assertEqual(DeviceSession.objects.count(), 0)
+
+    def test_a_wrong_password_for_an_unverified_owner_stays_generic(self):
+        self.owner.email_verified_at = None
+        self.owner.save(update_fields=["email_verified_at"])
+
+        response = self.login(password="wrong password")
 
         self.assertEqual(response.status_code, 401)
         self.assertEqual(response.json()["code"], "invalid_credentials")
@@ -556,13 +626,17 @@ class MagicLinkTests(TestCase):
             phone="0971234567",
             email="elton@example.com",
             password_hash=make_password("correct horse battery"),
+            email_verified_at=timezone.now(),
             pin_hash=self.pin_hash,
         )
 
-    def request_link(self, email="elton@example.com"):
+    def request_link(self, email="elton@example.com", phone=None):
+        body = {"email": email}
+        if phone is not None:
+            body["phone"] = phone
         return self.client.post(
             self.request_url,
-            data=json.dumps({"email": email}),
+            data=json.dumps(body),
             content_type="application/json",
         )
 
@@ -573,8 +647,8 @@ class MagicLinkTests(TestCase):
             content_type="application/json",
         )
 
-    def get_token(self):
-        response = self.request_link()
+    def get_token(self, phone=None):
+        response = self.request_link(phone=phone)
         self.assertEqual(response.status_code, 200)
         return response.json()["demoToken"]
 
@@ -588,9 +662,42 @@ class MagicLinkTests(TestCase):
         self.assertEqual(len(mail.outbox), 1)
         self.assertEqual(mail.outbox[0].to, ["elton@example.com"])
         self.assertIn(payload["demoToken"], mail.outbox[0].body)
+        self.assertIn("Elton Chiwala", mail.outbox[0].body)
+        self.assertIn("0971234567", mail.outbox[0].body)
         link = MagicLinkToken.objects.get(owner=self.owner)
         self.assertNotEqual(link.token_hash, payload["demoToken"])
         self.assertIsNone(link.used_at)
+
+    def test_an_unverified_owner_must_supply_the_phone_number(self):
+        self.owner.email_verified_at = None
+        self.owner.save(update_fields=["email_verified_at"])
+
+        response = self.request_link()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("demoToken", response.json())
+        self.assertEqual(len(mail.outbox), 0)
+        self.assertEqual(MagicLinkToken.objects.count(), 0)
+
+    def test_a_wrong_phone_does_not_send_a_link_for_an_unverified_owner(self):
+        self.owner.email_verified_at = None
+        self.owner.save(update_fields=["email_verified_at"])
+
+        response = self.request_link(phone="0965551122")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("demoToken", response.json())
+        self.assertEqual(len(mail.outbox), 0)
+        self.assertEqual(MagicLinkToken.objects.count(), 0)
+
+    def test_the_owner_phone_allows_an_unverified_email_to_be_verified(self):
+        self.owner.email_verified_at = None
+        self.owner.save(update_fields=["email_verified_at"])
+
+        token = self.get_token(phone="097 123 4567")
+
+        self.assertTrue(token)
+        self.assertEqual(len(mail.outbox), 1)
 
     def test_unknown_email_gets_the_same_generic_response_without_sending(self):
         response = self.request_link(email="nobody@example.com")
@@ -601,7 +708,9 @@ class MagicLinkTests(TestCase):
         self.assertEqual(MagicLinkToken.objects.count(), 0)
 
     def test_verify_signs_in_marks_email_verified_and_issues_a_device(self):
-        token = self.get_token()
+        self.owner.email_verified_at = None
+        self.owner.save(update_fields=["email_verified_at"])
+        token = self.get_token(phone="0971234567")
 
         response = self.verify(token)
 
@@ -613,6 +722,23 @@ class MagicLinkTests(TestCase):
         self.assertEqual(DeviceSession.objects.filter(owner=self.owner).count(), 1)
         link = MagicLinkToken.objects.get(owner=self.owner)
         self.assertIsNotNone(link.used_at)
+
+    def test_verifying_the_email_unblocks_password_sign_in(self):
+        self.owner.email_verified_at = None
+        self.owner.save(update_fields=["email_verified_at"])
+        token = self.get_token(phone="0971234567")
+        self.assertEqual(self.verify(token).status_code, 200)
+
+        response = self.client.post(
+            "/api/v1/auth/login",
+            data=json.dumps(
+                {"email": "elton@example.com", "password": "correct horse battery"}
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["deviceToken"])
 
     def test_link_cannot_be_used_twice(self):
         token = self.get_token()
@@ -673,7 +799,6 @@ class RegisterStaffTests(TestCase):
             "name": "Given Phiri",
             "phone": "096 555 1122",
             "pin": "7315",
-            "pinHash": self.pin_hash,
         }
         data.update(overrides)
         return data
@@ -694,8 +819,8 @@ class RegisterStaffTests(TestCase):
         staff = Staff.objects.get()
         self.assertEqual(staff.owner, self.owner)
         self.assertEqual(staff.phone, "0965551122")
-        self.assertEqual(staff.pin_hash, self.pin_hash)
         self.assertTrue(check_password("7315", staff.pin_verifier))
+        self.assertFalse(hasattr(staff, "pin_hash"))
         self.assertEqual(
             response.json(),
             {"id": "staff_1", "name": "Given Phiri", "phone": "0965551122", "role": "staff"},
@@ -734,13 +859,14 @@ class RegisterStaffTests(TestCase):
         self.post()
         before = Staff.objects.get()
 
-        response = self.post(pin="9999", pinHash="sha256$" + ("c" * 32) + "$" + ("d" * 64))
+        response = self.post(pin="9999")
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(Staff.objects.count(), 1)
         after = Staff.objects.get()
-        self.assertEqual(after.pin_hash, before.pin_hash)
+        self.assertEqual(after.pin_verifier, before.pin_verifier)
         self.assertTrue(check_password("7315", after.pin_verifier))
+        self.assertFalse(check_password("9999", after.pin_verifier))
 
     def test_owner_phone_cannot_become_a_staff_login(self):
         response = self.post(phone="0971234567")
@@ -764,12 +890,6 @@ class RegisterStaffTests(TestCase):
         self.assertEqual(response.json()["code"], "id_conflict")
         self.assertEqual(Staff.objects.count(), 1)
 
-    def test_rejects_a_raw_pin_hash(self):
-        response = self.post(pinHash="1234")
-
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("pinHash", response.json())
-
     def test_rejects_a_missing_or_bad_pin(self):
         response = self.post(pin="12")
 
@@ -778,6 +898,125 @@ class RegisterStaffTests(TestCase):
 
     def test_only_accepts_post(self):
         self.assertEqual(self.client.get(self.endpoint).status_code, 405)
+
+
+class ResetStaffPinTests(TestCase):
+    pin_hash = "sha256$" + ("a" * 32) + "$" + ("b" * 64)
+    new_pin = "9042"
+
+    def setUp(self):
+        self.owner = Owner.objects.create(
+            id="owner_1",
+            name="Elton Chiwala",
+            phone="0971234567",
+            pin_hash=self.pin_hash,
+        )
+        self.staff = Staff.objects.create(
+            id="staff_1",
+            owner=self.owner,
+            name="Given Phiri",
+            phone="0965551122",
+            pin_verifier=make_password("7315"),
+        )
+        self.token = issue_device_token(self.owner)
+
+    def payload(self, **overrides):
+        data = {"pin": self.new_pin}
+        data.update(overrides)
+        return data
+
+    def post(self, token=None, staff_id=None, **overrides):
+        headers = {"HTTP_AUTHORIZATION": f"Bearer {token or self.token}"}
+        return self.client.post(
+            f"/api/v1/staff/{staff_id or self.staff.id}/pin-reset",
+            data=json.dumps(self.payload(**overrides)),
+            content_type="application/json",
+            **headers,
+        )
+
+    def test_owner_replaces_the_pin_verifier(self):
+        response = self.post()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {"id": "staff_1", "name": "Given Phiri", "phone": "0965551122", "role": "staff"},
+        )
+        self.staff.refresh_from_db()
+        self.assertTrue(check_password(self.new_pin, self.staff.pin_verifier))
+        self.assertFalse(check_password("7315", self.staff.pin_verifier))
+        self.assertNotIn("pinHash", response.json())
+        self.assertNotIn("pin_hash", response.json())
+        self.assertNotIn("pin_verifier", response.json())
+
+    def test_the_new_pin_signs_in_and_the_old_one_stops_working(self):
+        self.assertEqual(self.post().status_code, 200)
+
+        def confirm(pin):
+            return self.client.post(
+                "/api/v1/auth/staff-sign-in/confirm",
+                data=json.dumps({"phone": "0965551122", "pin": pin}),
+                content_type="application/json",
+            )
+
+        self.assertEqual(confirm(self.new_pin).status_code, 200)
+        self.assertEqual(confirm("7315").status_code, 401)
+
+    def test_reset_clears_a_lock_and_failed_sign_ins(self):
+        self.staff.failed_sign_ins = 4
+        self.staff.locked_until = timezone.now() + timedelta(minutes=10)
+        self.staff.save(update_fields=["failed_sign_ins", "locked_until"])
+
+        self.assertEqual(self.post().status_code, 200)
+
+        self.staff.refresh_from_db()
+        self.assertEqual(self.staff.failed_sign_ins, 0)
+        self.assertIsNone(self.staff.locked_until)
+
+    def test_owner_must_be_signed_in(self):
+        response = self.client.post(
+            f"/api/v1/staff/{self.staff.id}/pin-reset",
+            data=json.dumps(self.payload()),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.json()["code"], "unauthorized")
+        self.staff.refresh_from_db()
+        self.assertTrue(check_password("7315", self.staff.pin_verifier))
+
+    def test_another_owner_cannot_reset_this_staff_pin(self):
+        other = Owner.objects.create(
+            id="owner_2",
+            name="Another Owner",
+            phone="0950000000",
+            pin_hash=self.pin_hash,
+        )
+        other_token = issue_device_token(other)
+
+        response = self.post(token=other_token)
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["code"], "staff_not_found")
+        self.staff.refresh_from_db()
+        self.assertTrue(check_password("7315", self.staff.pin_verifier))
+
+    def test_unknown_staff_id_is_not_found(self):
+        response = self.post(staff_id="staff_missing")
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["code"], "staff_not_found")
+
+    def test_rejects_a_bad_new_pin(self):
+        response = self.post(pin="12")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("pin", response.json())
+
+    def test_only_accepts_post(self):
+        response = self.client.get(f"/api/v1/staff/{self.staff.id}/pin-reset")
+
+        self.assertEqual(response.status_code, 405)
 
 
 class StaffSignInTests(TestCase):
@@ -796,7 +1035,6 @@ class StaffSignInTests(TestCase):
             owner=self.owner,
             name="Given Phiri",
             phone="0965551122",
-            pin_hash="sha256$" + ("a" * 32) + "$" + ("b" * 64),
             pin_verifier=make_password(self.pin),
         )
 

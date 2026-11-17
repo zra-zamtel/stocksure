@@ -19,6 +19,7 @@ const {
   registerOwnerOnServer,
   registerStaffOnServer,
   requestMagicLinkOnServer,
+  resetStaffPinOnServer,
   requestPinResetOnServer,
   setOwnerDevicePinOnServer,
   verifyMagicLinkOnServer,
@@ -253,6 +254,14 @@ describe('UT-API owner email client', () => {
     expect(error.code).toBe('invalid-credentials');
   });
 
+  it('UT-API-17b maps an unverified email to email-unverified', async () => {
+    respond(403, { code: 'email_unverified' });
+    const error = await authFailure(() =>
+      loginOwnerOnServer({ email: 'elton@example.com', password: 'correct horse battery' })
+    );
+    expect(error.code).toBe('email-unverified');
+  });
+
   it('UT-API-18 requests a magic link and returns the demo token', async () => {
     const fetchMock = respond(200, {
       expiresAt: '2026-11-17T10:15:00Z',
@@ -266,6 +275,18 @@ describe('UT-API owner email client', () => {
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe('http://192.168.1.20:8000/api/v1/auth/magic-link/request');
     expect(JSON.parse(init.body as string)).toEqual({ email: 'elton@example.com' });
+  });
+
+  it('UT-API-18b sends the account phone while the email is unverified', async () => {
+    const fetchMock = respond(200, { expiresAt: '2026-11-17T10:15:00Z' });
+
+    await requestMagicLinkOnServer('elton@example.com', '0971234567');
+
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({
+      email: 'elton@example.com',
+      phone: '0971234567',
+    });
   });
 
   it('UT-API-19 verifies a magic link into a device session', async () => {
@@ -304,7 +325,6 @@ const staff = {
   name: 'Given',
   phone: '0965551122',
   pin: '7315',
-  pinHash: request.pinHash,
   deviceToken: 'owner-device-token',
 };
 
@@ -378,5 +398,46 @@ describe('UT-API staff identity client', () => {
       (await staffFailure(() => confirmStaffSignInOnServer({ phone: '0965551122', pin: '0000' })))
         .code
     ).toBe('too-many-attempts');
+  });
+
+  it('UT-API-27 resets a staff PIN with the owner token', async () => {
+    const fetchMock = respond(200, {
+      id: 'staff_1',
+      name: 'Given',
+      phone: '0965551122',
+      role: 'staff',
+    });
+
+    const result = await resetStaffPinOnServer({
+      staffId: 'staff_1',
+      pin: '9042',
+      deviceToken: 'owner-device-token',
+    });
+
+    expect(result.id).toBe('staff_1');
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('http://192.168.1.20:8000/api/v1/staff/staff_1/pin-reset');
+    expect((init.headers as Record<string, string>).Authorization).toBe(
+      'Bearer owner-device-token'
+    );
+    expect(JSON.parse(init.body as string)).toEqual({ pin: '9042' });
+  });
+
+  it('UT-API-28 maps staff reset failures', async () => {
+    const reset = () =>
+      resetStaffPinOnServer({
+        staffId: 'staff_1',
+        pin: '9042',
+        deviceToken: 'owner-device-token',
+      });
+
+    respond(401, { code: 'unauthorized' });
+    expect((await staffFailure(reset)).code).toBe('unauthorized');
+
+    respond(403, { code: 'forbidden' });
+    expect((await staffFailure(reset)).code).toBe('forbidden');
+
+    respond(404, { code: 'staff_not_found' });
+    expect((await staffFailure(reset)).code).toBe('staff-not-found');
   });
 });

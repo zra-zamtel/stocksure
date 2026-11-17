@@ -12,6 +12,10 @@ const STAFF_REGISTER_PATH = '/api/v1/staff';
 const STAFF_SIGN_IN_CONFIRM_PATH = '/api/v1/auth/staff-sign-in/confirm';
 const TIMEOUT_MS = 12_000;
 
+function staffPinResetPath(staffId: string): string {
+  return `/api/v1/staff/${encodeURIComponent(staffId)}/pin-reset`;
+}
+
 type RegisterOwnerRequest = {
   id: string;
   name: string;
@@ -42,7 +46,9 @@ export type ApiErrorCode =
   | 'owner-not-found'
   | 'unauthorized'
   | 'forbidden'
+  | 'staff-not-found'
   | 'invalid-credentials'
+  | 'email-unverified'
   | 'invalid-token'
   | 'expired-token'
   | 'invalid-code'
@@ -164,6 +170,12 @@ export async function loginOwnerOnServer(input: {
   if (response.ok) return (await response.json()) as OwnerSession;
 
   const payload = await readErrorPayload(response);
+  if (response.status === 403 && payload?.code === 'email_unverified') {
+    throw new ApiError(
+      'email-unverified',
+      payload.detail ?? 'Verify your email with a sign-in link before using your password.'
+    );
+  }
   if (response.status === 401) {
     throw new ApiError('invalid-credentials', payload?.detail ?? 'That email and password do not match.');
   }
@@ -179,9 +191,17 @@ export type MagicLinkRequestResult = {
   demoUrl?: string;
 };
 
-/** Ask for a single-use email link. The response is generic for unknown emails. */
-export async function requestMagicLinkOnServer(email: string): Promise<MagicLinkRequestResult> {
-  const response = await postJson(MAGIC_LINK_REQUEST_PATH, { email });
+/**
+ * Ask for a single-use email link. The response is generic for unknown emails.
+ * While an email is unverified the server also needs the account phone number,
+ * so an inbox owner cannot be handed a stranger's account.
+ */
+export async function requestMagicLinkOnServer(
+  email: string,
+  phone?: string
+): Promise<MagicLinkRequestResult> {
+  const body = phone ? { email, phone } : { email };
+  const response = await postJson(MAGIC_LINK_REQUEST_PATH, body);
   if (response.ok) {
     const payload = (await response.json()) as Partial<MagicLinkRequestResult>;
     return {
@@ -308,8 +328,9 @@ export type StaffSignInResult = {
 };
 
 /**
- * Registers a staff member under the owner. The owner's phone has already
- * checked the PIN twice and hashed it; the server only stores the hash.
+ * Registers a staff member under the owner. The PIN crosses TLS once so the
+ * server can keep a verifier for the first sign-in; the phone keeps its own
+ * salted hash for offline sign-in.
  */
 export async function registerStaffOnServer(input: {
   id: string;
@@ -317,7 +338,6 @@ export async function registerStaffOnServer(input: {
   name: string;
   phone: string;
   pin: string;
-  pinHash: string;
   deviceToken: string;
 }): Promise<ServerStaff> {
   const { deviceToken, ...body } = input;
@@ -340,6 +360,37 @@ export async function registerStaffOnServer(input: {
     throw new ApiError('validation', payload?.detail ?? 'Check the staff details and try again.');
   }
   throw new ApiError('server', payload?.detail ?? 'The account service could not add this staff member.');
+}
+
+/**
+ * Replaces a staff member's PIN. Only the signed-in owner can do this; the
+ * phone has already checked the new PIN and hashed it for offline sign-in.
+ */
+export async function resetStaffPinOnServer(input: {
+  staffId: string;
+  pin: string;
+  deviceToken: string;
+}): Promise<ServerStaff> {
+  const { deviceToken, staffId, ...body } = input;
+  const response = await postJson(staffPinResetPath(staffId), body, {
+    Authorization: `Bearer ${deviceToken}`,
+  });
+  if (response.ok) return (await response.json()) as ServerStaff;
+
+  const payload = await readErrorPayload(response);
+  if (response.status === 401) {
+    throw new ApiError('unauthorized', payload?.detail ?? 'Sign in with the owner account again.');
+  }
+  if (response.status === 403) {
+    throw new ApiError('forbidden', payload?.detail ?? 'That owner account does not match this phone.');
+  }
+  if (response.status === 404) {
+    throw new ApiError('staff-not-found', payload?.detail ?? 'That staff member is not part of this shop.');
+  }
+  if (response.status === 400) {
+    throw new ApiError('validation', payload?.detail ?? 'Check the new PIN and try again.');
+  }
+  throw new ApiError('server', payload?.detail ?? 'The account service could not change this PIN.');
 }
 
 /** First staff sign-in on a phone. The PIN crosses TLS once and is checked

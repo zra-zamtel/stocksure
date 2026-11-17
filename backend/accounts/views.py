@@ -25,6 +25,7 @@ from .serializers import (
     OwnerSerializer,
     PinResetConfirmSerializer,
     PinResetRequestSerializer,
+    StaffPinResetSerializer,
     StaffRegistrationSerializer,
     StaffSerializer,
     StaffSignInConfirmSerializer,
@@ -38,6 +39,10 @@ MAGIC_LINK_TTL = timedelta(minutes=15)
 DEVICE_TTL = timedelta(days=30)
 STAFF_LOCK_AFTER = 5
 STAFF_LOCK_FOR = timedelta(minutes=15)
+# Registration is idempotent only while a lost response is still plausible.
+# After this window the account must use sign-in, not registration, so the
+# registration endpoint cannot mint device tokens forever.
+REGISTRATION_RETRY_WINDOW = timedelta(minutes=10)
 
 
 def error(code: str, detail: str, status_code: int) -> Response:
@@ -62,6 +67,41 @@ def issue_device_token(owner: Owner) -> str:
 def auth_payload(owner: Owner) -> dict:
     """The owner fields plus a bearer token for this phone."""
     return {"owner": OwnerSerializer(owner).data, "deviceToken": issue_device_token(owner)}
+
+
+def issue_magic_link(owner: Owner) -> tuple[MagicLinkToken, str, str]:
+    """Create a single-use link and return the row, raw token and URL."""
+    now = timezone.now()
+    owner.magic_links.filter(used_at__isnull=True).update(used_at=now)
+
+    token = secrets.token_urlsafe(32)
+    link_row = MagicLinkToken.objects.create(
+        owner=owner,
+        token_hash=hash_token(token),
+        expires_at=now + MAGIC_LINK_TTL,
+    )
+
+    base = settings.MAGIC_LINK_BASE_URL
+    separator = "&" if "?" in base else "?"
+    link = f"{base}{separator}{urlencode({'token': token})}"
+    return link_row, token, link
+
+
+def send_magic_link_email(owner: Owner, link: str) -> None:
+    send_mail(
+        subject="Your StockSure sign-in link",
+        message=(
+            "Open this link on your phone to sign in to StockSure:\n\n"
+            f"{link}\n\n"
+            f"This link signs in to the account for {owner.name} "
+            f"({owner.phone}). If that is not your account, ignore this "
+            "email.\n\n"
+            "The link works once and expires in 15 minutes."
+        ),
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        recipient_list=[owner.email],
+        fail_silently=False,
+    )
 
 
 def bearer_token(request) -> str | None:
@@ -96,6 +136,8 @@ class RegisterOwnerView(APIView):
 
     authentication_classes = []
     permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "register"
 
     def post(self, request):
         serializer = OwnerRegistrationSerializer(data=request.data)
@@ -127,8 +169,15 @@ class RegisterOwnerView(APIView):
                 status.HTTP_409_CONFLICT,
             )
 
+        # Only a verified address is reserved. An unverified claim is
+        # provisional: otherwise anyone could squat an inbox address forever
+        # and the real owner could never register.
         email_owner = Owner.objects.filter(email=email).first()
-        if email_owner and email_owner.id != data["id"]:
+        if (
+            email_owner
+            and email_owner.id != data["id"]
+            and email_owner.email_verified_at is not None
+        ):
             return error(
                 "email_taken",
                 "That email address is already registered.",
@@ -149,10 +198,22 @@ class RegisterOwnerView(APIView):
                     "An account already exists for this ID. Sign in with email instead.",
                     status.HTTP_409_CONFLICT,
                 )
+            if existing.created_at < timezone.now() - REGISTRATION_RETRY_WINDOW:
+                return error(
+                    "account_conflict",
+                    "This registration is too old to retry. Sign in with email instead.",
+                    status.HTTP_409_CONFLICT,
+                )
             return Response(auth_payload(existing), status=status.HTTP_200_OK)
 
         try:
             with transaction.atomic():
+                if email_owner and email_owner.id != data["id"]:
+                    # Replace the stale provisional claim in the same
+                    # transaction as the new owner, so a failed create never
+                    # removes the old row's email.
+                    email_owner.email = None
+                    email_owner.save(update_fields=["email", "updated_at"])
                 owner = Owner.objects.create(
                     id=data["id"],
                     name=data["name"],
@@ -169,6 +230,15 @@ class RegisterOwnerView(APIView):
                 "That phone number or email is already registered.",
                 status.HTTP_409_CONFLICT,
             )
+
+        # Verify the address while the registration is fresh, so a real owner's
+        # claim becomes protected within minutes. A mail outage must not lose
+        # the account that was just created; the owner can request another link.
+        try:
+            _, _, link = issue_magic_link(owner)
+            send_magic_link_email(owner, link)
+        except Exception as exc:
+            logger.warning("Could not send the verification email for %s: %s", owner.id, exc)
 
         return Response(auth_payload(owner), status=status.HTTP_201_CREATED)
 
@@ -203,6 +273,16 @@ class LoginOwnerView(APIView):
                 "That email and password do not match.",
                 status.HTTP_401_UNAUTHORIZED,
             )
+        if owner.email_verified_at is None:
+            # A password proves the secret, not that the owner controls the
+            # inbox. The magic link is the verification step; only reveal this
+            # after the password is correct so the endpoint cannot be used to
+            # discover account state.
+            return error(
+                "email_unverified",
+                "Verify your email with a sign-in link before using your password.",
+                status.HTTP_403_FORBIDDEN,
+            )
 
         return Response(auth_payload(owner), status=status.HTTP_200_OK)
 
@@ -222,39 +302,23 @@ class RequestMagicLinkView(APIView):
     def post(self, request):
         serializer = MagicLinkRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        email = serializer.validated_data["email"]
+        data = serializer.validated_data
+        email = data["email"]
         expires_at = timezone.now() + MAGIC_LINK_TTL
         payload = {"expiresAt": expires_at.isoformat()}
 
         owner = Owner.objects.filter(email=email).first()
         if not owner:
             return Response(payload, status=status.HTTP_200_OK)
+        if owner.email_verified_at is None and data.get("phone") != owner.phone:
+            # A provisional claim is not enough to send a sign-in link. The
+            # real owner can still verify because they know their own phone;
+            # an inbox owner who never registered this account cannot.
+            return Response(payload, status=status.HTTP_200_OK)
 
-        now = timezone.now()
-        owner.magic_links.filter(used_at__isnull=True).update(used_at=now)
-
-        token = secrets.token_urlsafe(32)
-        MagicLinkToken.objects.create(
-            owner=owner,
-            token_hash=hash_token(token),
-            expires_at=expires_at,
-        )
-
-        base = settings.MAGIC_LINK_BASE_URL
-        separator = "&" if "?" in base else "?"
-        link = f"{base}{separator}{urlencode({'token': token})}"
-        send_mail(
-            subject="Your StockSure sign-in link",
-            message=(
-                "Open this link on your phone to sign in to StockSure:\n\n"
-                f"{link}\n\n"
-                "The link works once and expires in 15 minutes. "
-                "If you did not ask for it, you can ignore this email."
-            ),
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=[owner.email],
-            fail_silently=False,
-        )
+        link_row, token, link = issue_magic_link(owner)
+        send_magic_link_email(owner, link)
+        payload["expiresAt"] = link_row.expires_at.isoformat()
 
         if settings.EXPOSE_EMAIL_TOKEN:
             payload["demoToken"] = token
@@ -628,7 +692,6 @@ class RegisterStaffView(APIView):
                     owner=owner,
                     name=data["name"],
                     phone=phone,
-                    pin_hash=data["pinHash"],
                     pin_verifier=make_password(data["pin"]),
                 )
         except IntegrityError:
@@ -639,3 +702,57 @@ class RegisterStaffView(APIView):
             )
 
         return Response(StaffSerializer(staff).data, status=status.HTTP_201_CREATED)
+
+
+class ResetStaffPinView(APIView):
+    """POST /api/v1/staff/<staffId>/pin-reset
+
+    Only the owner can replace a staff member's PIN. The device token proves
+    which owner is calling, and the staff row must belong to that owner. The
+    owner's phone has already checked the new PIN and hashed it; the server
+    stores the same salted hash plus a Django verifier for the next first
+    sign-in on a phone. A reset clears any lock left by failed sign-ins.
+    """
+
+    authentication_classes = []
+    permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "staff-pin-reset"
+
+    def post(self, request, staff_id: str):
+        token = bearer_token(request)
+        device = device_for_token(token) if token else None
+        if not device:
+            return error(
+                "unauthorized",
+                "Sign in with the owner account before changing a staff PIN.",
+                status.HTTP_401_UNAUTHORIZED,
+            )
+
+        # A staff member from another shop is reported as missing, so the
+        # endpoint cannot be used to discover other owners' staff IDs.
+        staff = Staff.objects.filter(id=staff_id).first()
+        if staff is None or staff.owner_id != device.owner_id:
+            return error(
+                "staff_not_found",
+                "That staff member is not part of this shop.",
+                status.HTTP_404_NOT_FOUND,
+            )
+
+        serializer = StaffPinResetSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        staff.pin_verifier = make_password(data["pin"])
+        staff.failed_sign_ins = 0
+        staff.locked_until = None
+        staff.save(
+            update_fields=[
+                "pin_verifier",
+                "failed_sign_ins",
+                "locked_until",
+                "updated_at",
+            ]
+        )
+
+        return Response(StaffSerializer(staff).data, status=status.HTTP_200_OK)

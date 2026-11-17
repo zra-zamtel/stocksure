@@ -80,9 +80,17 @@ class OwnerLoginSerializer(serializers.Serializer):
 
 class MagicLinkRequestSerializer(serializers.Serializer):
     email = serializers.EmailField(max_length=254)
+    # Required only while the email is unverified. The owner knows the phone
+    # number on their own account; someone who merely received the email does
+    # not. This stops an unverified address from handing a stranger's account
+    # to the inbox owner.
+    phone = serializers.CharField(max_length=32, required=False, allow_blank=True)
 
     def validate_email(self, value: str) -> str:
         return value.strip().lower()
+
+    def validate_phone(self, value: str) -> str:
+        return validate_phone_value(value) if value.strip() else ""
 
 
 class MagicLinkVerifySerializer(serializers.Serializer):
@@ -138,7 +146,6 @@ class StaffRegistrationSerializer(serializers.Serializer):
         write_only=True,
         error_messages={"invalid": "The staff PIN must be 4 to 6 digits."},
     )
-    pinHash = serializers.CharField(max_length=255)
 
     def validate_name(self, value: str) -> str:
         name = value.strip()
@@ -149,8 +156,20 @@ class StaffRegistrationSerializer(serializers.Serializer):
     def validate_phone(self, value: str) -> str:
         return validate_phone_value(value)
 
-    def validate_pinHash(self, value: str) -> str:
-        return validate_pin_hash_value(value)
+
+class StaffPinResetSerializer(serializers.Serializer):
+    """An owner replacing a staff member's PIN.
+
+    The owner's phone sends the raw PIN once so the server can build a Django
+    verifier for the next first sign-in. The phone keeps its own salted hash for
+    offline sign-in; the server never stores that hash.
+    """
+
+    pin = serializers.RegexField(
+        r"^\d{4,6}$",
+        write_only=True,
+        error_messages={"invalid": "The staff PIN must be 4 to 6 digits."},
+    )
 
 
 class StaffSignInConfirmSerializer(serializers.Serializer):
@@ -169,7 +188,7 @@ class StaffSignInConfirmSerializer(serializers.Serializer):
 
 
 class StaffSerializer(serializers.ModelSerializer):
-    """Public staff fields. The PIN hash never leaves the server."""
+    """Public staff fields. The PIN verifier never leaves the server."""
 
     role = serializers.SerializerMethodField()
 

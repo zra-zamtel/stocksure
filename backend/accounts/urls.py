@@ -8,6 +8,7 @@ from .views import (
     RegisterOwnerView,
     RegisterStaffView,
     RequestMagicLinkView,
+    ResetStaffPinView,
     RequestPinResetView,
     SetDevicePinView,
     VerifyMagicLinkView,
@@ -23,6 +24,11 @@ urlpatterns = [
     path("auth/pin-reset/request", RequestPinResetView.as_view(), name="pin-reset-request"),
     path("auth/pin-reset/confirm", ConfirmPinResetView.as_view(), name="pin-reset-confirm"),
     path("staff", RegisterStaffView.as_view(), name="staff-register"),
+    path(
+        "staff/<str:staff_id>/pin-reset",
+        ResetStaffPinView.as_view(),
+        name="staff-pin-reset",
+    ),
     path(
         "auth/staff-sign-in/confirm",
         ConfirmStaffSignInView.as_view(),

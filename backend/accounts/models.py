@@ -6,7 +6,9 @@ class Owner(models.Model):
 
     Email and password are the online identity. The primary key and `pin_hash`
     come from the phone; the PIN is the fast offline unlock on a trusted device.
-    The PIN itself is never sent to the server.
+    The PIN itself is never sent to the server. The server keeps `pin_hash` only
+    to confirm that an idempotent registration retry comes from the same phone;
+    sign-in never reads it.
     """
 
     id = models.CharField(primary_key=True, max_length=64)
@@ -73,16 +75,16 @@ class DeviceSession(models.Model):
 class Staff(models.Model):
     """A staff member the owner added so they can sign in with their own PIN.
 
-    The owner's phone creates the ID and the salted PIN hash, exactly like owner
-    registration. The first sign-in on a phone is checked here; after that the
-    phone verifies the PIN offline.
+    The server keeps only a Django password verifier for the first sign-in.
+    The phone keeps its own salted hash for offline sign-in; sending that hash
+    to the server would add a copy that no server path reads and that a
+    database leak could crack in seconds.
     """
 
     id = models.CharField(primary_key=True, max_length=64)
     owner = models.ForeignKey(Owner, on_delete=models.CASCADE, related_name="staff")
     name = models.CharField(max_length=120)
     phone = models.CharField(max_length=20, unique=True)
-    pin_hash = models.CharField(max_length=255)
     pin_verifier = models.CharField(max_length=255, blank=True, default="")
     first_signed_in_at = models.DateTimeField(null=True, blank=True)
     failed_sign_ins = models.PositiveSmallIntegerField(default=0)

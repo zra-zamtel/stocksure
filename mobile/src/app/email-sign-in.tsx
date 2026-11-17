@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { StyleSheet, Text } from 'react-native';
 import { useAuth } from '@/auth/session';
 import { Button, Card, Field, Screen } from '@/components/ui';
-import { isValidEmail } from '@/core';
+import { isValidEmail, isValidPhone } from '@/core';
 import { useI18n } from '@/i18n';
 import { ApiError, type ApiErrorCode } from '@/lib/api';
 import { colors, spacing, typeScale } from '@/theme/tokens';
@@ -11,6 +11,7 @@ import { colors, spacing, typeScale } from '@/theme/tokens';
 const API_ERROR_KEYS: Partial<Record<ApiErrorCode, string>> = {
   offline: 'auth.email.error.offline',
   'invalid-credentials': 'auth.email.error.invalidCredentials',
+  'email-unverified': 'auth.email.error.emailUnverified',
   validation: 'auth.email.error.validation',
   server: 'auth.email.error.server',
 };
@@ -18,10 +19,14 @@ const API_ERROR_KEYS: Partial<Record<ApiErrorCode, string>> = {
 export default function EmailSignInScreen() {
   const { t } = useI18n();
   const router = useRouter();
-  const { beginOwnerLogin, requestOwnerMagicLink } = useAuth();
+  const { beginOwnerLogin, ownerPreview, requestOwnerMagicLink } = useAuth();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  // The phone is only required while the email is unverified. Prefill it when
+  // this phone already has the owner, which covers the normal verification
+  // flow; on a brand-new phone the owner types it once.
+  const [phone, setPhone] = useState(ownerPreview?.phone ?? '');
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [demoToken, setDemoToken] = useState<string | null>(null);
@@ -70,10 +75,19 @@ export default function EmailSignInScreen() {
     setInfo(null);
     setDemoToken(null);
     if (!checkEmail()) return;
+    const accountPhone = phone.trim() || ownerPreview?.phone || '';
+    if (!accountPhone) {
+      setError(t('auth.email.error.phoneRequired'));
+      return;
+    }
+    if (!isValidPhone(accountPhone)) {
+      setError(t('auth.email.error.phoneInvalid'));
+      return;
+    }
 
     setMagicSending(true);
     try {
-      const result = await requestOwnerMagicLink(email);
+      const result = await requestOwnerMagicLink(email, accountPhone || undefined);
       setInfo(t('auth.email.magicSent'));
       setDemoToken(result.demoToken ?? null);
     } catch (cause) {
@@ -113,6 +127,14 @@ export default function EmailSignInScreen() {
           secureTextEntry
           required
         />
+        <Field
+          label={t('auth.email.phone')}
+          value={phone}
+          onChangeText={setPhone}
+          placeholder="097 123 4567"
+          keyboardType="phone-pad"
+        />
+        <Text style={styles.muted}>{t('auth.email.phoneHint')}</Text>
       </Card>
 
       <Button

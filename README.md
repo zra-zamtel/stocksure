@@ -81,9 +81,62 @@ Five people, one owner per area.
 | Given | Designer and storyteller | Colours, logo, fonts, wording sheet, components, MVP screens, clickable demo flow, visual story | _handle pending_ |
 | Happy | Pitch lead | Demo script, PowerPoint, video and the live presentation | [@happymukande](https://github.com/happymukande) |
 
+## Quick start (Windows PowerShell)
+
+Prerequisites: **Python 3.10+**, **Node 26 LTS** (see `mobile/.nvmrc`) and npm.
+
+```powershell
+# First time only: create backend/.venv, install both sides, create backend/.env
+# with local-demo settings, and apply SQLite migrations.
+.\scripts\setup.ps1
+
+# Start Django and Expo in two windows.
+.\scripts\start.ps1
+```
+
+The backend prints its URL (`http://localhost:8000`). In the Expo window, scan
+the QR code with Expo Go or press `a` for the Android emulator.
+
+If PowerShell blocks local scripts, either run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\setup.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\start.ps1
+```
+
+or allow signed local scripts once:
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+```
+
+Other entry points:
+
+```powershell
+.\scripts\start-backend.ps1          # Django only; -Port 8001 to change the port
+.\scripts\start-mobile.ps1           # Expo only
+.\scripts\test.ps1                   # backend tests, mobile tests, typecheck, lint
+.\scripts\test.ps1 -BackendOnly      # one side only
+```
+
+`setup.ps1` only creates `backend/.env` when it is missing. That generated file
+uses the **local-demo profile**: debug on, and magic-link tokens and PIN reset
+codes shown in API responses. Never use it on a deployed server; see
+`backend/.env.example` for SMTP, Postgres and safe defaults.
+
+If a physical phone cannot reach Django, allow port 8000 through Windows
+Firewall (Private networks), and make sure the phone and laptop are on the same
+Wi-Fi. The app normally derives the backend address from Expo; if the network
+setup is unusual, start Expo with:
+
+```powershell
+$env:EXPO_PUBLIC_API_URL="http://<your-lan-ip>:8000"; npx expo start
+```
+
 ## Running the app
 
-Requires **Node 24 LTS** (Expo 58 does not support odd-numbered releases such as 23.x).
+Requires **Node 26 LTS** (see `mobile/.nvmrc`; Expo 58 does not support
+odd-numbered releases such as 23.x or 25.x).
 
 ```bash
 cd mobile
@@ -112,7 +165,8 @@ and is not loaded automatically.
 ### Registration backend
 
 The online identity calls are a minimal Django + DRF service in `backend/`:
-owner registration and PIN reset. Sign-in and the rest of the app stay offline.
+owner registration, magic-link email sign-in, staff sign-in and PIN resets.
+Everything else stays on the phone.
 
 ```bash
 cd backend
@@ -120,11 +174,18 @@ python -m venv .venv
 # Windows: .venv\Scripts\activate
 # macOS/Linux: source .venv/bin/activate
 pip install -r requirements.txt
+# Windows: Copy-Item .env.example .env
+# macOS/Linux: cp .env.example .env
+# Edit .env: set DJANGO_SECRET_KEY, or uncomment the local demo block.
 python manage.py migrate
-# PowerShell: enable the demo tokens for magic links and PIN reset
-$env:DJANGO_DEBUG="1"; $env:EXPOSE_EMAIL_TOKEN="1"; $env:EXPOSE_RESET_CODE="1"
 python manage.py runserver 0.0.0.0:8000
 ```
+
+`.env.example` is safe by default: set `DJANGO_SECRET_KEY`, or uncomment its
+local-demo block to turn on `DJANGO_DEBUG`, the magic-link token and the PIN
+reset code for a throwaway machine. To send real magic-link email, fill in the
+Gmail SMTP block; to use Supabase Postgres, set `DATABASE_URL`. Both are
+optional for local work; the backend README has the steps.
 
 The app derives the backend host from the Expo development server. If that does
 not work on your setup (an emulator, a tunnel or a deployed server), start Expo
@@ -145,8 +206,10 @@ See [`backend/README.md`](./backend/README.md).
 ## Status
 
 The demo path is being built. Owner email/password registration, magic-link
-sign-in, staff registration, a staff member's first sign-in and phone PIN reset
-run against the local Django API. Onboarding, products, sales, reconciliation
+sign-in, staff registration, a staff member's first sign-in, owner and staff PIN
+resets run against the local Django API. Password sign-in requires a verified
+email; the magic link is the verification step, so register then open a sign-in
+link once before using the password on a new phone. Onboarding, products, sales, reconciliation
 and TaxPot run against SQLite, with staff roles gated by the same permission
 matrix in the app and on the routes. The rest of sync, USSD and the remaining
 demo steps are in flight — see the board for what is next.

@@ -245,6 +245,8 @@ owner has accepted each failure in writing as a known issue.
 | 6 | Sign out, sign in as the owner, and open the sale. | The owner sees cost, discounts and "Recorded by Given", and can void it. |
 | 7 | On a second phone with no shop data, sign in as Given with phone `096 555 1122` and PIN `7315`. | The first sign-in needs internet and completes; the app says shop data is not on this phone yet. |
 | 8 | Turn airplane mode on, force-close and reopen the second phone. | Given signs in with `7315` offline, and still sees the waiting screen. |
+| 9 | On the owner's phone, with internet on, open Settings → Staff, tap **Change PIN** next to Given, enter `9042` twice and save. | "Given's PIN was changed." appears. |
+| 10 | Sign out. Try `7315`, then sign in with `9042`. | `7315` is rejected. `9042` opens Home as Given. The owner's phone now uses the new PIN offline too. |
 
 ## UAT-22 Owner email sign-in and magic link on a new phone
 
@@ -253,11 +255,12 @@ owner has accepted each failure in writing as a known issue.
 | Step | Do this | Expected result |
 | --- | --- | --- |
 | 1 | On the second phone, choose English. On "Create your account", tap **Already registered? Sign in with email**. | The email sign-in screen opens. |
-| 2 | Enter `elton@example.com` and password `stocksure-demo`. Tap **Sign in**. | The "Set your phone PIN" screen opens. |
-| 3 | Enter PIN `4821` twice and save. | The app says shop data is not on this phone yet. |
-| 4 | Turn airplane mode on, force-close and reopen. Enter `4821`. | The waiting screen opens offline. |
-| 5 | On the first phone, sign out. Tap **Sign in with email or a magic link**. Enter `elton@example.com` and tap **Email me a magic link**. | A demo magic-link card appears (development build). |
-| 6 | Tap **Open demo link**. | The set-PIN screen opens. Setting `4821` returns to the existing shop with all data. |
-| 7 | Try the same magic link again. | It is rejected as already used. |
+| 2 | Enter `elton@example.com` and password `stocksure-demo`. Tap **Sign in**. | The app asks you to verify your email first. The password alone cannot sign in. |
+| 3 | On the first phone, sign out. Tap **Sign in with email or a magic link**. Enter `elton@example.com`; the account phone `0971234567` is already filled. Tap **Email me a magic link**. | A demo magic-link card appears (development build). The phone is what lets an unverified account prove it owns the number. |
+| 4 | Tap **Open demo link**. | The set-PIN screen opens. Setting `4821` returns to the existing shop with all data and verifies the email. |
+| 5 | On the second phone, enter `elton@example.com` and password `stocksure-demo` again. | The "Set your phone PIN" screen opens. |
+| 6 | Enter PIN `4821` twice and save. | The app says shop data is not on this phone yet. |
+| 7 | Turn airplane mode on, force-close and reopen. Enter `4821`. | The waiting screen opens offline. |
+| 8 | Try the same magic link again. | It is rejected as already used. |
 
 **Note:** in a real deployment the link arrives by email and the demo card is hidden.

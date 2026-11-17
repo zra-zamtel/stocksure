@@ -860,6 +860,24 @@ export async function upsertStaffFromServer(
   };
 }
 
+/**
+ * After an owner replaces a staff PIN on the server, this phone stores the same
+ * new hash so that person's next sign-in here still works offline.
+ */
+export async function updateStaffPinHash(
+  db: SQLiteDatabase,
+  staffId: string,
+  pinHash: string
+): Promise<void> {
+  const result = await db.runAsync(
+    'UPDATE staff SET pin_hash = ?, updated_at = ? WHERE id = ?',
+    pinHash,
+    nowIso(),
+    staffId
+  );
+  if (result.changes === 0) throw new Error('Staff member not found on this phone');
+}
+
 /** Records the online first check so later staff sign-ins work offline. */
 export async function markStaffFirstSignIn(
   db: SQLiteDatabase,

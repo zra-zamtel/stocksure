@@ -103,7 +103,7 @@ type AuthValue = {
   signInStaff: (input: { phone: string; pin: string }) => Promise<void>;
   beginOwnerLogin: (input: { email: string; password: string }) => Promise<void>;
   beginOwnerMagicLink: (token: string) => Promise<void>;
-  requestOwnerMagicLink: (email: string) => Promise<MagicLinkRequestResult>;
+  requestOwnerMagicLink: (email: string, phone?: string) => Promise<MagicLinkRequestResult>;
   completeDeviceSetup: (input: { pin: string }) => Promise<void>;
   cancelOwnerLogin: () => void;
   requestPinResetCode: () => Promise<PinResetRequestResult>;
@@ -390,7 +390,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const requestOwnerMagicLink = useCallback(
-    async (email: string) => requestMagicLinkOnServer(email.trim().toLowerCase()),
+    async (email: string, phone?: string) =>
+      requestMagicLinkOnServer(email.trim().toLowerCase(), phone),
     []
   );
 
