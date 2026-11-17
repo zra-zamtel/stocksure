@@ -1,23 +1,39 @@
 import { useLocalSearchParams } from 'expo-router';
+import { useSQLiteContext } from 'expo-sqlite';
+import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { Button, Card, EmptyState, Pill, Row, Screen } from '@/components/ui';
-import { paymentsData, products, saleLinesData, salesData } from '@/data/fake';
+import { Button, Card, EmptyState, Field, Pill, Row, Screen, SectionTitle } from '@/components/ui';
+import { useSaleDetail } from '@/db/hooks';
+import { voidSale } from '@/db/repos';
 import { useI18n } from '@/i18n';
 import { formatKwacha } from '@/lib/format';
-import { colors, spacing, typeScale } from '@/theme/tokens';
-
-function describeVariant(variantId: string) {
-  for (const product of products) {
-    const variant = product.variants.find((candidate) => candidate.id === variantId);
-    if (variant) return [product.name, variant.size, variant.colour].filter(Boolean).join(' · ');
-  }
-  return variantId;
-}
+import { colors, typeScale } from '@/theme/tokens';
 
 export default function SaleScreen() {
   const { t } = useI18n();
+  const db = useSQLiteContext();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const sale = salesData.find((candidate) => candidate.id === id);
+  const { data: sale, loading, error, reload } = useSaleDetail(id);
+
+  const [reason, setReason] = useState('');
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  if (loading && !sale) {
+    return (
+      <Screen title={t('sales.title')}>
+        <Text style={styles.muted}>{t('common.syncing')}</Text>
+      </Screen>
+    );
+  }
+
+  if (error) {
+    return (
+      <Screen title={t('sales.title')}>
+        <EmptyState message={error} />
+      </Screen>
+    );
+  }
 
   if (!sale) {
     return (
@@ -27,45 +43,87 @@ export default function SaleScreen() {
     );
   }
 
-  const lines = saleLinesData.filter((line) => line.saleId === sale.id);
-  const payments = paymentsData.filter((payment) => payment.saleId === sale.id);
+  async function handleVoid() {
+    setSubmitError(null);
+    setSubmitting(true);
+    try {
+      await voidSale(db, sale!.id, reason.trim() || 'No reason given');
+      setReason('');
+      reload();
+    } catch (cause) {
+      setSubmitError(cause instanceof Error ? cause.message : 'Could not void the sale');
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
   return (
     <Screen
       title={`${t('sales.title')} · ${sale.createdAt.slice(11, 16)}`}
-      footer={<Button label={t('sales.void')} variant="danger" disabled />}
+      subtitle={sale.createdAt.slice(0, 10)}
     >
       <Card>
-        <Row label={t('sales.total')} value={formatKwacha(sale.total)} emphasis />
-        <Row label={t('sales.summary.discounts')} value={formatKwacha(sale.discountTotal)} />
         <View style={styles.statusRow}>
           <Text style={styles.muted}>{t('sales.status')}</Text>
-          <Pill label={sale.reconcileStatus} tone={sale.reconcileStatus === 'matched' ? 'success' : 'warning'} />
+          <Pill
+            label={sale.status === 'void' ? t('sales.voided') : sale.reconcileStatus}
+            tone={sale.status === 'void' ? 'danger' : sale.reconcileStatus === 'matched' ? 'success' : 'warning'}
+          />
         </View>
+        <Row label={t('sale.new.subtotal')} value={formatKwacha(sale.subtotal)} />
+        <Row label={t('sale.new.discounts')} value={formatKwacha(sale.discountTotal)} />
+        <Row label={t('sales.total')} value={formatKwacha(sale.total)} emphasis />
+        {sale.status === 'void' && sale.voidReason ? (
+          <Text style={styles.muted}>
+            {t('sales.voidReason')}: {sale.voidReason}
+          </Text>
+        ) : null}
       </Card>
 
-      <Text style={styles.section}>{t('sales.items')}</Text>
+      <SectionTitle>{t('sales.items')}</SectionTitle>
       <Card>
-        {lines.map((line) => (
+        {sale.lines.map((line) => (
           <Row
             key={line.id}
-            label={`${describeVariant(line.variantId)} × ${line.quantity}`}
+            label={`${line.label} × ${line.quantity}`}
             value={formatKwacha(line.finalPrice)}
           />
         ))}
       </Card>
 
-      <Text style={styles.section}>{t('sales.payment')}</Text>
+      <SectionTitle>{t('sales.payment')}</SectionTitle>
       <Card>
-        {payments.map((payment) => (
+        {sale.payments.map((payment) => (
           <Row
             key={payment.id}
-            label={payment.provider ?? t('sale.new.cash')}
+            label={payment.provider ?? (payment.method === 'cash' ? t('sale.new.cash') : t('sale.new.mobileMoney'))}
             value={formatKwacha(payment.amount)}
           />
         ))}
-        {payments.length === 0 ? <EmptyState message={t('reconcile.saleNoPayment')} /> : null}
+        {sale.payments.length === 0 ? <EmptyState message={t('reconcile.saleNoPayment')} /> : null}
       </Card>
+
+      {sale.status === 'active' ? (
+        <>
+          <SectionTitle>{t('sales.void')}</SectionTitle>
+          <Card>
+            <Field
+              label={t('sales.voidReason')}
+              value={reason}
+              onChangeText={setReason}
+              placeholder={t('common.optional')}
+            />
+            <Button
+              label={t('sales.void')}
+              variant="danger"
+              disabled={submitting}
+              onPress={handleVoid}
+            />
+            {submitError ? <Text style={styles.error}>{submitError}</Text> : null}
+            <Text style={styles.muted}>{t('tax.pot.simulated')}</Text>
+          </Card>
+        </>
+      ) : null}
     </Screen>
   );
 }
@@ -73,12 +131,5 @@ export default function SaleScreen() {
 const styles = StyleSheet.create({
   statusRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   muted: { fontSize: typeScale.label, color: colors.textMuted },
-  section: {
-    fontSize: typeScale.label,
-    fontWeight: '700',
-    letterSpacing: 0.6,
-    textTransform: 'uppercase',
-    color: colors.textMuted,
-    marginTop: spacing.sm,
-  },
+  error: { fontSize: typeScale.label, color: colors.danger, fontWeight: '600' },
 });

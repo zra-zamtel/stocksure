@@ -112,8 +112,8 @@ export const products: Product[] = [
 type SeedSale = {
   id: string;
   time: string;
-  lines: Array<{ variantId: string; quantity: number; discount?: number }>;
-  payments: Array<Omit<Payment, 'id' | 'createdAt' | 'updatedAt' | 'saleId'>>;
+  lines: { variantId: string; quantity: number; discount?: number }[];
+  payments: Omit<Payment, 'id' | 'createdAt' | 'updatedAt' | 'saleId'>[];
   status?: Sale['status'];
   reconcileStatus: Sale['reconcileStatus'];
 };
@@ -328,7 +328,7 @@ export function todayTotals() {
   return { ...totals, cost, grossProfit: totals.salesTotal - cost };
 }
 
-export function lowStockItems(): Array<{ variantId: string; label: string; quantity: number; level: number }> {
+export function lowStockItems(): { variantId: string; label: string; quantity: number; level: number }[] {
   return products.flatMap((product) =>
     product.variants.flatMap((variant) => {
       const quantity = stockOnHand(variant.id);

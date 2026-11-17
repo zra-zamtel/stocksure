@@ -131,7 +131,7 @@ describe('stock', () => {
     { variantId: 'v1', quantityChange: 6 },
     { variantId: 'v1', quantityChange: -2 },
     { variantId: 'v2', quantityChange: 4 },
-  ] as Array<Pick<StockMovement, 'variantId' | 'quantityChange'>>;
+  ] as Pick<StockMovement, 'variantId' | 'quantityChange'>[];
 
   it('derives quantity from movements only', () => {
     expect(quantityOnHand(movements, 'v1')).toBe(4);

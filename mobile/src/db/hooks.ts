@@ -1,7 +1,9 @@
+import { useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { todayLocal } from '@/core';
 import {
+  getSaleDetail,
   listProductsWithStock,
   listSales,
   lowStockVariants,
@@ -9,47 +11,53 @@ import {
   totalsForDay,
   type LowStockRow,
   type ProductWithStock,
+  type SaleDetail,
   type SaleSummary,
   type TaxSnapshot,
 } from './repos';
 
-
-interface QueryState<T> {
-  data: T;
-  loading: boolean;
-  error: string | null;
-  reload: () => void;
-}
-
-function useQuery<T>(initial: T, run: (db: ReturnType<typeof useSQLiteContext>) => Promise<T>): QueryState<T> {
+/**
+ * Screen-level read hooks. They refresh on focus, so recording a sale on one
+ * screen updates Home and Sales when you navigate back, without a global store.
+ */
+function useQuery<T>(
+  initial: T,
+  run: (db: ReturnType<typeof useSQLiteContext>) => Promise<T>,
+  deps: readonly unknown[] = []
+) {
   const db = useSQLiteContext();
   const [data, setData] = useState<T>(initial);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
+  // A literal dependency list keeps the lint rule happy; the key encodes the
+  // caller's own dependencies (for example a sale id).
+  const depKey = deps.map((value) => String(value)).join('|');
 
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    run(db)
-      .then((result) => {
-        if (!cancelled) {
-          setData(result);
-          setError(null);
-        }
-      })
-      .catch((cause: unknown) => {
-        if (!cancelled) setError(cause instanceof Error ? cause.message : 'Could not read the database');
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-    // `run` is a fresh closure each render; the tick is the explicit reload key.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [db, tick]);
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      setLoading(true);
+      run(db)
+        .then((result) => {
+          if (!cancelled) {
+            setData(result);
+            setError(null);
+          }
+        })
+        .catch((cause: unknown) => {
+          if (!cancelled) setError(cause instanceof Error ? cause.message : 'Could not read the database');
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
+      return () => {
+        cancelled = true;
+      };
+      // `run` is a fresh closure each render; tick and depKey are the reload keys.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [db, tick, depKey])
+  );
 
   const reload = useCallback(() => setTick((value) => value + 1), []);
   return { data, loading, error, reload };
@@ -61,6 +69,10 @@ export function useProducts() {
 
 export function useSales() {
   return useQuery<SaleSummary[]>([], (db) => listSales(db));
+}
+
+export function useSaleDetail(saleId: string) {
+  return useQuery<SaleDetail | null>(null, (db) => getSaleDetail(db, saleId), [saleId]);
 }
 
 export function useDayTotals() {

@@ -17,7 +17,7 @@ export interface MatchCandidate {
 }
 
 export interface MatchResult {
-  matched: Array<{ saleId: string; receivedId: string }>;
+  matched: { saleId: string; receivedId: string }[];
   unmatchedSales: string[];
   unmatchedReceived: string[];
 }

@@ -7,7 +7,7 @@ import type { StockMovement, StockState } from './types';
  */
 
 export function quantityOnHand(
-  movements: Array<Pick<StockMovement, 'variantId' | 'quantityChange'>>,
+  movements: Pick<StockMovement, 'variantId' | 'quantityChange'>[],
   variantId: string
 ): number {
   return movements

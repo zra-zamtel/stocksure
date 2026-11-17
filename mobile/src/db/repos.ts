@@ -12,6 +12,7 @@ import {
   type LineInput,
   type Ngwee,
   type PaymentInput,
+  type ProductDiscount,
   type StockMovement,
   type StockState,
 } from '@/core';
@@ -44,6 +45,7 @@ export interface ProductWithStock {
   category?: string;
   defaultBuyPrice: Ngwee;
   defaultSellPrice: Ngwee;
+  discount?: ProductDiscount;
   stock: number;
   variants: VariantWithStock[];
 }
@@ -54,6 +56,7 @@ interface ProductRow {
   category: string | null;
   defaultBuyPrice: number;
   defaultSellPrice: number;
+  discountJson: string | null;
   variantId: string | null;
   size: string | null;
   colour: string | null;
@@ -69,6 +72,7 @@ export async function listProductsWithStock(db: SQLiteDatabase): Promise<Product
     `SELECT p.id, p.name, p.category,
             p.default_buy_price AS defaultBuyPrice,
             p.default_sell_price AS defaultSellPrice,
+            p.discount_json AS discountJson,
             v.id AS variantId, v.size, v.colour, v.barcode,
             v.buy_price AS buyPrice, v.sell_price AS sellPrice,
             v.low_stock_level AS lowStockLevel,
@@ -89,6 +93,7 @@ export async function listProductsWithStock(db: SQLiteDatabase): Promise<Product
         category: row.category ?? undefined,
         defaultBuyPrice: row.defaultBuyPrice,
         defaultSellPrice: row.defaultSellPrice,
+        discount: row.discountJson ? (JSON.parse(row.discountJson) as ProductDiscount) : undefined,
         stock: 0,
         variants: [],
       };
@@ -224,7 +229,7 @@ export class InsufficientStockError extends Error {
 export interface RecordedSale {
   saleId: string;
   total: Ngwee;
-  belowCost: Array<{ variantId: string; finalPrice: Ngwee }>;
+  belowCost: { variantId: string; finalPrice: Ngwee }[];
 }
 
 /**
@@ -430,6 +435,85 @@ export async function voidSale(db: SQLiteDatabase, saleId: string, reason: strin
       stockMovements: reversals,
     });
   });
+}
+
+export interface SaleDetail {
+  id: string;
+  createdAt: string;
+  subtotal: Ngwee;
+  discountTotal: Ngwee;
+  total: Ngwee;
+  status: 'active' | 'void';
+  voidReason?: string;
+  reconcileStatus: string;
+  lines: {
+    id: string;
+    label: string;
+    quantity: number;
+    buyPrice: Ngwee;
+    listPrice: Ngwee;
+    discount: Ngwee;
+    finalPrice: Ngwee;
+  }[];
+  payments: {
+    id: string;
+    method: string;
+    provider?: string;
+    amount: Ngwee;
+    reference?: string;
+  }[];
+}
+
+/** One sale with its lines and payments, for the detail screen. */
+export async function getSaleDetail(db: SQLiteDatabase, saleId: string): Promise<SaleDetail | null> {
+  const sale = await db.getFirstAsync<{
+    id: string;
+    createdAt: string;
+    subtotal: number;
+    discountTotal: number;
+    total: number;
+    status: 'active' | 'void';
+    voidReason: string | null;
+    reconcileStatus: string;
+  }>(
+    `SELECT id, created_at AS createdAt, subtotal, discount_total AS discountTotal, total,
+            status, void_reason AS voidReason, reconcile_status AS reconcileStatus
+       FROM sale WHERE id = ?`,
+    saleId
+  );
+  if (!sale) return null;
+
+  const lines = await db.getAllAsync<SaleDetail['lines'][number]>(
+    `SELECT l.id,
+            TRIM(p.name || ' ' || COALESCE(v.size, '') || ' ' || COALESCE(v.colour, '')) AS label,
+            l.quantity, l.buy_price AS buyPrice, l.list_price AS listPrice,
+            l.discount, l.final_price AS finalPrice
+       FROM sale_line l
+       JOIN product_variant v ON v.id = l.variant_id
+       JOIN product p ON p.id = v.product_id
+      WHERE l.sale_id = ?
+      ORDER BY l.id`,
+    saleId
+  );
+
+  const payments = await db.getAllAsync<SaleDetail['payments'][number]>(
+    `SELECT id, method, provider, amount, mobile_money_reference AS reference
+       FROM payment WHERE sale_id = ? ORDER BY id`,
+    saleId
+  );
+
+  return {
+    id: sale.id,
+    createdAt: sale.createdAt,
+    subtotal: sale.subtotal,
+    discountTotal: sale.discountTotal,
+    total: sale.total,
+    status: sale.status,
+    voidReason: sale.voidReason ?? undefined,
+    reconcileStatus: sale.reconcileStatus,
+    lines,
+    payments,
+  };
 }
 
 export interface TaxPeriodRef {
