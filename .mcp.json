@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "agent-board": {
+      "type": "stdio",
+      "command": "python",
+      "args": [
+        "-c",
+        "import pathlib,runpy,sys; root=next(p for p in (pathlib.Path.cwd(),*pathlib.Path.cwd().parents) if (p/'tools/agent-board/mcp_server.py').exists()); sys.argv=[str(root/'tools/agent-board/mcp_server.py')]; runpy.run_path(sys.argv[0], run_name='__main__')"
+      ],
+      "env": {
+        "BOARD_AGENT": "claude"
+      }
+    }
+  }
+}

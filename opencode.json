@@ -1,0 +1,13 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "agent-board": {
+      "type": "local",
+      "command": ["python", "tools/agent-board/mcp_server.py"],
+      "environment": {
+        "BOARD_AGENT": "opencode"
+      },
+      "codemode": false
+    }
+  }
+}
