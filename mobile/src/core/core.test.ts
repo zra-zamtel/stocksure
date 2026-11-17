@@ -126,11 +126,15 @@ describe('payments', () => {
     expect(validatePayments(30000, [{ method: 'cash', amount: 10000 }])).toHaveLength(1);
   });
 
-  it('rejects mobile money without a reference, which could never reconcile', () => {
-    const errors = validatePayments(10000, [
-      { method: 'mobile_money', amount: 10000, provider: 'Airtel' },
-    ]);
-    expect(errors.some((error) => error.includes('reference'))).toBe(true);
+  it('accepts mobile money without a reference: the provider SMS supplies it', () => {
+    expect(
+      validatePayments(10000, [{ method: 'mobile_money', amount: 10000, provider: 'Airtel' }])
+    ).toEqual([]);
+  });
+
+  it('still rejects mobile money without a provider', () => {
+    const errors = validatePayments(10000, [{ method: 'mobile_money', amount: 10000 }]);
+    expect(errors.some((error) => error.includes('provider'))).toBe(true);
   });
 });
 
@@ -273,7 +277,35 @@ describe('reconciliation matching', () => {
     expect(result.matched).toHaveLength(0);
   });
 
-  it('matches one to one, leaving the extra payment unmatched', () => {
+  it('matches without references when exactly one payment fits', () => {
+    const noRef = { id: 's9', amount: 6000, at: '2026-11-17T08:40:00+02:00' };
+    const result = matchPayments(
+      [noRef],
+      [{ ...noRef, id: 'p9', at: '2026-11-17T08:41:00+02:00' }],
+      30
+    );
+    expect(result.matched).toEqual([{ saleId: 's9', receivedId: 'p9' }]);
+  });
+
+  it('refuses to match when only one side has a reference', () => {
+    const result = matchPayments(
+      [{ id: 's1', amount: 25200, at: sale.at }],
+      [{ ...sale, id: 'r1' }],
+      30
+    );
+    expect(result.matched).toHaveLength(0);
+  });
+
+  it('refuses a match across different providers', () => {
+    const result = matchPayments(
+      [{ ...sale, provider: 'MTN' }],
+      [{ ...sale, id: 'r1', provider: 'Airtel' }],
+      30
+    );
+    expect(result.matched).toHaveLength(0);
+  });
+
+  it('reports ambiguity instead of choosing a payment', () => {
     const twin = { ...sale, id: 's2' };
     const result = matchPayments(
       [sale, twin],
@@ -283,8 +315,8 @@ describe('reconciliation matching', () => {
       ],
       30
     );
-    expect(result.matched).toHaveLength(2);
-    expect(new Set(result.matched.map((match) => match.receivedId)).size).toBe(2);
+    expect(result.matched).toHaveLength(0);
+    expect([...result.ambiguousSales].sort()).toEqual(['s1', 's2']);
   });
 
   it('reports cash variance against the float plus cash sales', () => {

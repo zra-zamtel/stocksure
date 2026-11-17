@@ -7,7 +7,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { captureRef } from 'react-native-view-shot';
 import { BarcodeLabel } from '@/components/barcode-label';
 import { Button, Card, Field, Screen, SectionTitle } from '@/components/ui';
-import { generateInStoreBarcode, isValidEan13, normaliseBarcode, toNgwee } from '@/core';
+import { isValidEan13, normaliseBarcode, toNgwee } from '@/core';
 import { useShop } from '@/db/hooks';
 import { createProduct } from '@/db/repos';
 import { useI18n } from '@/i18n';
@@ -114,21 +114,11 @@ export default function NewProductScreen() {
       footer={<Button label={t('products.saveProduct')} disabled={saving} onPress={handleSave} />}
     >
       {usesBarcodes ? (
-        <View style={styles.row}>
-          <View style={styles.rowButton}>
-            <Button label={t('products.scanBarcode')} variant="secondary" onPress={() => router.push('/scan')} />
-          </View>
-          <View style={styles.rowButton}>
-            <Button
-              label={t('products.generateBarcode')}
-              variant="secondary"
-              onPress={() => {
-                setBarcode(generateInStoreBarcode());
-                setMessage(null);
-              }}
-            />
-          </View>
-        </View>
+        <Button
+          label={t('products.scanBarcode')}
+          variant="secondary"
+          onPress={() => router.push('/scan')}
+        />
       ) : null}
 
       <SectionTitle>{t('product.new.name')}</SectionTitle>
@@ -139,7 +129,7 @@ export default function NewProductScreen() {
           label={t('product.new.barcode')}
           value={barcode}
           onChangeText={setBarcode}
-          placeholder={usesBarcodes ? t('products.generateBarcode') : t('common.optional')}
+          placeholder={usesBarcodes ? t('products.barcodeAuto') : t('common.optional')}
           keyboardType="numeric"
         />
       </Card>
@@ -189,7 +179,6 @@ export default function NewProductScreen() {
 }
 
 const styles = StyleSheet.create({
-  row: { flexDirection: 'row', gap: spacing.md },
   rowButton: { flex: 1 },
   labelActions: { flexDirection: 'row', gap: spacing.md },
   muted: { fontSize: typeScale.label, color: colors.textMuted },

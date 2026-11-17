@@ -119,6 +119,24 @@ export default function ReconcileScreen() {
         )}
       </Card>
 
+      {data.needsReview.length > 0 ? (
+        <Card style={styles.reviewCard}>
+          <View style={styles.headingRow}>
+            <Text style={styles.heading}>{t('reconcile.needsReview')}</Text>
+            <Pill label={String(data.needsReview.length)} tone="info" />
+          </View>
+          {data.needsReview.map((sale) => (
+            <View key={sale.saleId} style={styles.item}>
+              <Row
+                label={`${sale.provider ?? t('sale.new.mobileMoney')} · ${sale.reference ?? t('common.notYet')}`}
+                value={formatKwacha(sale.total)}
+              />
+              <Text style={styles.muted}>{t('reconcile.ambiguousBody')}</Text>
+            </View>
+          ))}
+        </Card>
+      ) : null}
+
       <Card>
         <View style={styles.headingRow}>
           <Text style={styles.heading}>{t('reconcile.paymentNoSale')}</Text>
@@ -206,6 +224,7 @@ export default function ReconcileScreen() {
 }
 
 const styles = StyleSheet.create({
+  reviewCard: { backgroundColor: colors.infoSoft },
   headingRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   heading: { fontSize: typeScale.body, fontWeight: '700', color: colors.text },
   item: { gap: spacing.xs, marginTop: spacing.xs },

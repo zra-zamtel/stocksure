@@ -305,6 +305,7 @@ export default function NewSaleScreen() {
             onChangeText={setReference}
             placeholder="MP2607.1122.A84721"
           />
+          <Text style={styles.muted}>{t('sale.new.referenceHint')}</Text>
         </Card>
       ) : null}
 

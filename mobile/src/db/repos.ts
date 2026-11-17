@@ -1170,6 +1170,8 @@ export interface ReconcileDayResult {
   day: string;
   matched: ReconciledMatch[];
   salesWithoutPayment: SaleWithoutPayment[];
+  /** More than one payment fits: the owner must choose. */
+  needsReview: SaleWithoutPayment[];
   paymentsWithoutSale: PaymentWithoutSale[];
   cash: ReconcileCash;
 }
@@ -1230,12 +1232,14 @@ export async function reconcileDay(
       id: payment.paymentId,
       amount: payment.amount,
       reference: payment.reference ?? undefined,
+      provider: payment.provider ?? undefined,
       at: payment.createdAt,
     })),
     txns.map((txn) => ({
       id: txn.id,
       amount: txn.amount,
       reference: txn.reference ?? undefined,
+      provider: txn.provider,
       at: txn.receivedAt,
     })),
     windowMinutes
@@ -1243,6 +1247,7 @@ export async function reconcileDay(
 
   const matchedPaymentIds = new Set(result.matched.map((match) => match.saleId));
   const matchedTxnIds = new Set(result.matched.map((match) => match.receivedId));
+  const ambiguousPaymentIds = new Set(result.ambiguousSales);
   const stamp = nowIso();
 
   const cashRow = await db.getFirstAsync<{ cashSales: number }>(
@@ -1272,12 +1277,20 @@ export async function reconcileDay(
   // Expected cash comes from the same helper the UI uses, so the two cannot drift.
   const cash = cashVariance(openingFloat, cashRow?.cashSales ?? 0, countedCash ?? 0);
 
-  const salesWithoutPayment = payments.filter((payment) => !matchedPaymentIds.has(payment.paymentId));
+  const salesWithoutPayment = payments.filter(
+    (payment) =>
+      !matchedPaymentIds.has(payment.paymentId) && !ambiguousPaymentIds.has(payment.paymentId)
+  );
+  const ambiguousSales = payments.filter((payment) => ambiguousPaymentIds.has(payment.paymentId));
   const paymentsWithoutSale = txns.filter((txn) => !matchedTxnIds.has(txn.id));
 
   await db.withTransactionAsync(async () => {
     for (const payment of payments) {
-      const status = matchedPaymentIds.has(payment.paymentId) ? 'matched' : 'sale_no_payment';
+      const status = matchedPaymentIds.has(payment.paymentId)
+        ? 'matched'
+        : ambiguousPaymentIds.has(payment.paymentId)
+          ? 'unresolved'
+          : 'sale_no_payment';
       await db.runAsync('UPDATE sale SET reconcile_status = ?, updated_at = ? WHERE id = ?', status, stamp, payment.saleId);
     }
 
@@ -1326,6 +1339,13 @@ export async function reconcileDay(
       };
     }),
     salesWithoutPayment: salesWithoutPayment.map((payment) => ({
+      saleId: payment.saleId,
+      total: payment.amount,
+      createdAt: payment.createdAt,
+      provider: payment.provider ?? undefined,
+      reference: payment.reference ?? undefined,
+    })),
+    needsReview: ambiguousSales.map((payment) => ({
       saleId: payment.saleId,
       total: payment.amount,
       createdAt: payment.createdAt,

@@ -99,6 +99,12 @@ export interface PaymentInput {
   reference?: string;
 }
 
+/**
+ * A mobile money payment does not need a reference at the counter: the provider
+ * message that arrives on the shop phone carries it. Requiring one here would
+ * block the normal flow, so the reference is optional and the matcher falls
+ * back to amount, provider and time when neither side has one.
+ */
 export function validatePayments(total: Ngwee, payments: PaymentInput[]): string[] {
   const errors: string[] = [];
   if (payments.length === 0) return ['A sale needs at least one payment'];
@@ -108,9 +114,8 @@ export function validatePayments(total: Ngwee, payments: PaymentInput[]): string
 
   for (const payment of payments) {
     if (payment.amount <= 0) errors.push('A payment must be greater than zero');
-    if (payment.method === 'mobile_money') {
-      if (!payment.provider) errors.push('Mobile money needs a provider');
-      if (!payment.reference?.trim()) errors.push('Mobile money needs a transaction reference');
+    if (payment.method === 'mobile_money' && !payment.provider) {
+      errors.push('Mobile money needs a provider');
     }
   }
   return errors;
