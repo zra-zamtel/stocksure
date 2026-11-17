@@ -1,0 +1,15 @@
+# Optional: a local PostgreSQL for development.  docker compose up -d db
+# Then in .env:  DATABASE_URL=postgres://stocksure:stocksure@localhost:5432/stocksure
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: stocksure
+      POSTGRES_PASSWORD: stocksure
+      POSTGRES_DB: stocksure
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+volumes:
+  pgdata:
