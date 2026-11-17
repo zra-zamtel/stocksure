@@ -47,8 +47,8 @@ The owner goes from sign-up to a working Home screen in three steps, and sees th
 
 **Step 1: Create account**
 
-- Fields: owner name, phone number, PIN (4 to 6 digits). Language is chosen on the first screen (English or Nyanja).
-- Sign-in afterwards uses the PIN, with no internet needed.
+- Fields: owner name, phone number, email, password, and a phone PIN (4 to 6 digits). Language is chosen on the first screen (English or Nyanja).
+- Sign-in afterwards uses the phone PIN, with no internet needed. Email and password, or a magic link, sign the owner in on a new phone and recover a forgotten PIN.
 - Decided: the first account creation needs one online moment so the backend can register the owner. After that the app is fully offline.
 
 **Step 2: Onboarding (3 short screens, skippable where marked)**
@@ -218,7 +218,9 @@ Yes, move the business logic into the app: on a phone with no signal the app mus
 - **Always visible.** A sync indicator shows offline, syncing or synced, and the app never blocks work because it is offline.
 - **Config, not code.** Tax rules and language text are files the app ships with and can refresh from the backend.
 
-**Needs internet (everything else does not):** first account creation, a staff member's first sign-in on a phone, restore from backup, USSD menus, and the online barcode lookup.
+**Needs internet (everything else does not):** first account creation, email
+sign-in or a magic link on a new phone, a staff member's first sign-in on a
+phone, restore from backup, USSD menus, and the online barcode lookup.
 
 &#91;embedded content: app and backend split · 4 phone parts, 4 backend parts\]
 
@@ -230,7 +232,7 @@ Thirteen record types cover the whole MVP; the detailed fields and the API go in
 
 | Record | Holds |
 | --- | --- |
-| Owner, Staff and Shop | Owner and staff names, phones, PIN checks, roles; shop name, type, town, currency, language, barcode use, tax settings |
+| Owner, Staff and Shop | Owner name, phone, email and password hash; staff names, phones, PIN checks, roles; shop name, type, town, currency, language, barcode use, tax settings |
 | Product | Name, category, photo, default buy and sell price, discount settings; its variants (size, colour, barcode, buy price, sell price, low-stock level) |
 | StockMovement | Product variant, quantity change, reason (opening, restock, sale, void, correction), time |
 | Sale | Time, recorded by, totals, discount total, status (Active or Void), reconciliation status |

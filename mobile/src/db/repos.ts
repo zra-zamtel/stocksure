@@ -2,11 +2,13 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import {
   cashVariance,
   generateInStoreBarcode,
+  isValidPhone,
   localDayBounds,
   matchPayments,
   needsOverride,
   newId,
   normaliseBarcode,
+  normalisePhone,
   nowIso,
   priceSale,
   reversalFor,
@@ -19,6 +21,7 @@ import {
   type Ngwee,
   type PaymentInput,
   type ProductDiscount,
+  type Role,
   type ShopType,
   type StockMovement,
   type StockState,
@@ -144,13 +147,17 @@ export interface SaleSummary {
   total: Ngwee;
   status: 'active' | 'void';
   reconcileStatus: string;
+  recordedByName: string;
 }
 
 export async function listSales(db: SQLiteDatabase, limit = 50): Promise<SaleSummary[]> {
   return db.getAllAsync<SaleSummary>(
-    `SELECT id, created_at AS createdAt, total, status, reconcile_status AS reconcileStatus
-       FROM sale
-      ORDER BY created_at DESC
+    `SELECT s.id, s.created_at AS createdAt, s.total, s.status, s.reconcile_status AS reconcileStatus,
+            COALESCE(o.name, st.name, s.recorded_by) AS recordedByName
+       FROM sale s
+       LEFT JOIN owner o ON o.id = s.recorded_by
+       LEFT JOIN staff st ON st.id = s.recorded_by
+      ORDER BY s.created_at DESC
       LIMIT ?`,
     limit
   );
@@ -527,16 +534,18 @@ export interface OwnerRecord {
   id: string;
   name: string;
   phone: string;
+  email?: string;
   pinHash: string;
 }
 
 export async function getOwner(db: SQLiteDatabase): Promise<OwnerRecord | null> {
-  return db.getFirstAsync<OwnerRecord>(
-    `SELECT id, name, phone, pin_hash AS pinHash
+  const row = await db.getFirstAsync<OwnerRecord & { email: string | null }>(
+    `SELECT id, name, phone, email, pin_hash AS pinHash
        FROM owner
       ORDER BY created_at ASC
       LIMIT 1`
   );
+  return row ? { ...row, email: row.email ?? undefined } : null;
 }
 
 export interface CreateOwnerInput {
@@ -544,6 +553,7 @@ export interface CreateOwnerInput {
   id: string;
   name: string;
   phone: string;
+  email?: string;
   pinHash: string;
 }
 
@@ -569,22 +579,300 @@ export async function createOwner(
     id: input.id,
     name: input.name.trim(),
     phone: input.phone,
+    email: input.email?.trim().toLowerCase() || undefined,
     pinHash: input.pinHash,
   };
   const stamp = nowIso();
 
   await db.runAsync(
-    `INSERT INTO owner (id, name, phone, pin_hash, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO owner (id, name, phone, email, pin_hash, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
     owner.id,
     owner.name,
     owner.phone,
+    owner.email ?? null,
     owner.pinHash,
     stamp,
     stamp
   );
 
   return owner;
+}
+
+/**
+ * An owner who signed in from another phone or recovered a forgotten PIN. The
+ * server has just verified the email; replace the cached identity and its local
+ * PIN hash instead of creating a second owner row.
+ */
+export async function upsertOwnerFromServer(
+  db: SQLiteDatabase,
+  input: CreateOwnerInput
+): Promise<OwnerRecord> {
+  const existing = await getOwner(db);
+  const owner: OwnerRecord = {
+    id: input.id,
+    name: input.name.trim(),
+    phone: input.phone,
+    email: input.email?.trim().toLowerCase() || undefined,
+    pinHash: input.pinHash,
+  };
+
+  if (existing) {
+    if (existing.id !== owner.id) {
+      throw new Error(
+        'This phone already has a different owner account. Sign out and use a separate phone or wipe this one first.'
+      );
+    }
+
+    const phoneClash = await db.getFirstAsync<{ id: string }>(
+      'SELECT id FROM owner WHERE phone = ? AND id <> ?',
+      owner.phone,
+      owner.id
+    );
+    if (phoneClash) throw new Error('That phone number already has an account on this phone');
+
+    await db.runAsync(
+      `UPDATE owner
+          SET name = ?, phone = ?, email = ?, pin_hash = ?, updated_at = ?
+        WHERE id = ?`,
+      owner.name,
+      owner.phone,
+      owner.email ?? null,
+      owner.pinHash,
+      nowIso(),
+      existing.id
+    );
+    return owner;
+  }
+
+  const phoneClash = await db.getFirstAsync<{ id: string }>(
+    'SELECT id FROM staff WHERE phone = ?',
+    owner.phone
+  );
+  if (phoneClash) throw new Error('That phone number belongs to a staff account on this phone');
+
+  const stamp = nowIso();
+  await db.runAsync(
+    `INSERT INTO owner (id, name, phone, email, pin_hash, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    owner.id,
+    owner.name,
+    owner.phone,
+    owner.email ?? null,
+    owner.pinHash,
+    stamp,
+    stamp
+  );
+  return owner;
+}
+
+/**
+ * After a successful online PIN reset the phone must store the same new hash,
+ * so the next sign-in can be checked offline. The server remains the source.
+ */
+export async function updateOwnerPinHash(
+  db: SQLiteDatabase,
+  ownerId: string,
+  pinHash: string
+): Promise<void> {
+  const result = await db.runAsync(
+    'UPDATE owner SET pin_hash = ?, updated_at = ? WHERE id = ?',
+    pinHash,
+    nowIso(),
+    ownerId
+  );
+  if (result.changes === 0) throw new Error('Could not update the PIN on this phone');
+}
+
+export interface StaffRecord {
+  id: string;
+  name: string;
+  phone: string;
+  pinHash: string;
+  role: 'staff';
+  firstSignedInAt?: string;
+}
+
+export interface IdentityRecord {
+  id: string;
+  name: string;
+  phone: string;
+  pinHash: string;
+  role: Role;
+  firstSignedInAt?: string;
+  createdAt: string;
+}
+
+export async function listStaff(db: SQLiteDatabase): Promise<StaffRecord[]> {
+  const rows = await db.getAllAsync<StaffRecord & { firstSignedInAt: string | null }>(
+    `SELECT id, name, phone, pin_hash AS pinHash, role,
+            first_signed_in_at AS firstSignedInAt
+       FROM staff
+      ORDER BY created_at ASC`
+  );
+  return rows.map((row) => ({
+    ...row,
+    firstSignedInAt: row.firstSignedInAt ?? undefined,
+  }));
+}
+
+/**
+ * Everyone who can unlock this phone, in the order they were added. Sign-in
+ * tries each PIN, so the owner and staff never need to choose a name first.
+ */
+export async function listIdentities(db: SQLiteDatabase): Promise<IdentityRecord[]> {
+  const rows = await db.getAllAsync<IdentityRecord & { firstSignedInAt: string | null }>(
+    `SELECT id, name, phone, pinHash, role, firstSignedInAt, createdAt
+       FROM (
+         SELECT id, name, phone, pin_hash AS pinHash, 'owner' AS role, NULL AS firstSignedInAt,
+                created_at AS createdAt, 0 AS roleOrder
+           FROM owner
+          UNION ALL
+         SELECT id, name, phone, pin_hash AS pinHash, 'staff' AS role, first_signed_in_at AS firstSignedInAt,
+                created_at AS createdAt, 1 AS roleOrder
+           FROM staff
+       )
+      ORDER BY roleOrder ASC, createdAt ASC`
+  );
+  return rows.map((row) => ({
+    ...row,
+    firstSignedInAt: row.firstSignedInAt ?? undefined,
+  }));
+}
+
+export interface CreateStaffInput {
+  /** The ID the server accepted; the phone and the backend share it. */
+  id: string;
+  name: string;
+  phone: string;
+  pinHash: string;
+}
+
+/**
+ * Caches a staff member the server has already registered under this owner.
+ * Like the owner row, this is server-sourced identity, not an outbox write, so
+ * it must never be queued for sync.
+ */
+export async function createStaff(
+  db: SQLiteDatabase,
+  input: CreateStaffInput
+): Promise<StaffRecord> {
+  const name = input.name.trim();
+  if (!name) throw new Error("Enter the staff member's name");
+  const phone = normalisePhone(input.phone);
+  if (!isValidPhone(phone)) throw new Error('Enter a phone number like 097 123 4567');
+
+  const idClash =
+    (await db.getFirstAsync<{ id: string }>('SELECT id FROM staff WHERE id = ?', input.id)) ??
+    (await db.getFirstAsync<{ id: string }>('SELECT id FROM owner WHERE id = ?', input.id));
+  if (idClash) throw new Error('That account ID is already used on this phone');
+
+  const ownerPhoneClash = await db.getFirstAsync<{ id: string }>(
+    'SELECT id FROM owner WHERE phone = ?',
+    phone
+  );
+  if (ownerPhoneClash) throw new Error('That phone number belongs to the owner');
+
+  const staffPhoneClash = await db.getFirstAsync<{ id: string }>(
+    'SELECT id FROM staff WHERE phone = ?',
+    phone
+  );
+  if (staffPhoneClash) throw new Error('That phone number already has a staff account on this phone');
+
+  const stamp = nowIso();
+  await db.runAsync(
+    `INSERT INTO staff (id, name, phone, pin_hash, role, first_signed_in_at, created_at, updated_at)
+     VALUES (?, ?, ?, ?, 'staff', NULL, ?, ?)`,
+    input.id,
+    name,
+    phone,
+    input.pinHash,
+    stamp,
+    stamp
+  );
+
+  return { id: input.id, name, phone, pinHash: input.pinHash, role: 'staff' };
+}
+
+/**
+ * A staff member signing in on a phone that does not have their row yet. The
+ * server has just verified the PIN; this caches the same identity so the next
+ * sign-in can be checked offline.
+ */
+export async function upsertStaffFromServer(
+  db: SQLiteDatabase,
+  input: CreateStaffInput
+): Promise<StaffRecord> {
+  const phone = normalisePhone(input.phone);
+  if (!isValidPhone(phone)) throw new Error('The server returned an invalid phone number');
+
+  const ownerClash = await db.getFirstAsync<{ id: string }>(
+    'SELECT id FROM owner WHERE phone = ?',
+    phone
+  );
+  if (ownerClash) throw new Error('That phone number belongs to the owner');
+
+  const byPhone = await db.getFirstAsync<{ id: string }>(
+    'SELECT id FROM staff WHERE phone = ?',
+    phone
+  );
+  if (byPhone && byPhone.id !== input.id) {
+    throw new Error('That phone number already has a staff account on this phone');
+  }
+
+  const existing = await db.getFirstAsync<{ firstSignedInAt: string | null }>(
+    'SELECT first_signed_in_at AS firstSignedInAt FROM staff WHERE id = ?',
+    input.id
+  );
+  const stamp = nowIso();
+
+  if (existing) {
+    await db.runAsync(
+      `UPDATE staff
+          SET name = ?, phone = ?, pin_hash = ?, updated_at = ?
+        WHERE id = ?`,
+      input.name.trim(),
+      phone,
+      input.pinHash,
+      stamp,
+      input.id
+    );
+  } else {
+    await db.runAsync(
+      `INSERT INTO staff (id, name, phone, pin_hash, role, first_signed_in_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 'staff', NULL, ?, ?)`,
+      input.id,
+      input.name.trim(),
+      phone,
+      input.pinHash,
+      stamp,
+      stamp
+    );
+  }
+
+  return {
+    id: input.id,
+    name: input.name.trim(),
+    phone,
+    pinHash: input.pinHash,
+    role: 'staff',
+    firstSignedInAt: existing?.firstSignedInAt ?? undefined,
+  };
+}
+
+/** Records the online first check so later staff sign-ins work offline. */
+export async function markStaffFirstSignIn(
+  db: SQLiteDatabase,
+  staffId: string,
+  at: string = nowIso()
+): Promise<void> {
+  const result = await db.runAsync(
+    'UPDATE staff SET first_signed_in_at = COALESCE(first_signed_in_at, ?), updated_at = ? WHERE id = ?',
+    at,
+    at,
+    staffId
+  );
+  if (result.changes === 0) throw new Error('Staff member not found on this phone');
 }
 
 export interface OnboardingState {
@@ -1096,6 +1384,7 @@ export async function listMovements(
 export interface SaleDetail {
   id: string;
   createdAt: string;
+  recordedByName: string;
   subtotal: Ngwee;
   discountTotal: Ngwee;
   total: Ngwee;
@@ -1125,6 +1414,7 @@ export async function getSaleDetail(db: SQLiteDatabase, saleId: string): Promise
   const sale = await db.getFirstAsync<{
     id: string;
     createdAt: string;
+    recordedByName: string;
     subtotal: number;
     discountTotal: number;
     total: number;
@@ -1132,9 +1422,14 @@ export async function getSaleDetail(db: SQLiteDatabase, saleId: string): Promise
     voidReason: string | null;
     reconcileStatus: string;
   }>(
-    `SELECT id, created_at AS createdAt, subtotal, discount_total AS discountTotal, total,
-            status, void_reason AS voidReason, reconcile_status AS reconcileStatus
-       FROM sale WHERE id = ?`,
+    `SELECT s.id, s.created_at AS createdAt,
+            COALESCE(o.name, st.name, s.recorded_by) AS recordedByName,
+            s.subtotal, s.discount_total AS discountTotal, s.total,
+            s.status, s.void_reason AS voidReason, s.reconcile_status AS reconcileStatus
+       FROM sale s
+       LEFT JOIN owner o ON o.id = s.recorded_by
+       LEFT JOIN staff st ON st.id = s.recorded_by
+      WHERE s.id = ?`,
     saleId
   );
   if (!sale) return null;
@@ -1161,6 +1456,7 @@ export async function getSaleDetail(db: SQLiteDatabase, saleId: string): Promise
   return {
     id: sale.id,
     createdAt: sale.createdAt,
+    recordedByName: sale.recordedByName,
     subtotal: sale.subtotal,
     discountTotal: sale.discountTotal,
     total: sale.total,
@@ -1360,20 +1656,31 @@ export async function saveCashCount(
   db: SQLiteDatabase,
   day: string,
   countedCash: Ngwee,
-  note?: string
+  note?: string,
+  overwrite = false
 ): Promise<{ expected: Ngwee; variance: Ngwee }> {
   const [start, end] = localDayBounds(day);
-  const cash = await db.getFirstAsync<{ cashSales: number; openingFloat: number | null }>(
+  const cash = await db.getFirstAsync<{
+    cashSales: number;
+    openingFloat: number | null;
+    countedCash: number | null;
+  }>(
     `SELECT
        COALESCE((SELECT SUM(p.amount)
                    FROM payment p
                    JOIN sale s ON s.id = p.sale_id
                   WHERE p.method = 'cash' AND s.status = 'active' AND ${inRange('s.created_at')}), 0) AS cashSales,
-       (SELECT opening_float FROM reconciliation WHERE day = ?) AS openingFloat`,
+       (SELECT opening_float FROM reconciliation WHERE day = ?) AS openingFloat,
+       (SELECT counted_cash FROM reconciliation WHERE day = ?) AS countedCash`,
     start,
     end,
+    day,
     day
   );
+
+  if (!overwrite && cash?.countedCash !== null && cash?.countedCash !== undefined) {
+    throw new Error('A cash count for today has already been saved');
+  }
 
   const openingFloat = cash?.openingFloat ?? 0;
   const expected = openingFloat + (cash?.cashSales ?? 0);

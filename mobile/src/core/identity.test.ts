@@ -1,11 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
   formatPhone,
+  isValidEmail,
+  isValidPassword,
   isValidPhone,
   isValidPin,
+  isValidResetCode,
   isValidTpin,
   normalisePhone,
   validateOwnerAccount,
+  validatePinReset,
+  validateStaffAccount,
 } from './identity';
 
 describe('phone numbers', () => {
@@ -41,7 +46,15 @@ describe('PIN rules', () => {
 });
 
 describe('owner account validation', () => {
-  const valid = { name: 'Elton', phone: '097 123 4567', pin: '1234', confirmPin: '1234' };
+  const valid = {
+    name: 'Elton',
+    phone: '097 123 4567',
+    email: 'elton@example.com',
+    password: 'correct horse battery',
+    confirmPassword: 'correct horse battery',
+    pin: '1234',
+    confirmPin: '1234',
+  };
 
   it('passes a complete account', () => {
     expect(validateOwnerAccount(valid)).toEqual([]);
@@ -49,12 +62,66 @@ describe('owner account validation', () => {
 
   it('reports every problem so the screen can show them together', () => {
     expect(
-      validateOwnerAccount({ name: '  ', phone: '123', pin: '12', confirmPin: '12' })
-    ).toEqual(['name-required', 'phone-invalid', 'pin-invalid']);
+      validateOwnerAccount({
+        name: '  ',
+        phone: '123',
+        email: 'not-an-email',
+        password: 'short',
+        confirmPassword: 'different',
+        pin: '12',
+        confirmPin: '12',
+      })
+    ).toEqual(['name-required', 'phone-invalid', 'email-invalid', 'password-invalid', 'pin-invalid']);
+  });
+
+  it('requires an email address and a long enough password', () => {
+    expect(validateOwnerAccount({ ...valid, email: ' ' })).toEqual(['email-required']);
+    expect(validateOwnerAccount({ ...valid, password: '1234567' })).toEqual(['password-invalid']);
+    expect(validateOwnerAccount({ ...valid, confirmPassword: 'nope' })).toEqual(['password-mismatch']);
   });
 
   it('catches a mistyped confirmation PIN', () => {
     expect(validateOwnerAccount({ ...valid, confirmPin: '4321' })).toEqual(['pin-mismatch']);
+  });
+});
+
+describe('email and password rules', () => {
+  it('accepts a normal email and rejects a missing @ or domain dot', () => {
+    expect(isValidEmail('elton@example.com')).toBe(true);
+    expect(isValidEmail('elton@example')).toBe(false);
+    expect(isValidEmail('elton.example.com')).toBe(false);
+  });
+
+  it('requires at least eight password characters', () => {
+    expect(isValidPassword('12345678')).toBe(true);
+    expect(isValidPassword('1234567')).toBe(false);
+  });
+});
+
+describe('staff account validation', () => {
+  const valid = { name: 'Given', phone: '096 555 1122', pin: '7315', confirmPin: '7315' };
+
+  it('checks only the fields the owner fills in for staff', () => {
+    expect(validateStaffAccount(valid)).toEqual([]);
+    expect(validateStaffAccount({ ...valid, name: ' ' })).toEqual(['name-required']);
+    expect(validateStaffAccount({ ...valid, pin: '12' })).toEqual(['pin-invalid']);
+  });
+});
+
+describe('PIN reset validation', () => {
+  const valid = { code: '123456', pin: '1234', confirmPin: '1234' };
+
+  it('accepts a six-digit code and a matching PIN', () => {
+    expect(isValidResetCode('123456')).toBe(true);
+    expect(isValidResetCode('12345')).toBe(false);
+    expect(isValidResetCode('12a456')).toBe(false);
+    expect(validatePinReset(valid)).toEqual([]);
+  });
+
+  it('reports a bad code, bad PIN or mismatched confirmation', () => {
+    expect(validatePinReset({ ...valid, code: '123' })).toEqual(['code-invalid']);
+    expect(validatePinReset({ ...valid, pin: '12' })).toEqual(['pin-invalid']);
+    expect(validatePinReset({ ...valid, confirmPin: '4321' })).toEqual(['pin-mismatch']);
   });
 });
 

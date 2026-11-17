@@ -4,6 +4,7 @@ import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider, useAuth } from '@/auth/session';
 import { Button } from '@/components/ui';
+import { canAccessScreen } from '@/core';
 import { DatabaseProvider } from '@/db/provider';
 import { I18nProvider, useI18n } from '@/i18n';
 import { colors, spacing, typeScale } from '@/theme/tokens';
@@ -28,11 +29,23 @@ export default function RootLayout() {
 /**
  * A first run sees language and account only. Once an account exists the app is
  * always locked on a cold start, and the setup screens stay open until the shop
- * is finished. The tab routes are unreachable without a signed-in owner.
+ * is finished. Owner-only screens are protected here, so a staff member cannot
+ * reach one by deep link, while the same permission matrix hides their controls.
  */
 function RootNavigator() {
   const { t } = useI18n();
-  const { status, error, user, hasOwner, onboardingComplete, refresh } = useAuth();
+  const {
+    status,
+    error,
+    user,
+    pendingOwner,
+    hasOwner,
+    hasAccount,
+    hasShop,
+    shopRestorePending,
+    onboardingComplete,
+    refresh,
+  } = useAuth();
 
   if (status === 'loading') {
     return (
@@ -54,38 +67,81 @@ function RootNavigator() {
   }
 
   const signedIn = user !== null;
+  const isOwner = user?.role === 'owner';
+  const ownerOnly = signedIn && onboardingComplete;
 
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="index" />
 
-      <Stack.Protected guard={!hasOwner}>
+      <Stack.Protected guard={!hasAccount && pendingOwner === null}>
         <Stack.Screen name="onboarding/language" />
         <Stack.Screen name="onboarding/account" />
       </Stack.Protected>
 
-      <Stack.Protected guard={hasOwner && !signedIn}>
+      <Stack.Protected guard={!signedIn}>
+        <Stack.Screen name="email-sign-in" />
+        <Stack.Screen name="magic-link" />
+        <Stack.Screen name="staff-sign-in" />
+      </Stack.Protected>
+
+      <Stack.Protected guard={pendingOwner !== null && !signedIn}>
+        <Stack.Screen name="set-phone-pin" />
+      </Stack.Protected>
+
+      <Stack.Protected guard={hasAccount && !signedIn && pendingOwner === null}>
         <Stack.Screen name="sign-in" />
       </Stack.Protected>
 
-      <Stack.Protected guard={signedIn && !onboardingComplete}>
+      <Stack.Protected guard={hasOwner && !signedIn && pendingOwner === null}>
+        <Stack.Screen name="pin-reset" />
+      </Stack.Protected>
+
+      <Stack.Protected
+        guard={signedIn && isOwner && !onboardingComplete && !shopRestorePending}
+      >
         <Stack.Screen name="onboarding/shop" />
         <Stack.Screen name="onboarding/money" />
         <Stack.Screen name="onboarding/first-products" />
       </Stack.Protected>
 
-      <Stack.Protected guard={signedIn}>
+      <Stack.Protected
+        guard={
+          signedIn &&
+          ((user?.role === 'staff' && (!hasShop || !onboardingComplete)) ||
+            (!hasShop && shopRestorePending))
+        }
+      >
+        <Stack.Screen name="shop-pending" />
+      </Stack.Protected>
+
+      <Stack.Protected guard={signedIn && canAccessScreen(user?.role, 'productNew')}>
         <Stack.Screen name="product/new" />
+      </Stack.Protected>
+
+      <Stack.Protected guard={signedIn && canAccessScreen(user?.role, 'productDetail')}>
         <Stack.Screen name="product/[id]" />
+      </Stack.Protected>
+
+      <Stack.Protected guard={signedIn && canAccessScreen(user?.role, 'scan')}>
         <Stack.Screen name="scan" />
       </Stack.Protected>
 
       <Stack.Protected guard={signedIn && onboardingComplete}>
         <Stack.Screen name="(tabs)" />
-        <Stack.Screen name="settings" />
-        <Stack.Screen name="staff" />
         <Stack.Screen name="sale/new" />
         <Stack.Screen name="sale/[id]" />
+      </Stack.Protected>
+
+      <Stack.Protected guard={ownerOnly && canAccessScreen(user?.role, 'settings')}>
+        <Stack.Screen name="settings" />
+      </Stack.Protected>
+
+      <Stack.Protected guard={ownerOnly && canAccessScreen(user?.role, 'staff')}>
+        <Stack.Screen name="staff" />
+      </Stack.Protected>
+
+      <Stack.Protected guard={ownerOnly && canAccessScreen(user?.role, 'taxPot')}>
         <Stack.Screen name="tax/pot" />
       </Stack.Protected>
     </Stack>

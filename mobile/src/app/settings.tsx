@@ -1,7 +1,7 @@
 import { useRouter } from 'expo-router';
 import { StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '@/auth/session';
-import { Card, Pill, Row, Screen, SectionTitle } from '@/components/ui';
+import { Button, Card, Pill, Row, Screen, SectionTitle } from '@/components/ui';
 import { taxRules } from '@/data/fake';
 import { useShop } from '@/db/hooks';
 import { LANGUAGE_LABELS, useI18n } from '@/i18n';
@@ -10,7 +10,7 @@ import { colors, spacing, typeScale } from '@/theme/tokens';
 export default function SettingsScreen() {
   const { t, language } = useI18n();
   const router = useRouter();
-  const { ownerPreview } = useAuth();
+  const { ownerPreview, signOut } = useAuth();
   const { data: shop } = useShop();
 
   return (
@@ -53,6 +53,11 @@ export default function SettingsScreen() {
       <Card>
         <Row label={t('sync.lastSync')} value={t('sync.never')} />
         <Row label={t('sync.pending')} value="0" />
+      </Card>
+
+      <SectionTitle>{t('settings.account')}</SectionTitle>
+      <Card>
+        <Button label={t('settings.signOut')} variant="secondary" onPress={signOut} />
       </Card>
 
       <View style={styles.footer}>

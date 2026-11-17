@@ -5,6 +5,7 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { useRef, useState, type ComponentRef } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { captureRef } from 'react-native-view-shot';
+import { usePermissionGuard } from '@/auth/permissions';
 import { BarcodeLabel } from '@/components/barcode-label';
 import { Button, Card, Field, Screen, SectionTitle } from '@/components/ui';
 import { isValidEan13, normaliseBarcode, toNgwee } from '@/core';
@@ -19,6 +20,7 @@ export default function NewProductScreen() {
   const { t } = useI18n();
   const router = useRouter();
   const db = useSQLiteContext();
+  const guard = usePermissionGuard();
   const { barcode: scannedBarcode, from } = useLocalSearchParams<{ barcode?: string; from?: string }>();
   const { data: shop } = useShop();
   const onboarding = from === 'onboarding';
@@ -43,6 +45,13 @@ export default function NewProductScreen() {
   async function handleSave() {
     setError(null);
     setMessage(null);
+
+    try {
+      guard('products.manage');
+    } catch {
+      setError(t('permission.denied'));
+      return;
+    }
 
     const buy = toNgwee(Number.parseFloat(buyPrice.replace(',', '.')));
     const sell = toNgwee(Number.parseFloat(sellPrice.replace(',', '.')));

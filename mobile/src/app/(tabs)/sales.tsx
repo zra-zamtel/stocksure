@@ -1,5 +1,6 @@
 import { useRouter } from 'expo-router';
 import { StyleSheet, Text, View } from 'react-native';
+import { useAuth } from '@/auth/session';
 import { Button, Card, EmptyState, Pill, Row, Screen, SectionTitle } from '@/components/ui';
 import { useDayTotals, useSales } from '@/db/hooks';
 import { useI18n } from '@/i18n';
@@ -15,8 +16,10 @@ function statusTone(status: string) {
 export default function SalesScreen() {
   const { t } = useI18n();
   const router = useRouter();
+  const { can } = useAuth();
   const { data: totals } = useDayTotals();
   const { data: sales, loading, error } = useSales();
+  const seesMoney = can('money.insights');
 
   return (
     <Screen
@@ -26,9 +29,13 @@ export default function SalesScreen() {
     >
       <Card>
         <Row label={t('sales.total')} value={formatKwacha(totals.salesTotal)} emphasis />
-        <Row label={t('sales.summary.cost')} value={formatKwacha(totals.cost)} />
-        <Row label={t('sales.summary.discounts')} value={formatKwacha(totals.discounts)} />
-        <Row label={t('home.today.profit')} value={formatKwacha(totals.grossProfit)} />
+        {seesMoney ? (
+          <>
+            <Row label={t('sales.summary.cost')} value={formatKwacha(totals.cost)} />
+            <Row label={t('sales.summary.discounts')} value={formatKwacha(totals.discounts)} />
+            <Row label={t('home.today.profit')} value={formatKwacha(totals.grossProfit)} />
+          </>
+        ) : null}
       </Card>
 
       <SectionTitle>{t('sales.items')}</SectionTitle>
@@ -45,10 +52,14 @@ export default function SalesScreen() {
             </View>
           </View>
           <View style={styles.row}>
+            <Text style={styles.muted}>{t('sale.recordedBy')}</Text>
+            <Text style={styles.muted}>{sale.recordedByName}</Text>
+          </View>
+          <View style={styles.row}>
             <Text style={styles.muted}>{t('sales.status')}</Text>
             <Pill label={sale.reconcileStatus} tone={statusTone(sale.reconcileStatus)} />
           </View>
-          <Button label={t('sales.void')} variant="secondary" onPress={() => router.push(`/sale/${sale.id}`)} />
+          <Button label={t('sales.open')} variant="secondary" onPress={() => router.push(`/sale/${sale.id}`)} />
         </Card>
       ))}
     </Screen>

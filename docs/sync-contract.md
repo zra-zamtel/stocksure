@@ -60,7 +60,7 @@ Every table has `id`, `created_at`, `updated_at`.
 
 | Table | Columns |
 | --- | --- |
-| `owner` | name, phone (unique), pin_hash |
+| `owner` | name, phone (unique), email (unique), password_hash, pin_hash |
 | `staff` | name, phone (unique), pin_hash, role (`owner` \| `staff`) |
 | `shop` | name, type, town, currency (`ZMW`), language (`en` \| `ny`), uses_barcodes (0/1), low_stock_default, turnover_tax_registered (0/1), tpin, providers_json |
 | `product` | name, category, photo_uri, default_buy_price, default_sell_price, discount_json |

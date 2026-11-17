@@ -10,8 +10,7 @@ import { colors, typeScale } from '@/theme/tokens';
 export default function SignInScreen() {
   const { t } = useI18n();
   const router = useRouter();
-  const { ownerPreview, signIn, onboardingComplete } = useAuth();
-  const [pin, setPin] = useState('');
+  const { ownerPreview, signIn, onboardingComplete, hasOwner, shopRestorePending } = useAuth();  const [pin, setPin] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -26,15 +25,27 @@ export default function SignInScreen() {
         setPin('');
         return;
       }
-      if (result === 'no-owner') {
+      if (result === 'no-account') {
         setError(t('auth.signIn.noOwner'));
+        return;
+      }
+      if (result === 'ambiguous-pin') {
+        setError(t('auth.signIn.ambiguousPin'));
+        return;
+      }
+      if (result === 'first-sign-in-offline') {
+        setError(t('auth.signIn.firstSignInOffline'));
+        return;
+      }
+      if (result === 'locked-out') {
+        setError(t('auth.signIn.lockedOut'));
         return;
       }
       // The index gate sends a finished shop to the tabs and an unfinished one
       // back to the setup screen it stopped on.
       router.replace('/');
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : t('auth.signIn.wrongPin'));
+      setError(cause instanceof Error ? cause.message : t('auth.signIn.failed'));
     } finally {
       setSubmitting(false);
     }
@@ -65,8 +76,22 @@ export default function SignInScreen() {
         />
       </Card>
 
+      <Button
+        label={t('auth.signIn.emailSignIn')}
+        variant="secondary"
+        onPress={() => router.push('/email-sign-in')}
+      />
+
+      <Button
+        label={t('auth.signIn.staffNewPhone')}
+        variant="secondary"
+        onPress={() => router.push('/staff-sign-in')}
+      />
+
       {error ? <Text style={styles.error}>{error}</Text> : null}
-      {!onboardingComplete ? <Text style={styles.muted}>{t('auth.signIn.setupContinues')}</Text> : null}
+      {hasOwner && !onboardingComplete && !shopRestorePending ? (
+        <Text style={styles.muted}>{t('auth.signIn.setupContinues')}</Text>
+      ) : null}
       <Text style={styles.muted}>{t('auth.signIn.offlineNote')}</Text>
     </Screen>
   );

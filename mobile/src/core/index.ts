@@ -7,3 +7,4 @@ export * from './reconcile';
 export * from './barcode';
 export * from './ids';
 export * from './identity';
+export * from './permissions';

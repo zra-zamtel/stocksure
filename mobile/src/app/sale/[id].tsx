@@ -2,6 +2,8 @@ import { useLocalSearchParams } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { usePermissionGuard } from '@/auth/permissions';
+import { useAuth } from '@/auth/session';
 import { Button, Card, EmptyState, Field, Pill, Row, Screen, SectionTitle } from '@/components/ui';
 import { useSaleDetail } from '@/db/hooks';
 import { voidSale } from '@/db/repos';
@@ -12,8 +14,12 @@ import { colors, typeScale } from '@/theme/tokens';
 export default function SaleScreen() {
   const { t } = useI18n();
   const db = useSQLiteContext();
+  const { can } = useAuth();
+  const guard = usePermissionGuard();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { data: sale, loading, error, reload } = useSaleDetail(id);
+  const seesMoney = can('money.insights');
+  const canVoid = can('sales.void');
 
   const [reason, setReason] = useState('');
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -45,6 +51,12 @@ export default function SaleScreen() {
 
   async function handleVoid() {
     setSubmitError(null);
+    try {
+      guard('sales.void');
+    } catch {
+      setSubmitError(t('permission.denied'));
+      return;
+    }
     setSubmitting(true);
     try {
       await voidSale(db, sale!.id, reason.trim() || 'No reason given');
@@ -70,9 +82,14 @@ export default function SaleScreen() {
             tone={sale.status === 'void' ? 'danger' : sale.reconcileStatus === 'matched' ? 'success' : 'warning'}
           />
         </View>
-        <Row label={t('sale.new.subtotal')} value={formatKwacha(sale.subtotal)} />
-        <Row label={t('sale.new.discounts')} value={formatKwacha(sale.discountTotal)} />
+        {seesMoney ? (
+          <>
+            <Row label={t('sale.new.subtotal')} value={formatKwacha(sale.subtotal)} />
+            <Row label={t('sale.new.discounts')} value={formatKwacha(sale.discountTotal)} />
+          </>
+        ) : null}
         <Row label={t('sales.total')} value={formatKwacha(sale.total)} emphasis />
+        <Row label={t('sale.recordedBy')} value={sale.recordedByName} />
         {sale.status === 'void' && sale.voidReason ? (
           <Text style={styles.muted}>
             {t('sales.voidReason')}: {sale.voidReason}
@@ -103,7 +120,7 @@ export default function SaleScreen() {
         {sale.payments.length === 0 ? <EmptyState message={t('reconcile.saleNoPayment')} /> : null}
       </Card>
 
-      {sale.status === 'active' ? (
+      {sale.status === 'active' && canVoid ? (
         <>
           <SectionTitle>{t('sales.void')}</SectionTitle>
           <Card>

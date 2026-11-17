@@ -1,5 +1,6 @@
 import { Link, useRouter } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useAuth } from '@/auth/session';
 import { Button, Card, Pill, Row, Screen, SectionTitle } from '@/components/ui';
 import { estimateTurnoverTax } from '@/core';
 import { taxRules } from '@/data/fake';
@@ -11,6 +12,7 @@ import { colors, spacing, typeScale } from '@/theme/tokens';
 export default function HomeScreen() {
   const { t } = useI18n();
   const router = useRouter();
+  const { user, can, signOut } = useAuth();
   const { data: totals } = useDayTotals();
   const { data: alerts } = useLowStock();
   const { data: tax } = useTaxSnapshot();
@@ -22,20 +24,31 @@ export default function HomeScreen() {
   const unmatchedPayments = reconciliation?.paymentsWithoutSale.length ?? 0;
   const cashVariance = reconciliation?.cash.variance;
 
+  const seesMoney = can('money.insights');
+  const managesProducts = can('products.manage');
+  const seesTax = can('tax.view');
+  const opensSettings = can('settings.view');
+
   return (
     <Screen
       title={shopRecord?.name ?? t('app.name')}
-      subtitle={t('common.today')}
+      subtitle={user ? `${t('common.today')} · ${user.name}` : t('common.today')}
       footer={
         <View style={styles.footerRow}>
           <View style={styles.footerButton}>
             <Button label={t('home.actions.recordSale')} onPress={() => router.push('/sale/new')} />
           </View>
-          <Link href="/settings" asChild>
-            <Pressable accessibilityRole="button" style={styles.iconButton}>
-              <Text style={styles.settingsLink}>{t('nav.settings')}</Text>
+          {opensSettings ? (
+            <Link href="/settings" asChild>
+              <Pressable accessibilityRole="button" style={styles.iconButton}>
+                <Text style={styles.settingsLink}>{t('nav.settings')}</Text>
+              </Pressable>
+            </Link>
+          ) : (
+            <Pressable accessibilityRole="button" style={styles.iconButton} onPress={signOut}>
+              <Text style={styles.settingsLink}>{t('settings.signOut')}</Text>
             </Pressable>
-          </Link>
+          )}
         </View>
       }
     >
@@ -43,8 +56,12 @@ export default function HomeScreen() {
         <Text style={styles.cardTitle}>{t('home.today.title')}</Text>
         <Row label={t('home.today.sales')} value={formatKwacha(totals.salesTotal)} emphasis />
         <Row label={t('home.today.count')} value={formatCount(totals.saleCount)} />
-        <Row label={t('home.today.profit')} value={formatKwacha(totals.grossProfit)} />
-        <Row label={t('home.today.discounts')} value={formatKwacha(totals.discounts)} />
+        {seesMoney ? (
+          <>
+            <Row label={t('home.today.profit')} value={formatKwacha(totals.grossProfit)} />
+            <Row label={t('home.today.discounts')} value={formatKwacha(totals.discounts)} />
+          </>
+        ) : null}
       </Card>
 
       <SectionTitle>{t('home.alerts.title')}</SectionTitle>
@@ -69,17 +86,29 @@ export default function HomeScreen() {
         )}
       </Card>
 
-      <SectionTitle>{t('home.actions.title')}</SectionTitle>
-      <View style={styles.actionRow}>
-        <View style={styles.actionButton}>
-          <Button label={t('home.actions.addProduct')} variant="secondary" onPress={() => router.push('/product/new')} />
-        </View>
-        {shopRecord?.usesBarcodes ? (
-          <View style={styles.actionButton}>
-            <Button label={t('home.actions.scanBarcode')} variant="secondary" onPress={() => router.push('/scan')} />
+      {managesProducts ? (
+        <>
+          <SectionTitle>{t('home.actions.title')}</SectionTitle>
+          <View style={styles.actionRow}>
+            <View style={styles.actionButton}>
+              <Button
+                label={t('home.actions.addProduct')}
+                variant="secondary"
+                onPress={() => router.push('/product/new')}
+              />
+            </View>
+            {shopRecord?.usesBarcodes ? (
+              <View style={styles.actionButton}>
+                <Button
+                  label={t('home.actions.scanBarcode')}
+                  variant="secondary"
+                  onPress={() => router.push('/scan')}
+                />
+              </View>
+            ) : null}
           </View>
-        ) : null}
-      </View>
+        </>
+      ) : null}
 
       <SectionTitle>{t('home.reconcile.title')}</SectionTitle>
       <Card>
@@ -92,12 +121,16 @@ export default function HomeScreen() {
         />
       </Card>
 
-      <SectionTitle>{t('home.tax.title')}</SectionTitle>
-      <Card>
-        <Row label={t('home.tax.estimate')} value={formatKwacha(estimate.estimatedTax)} emphasis />
-        <Row label={t('home.tax.pot')} value={formatKwacha(tax.potBalance)} />
-        <Row label={t('home.tax.due')} value={tax.period?.dueOn ?? t('common.notYet')} />
-      </Card>
+      {seesTax ? (
+        <>
+          <SectionTitle>{t('home.tax.title')}</SectionTitle>
+          <Card>
+            <Row label={t('home.tax.estimate')} value={formatKwacha(estimate.estimatedTax)} emphasis />
+            <Row label={t('home.tax.pot')} value={formatKwacha(tax.potBalance)} />
+            <Row label={t('home.tax.due')} value={tax.period?.dueOn ?? t('common.notYet')} />
+          </Card>
+        </>
+      ) : null}
 
       <SectionTitle>{t('home.sync.title')}</SectionTitle>
       <Card>

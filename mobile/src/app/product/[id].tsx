@@ -3,6 +3,7 @@ import { useLocalSearchParams } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { usePermissionGuard } from '@/auth/permissions';
 import { Button, Card, Choice, EmptyState, Field, Pill, Row, Screen, SectionTitle } from '@/components/ui';
 import { isValidEan13, toNgwee } from '@/core';
 import { useMovements, useProducts, useShop } from '@/db/hooks';
@@ -15,6 +16,7 @@ import { colors, spacing, typeScale } from '@/theme/tokens';
 export default function ProductScreen() {
   const { t } = useI18n();
   const db = useSQLiteContext();
+  const guard = usePermissionGuard();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { data: products, loading, error, reload: reloadProducts } = useProducts();
   const { data: shop } = useShop();
@@ -40,6 +42,12 @@ export default function ProductScreen() {
     if (!selectedVariant) return;
     setSubmitError(null);
     setMessage(null);
+    try {
+      guard('products.manage');
+    } catch {
+      setSubmitError(t('permission.denied'));
+      return;
+    }
     setSubmitting(true);
     try {
       const parsedPrice = Number.parseFloat(buyPrice.replace(',', '.'));
@@ -68,6 +76,12 @@ export default function ProductScreen() {
     if (!selectedVariant || submitting) return;
     setSubmitError(null);
     setMessage(null);
+    try {
+      guard('products.manage');
+    } catch {
+      setSubmitError(t('permission.denied'));
+      return;
+    }
     setSubmitting(true);
     try {
       const code = await setVariantBarcode(db, selectedVariant.id);

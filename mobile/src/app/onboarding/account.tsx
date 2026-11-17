@@ -16,13 +16,19 @@ import { colors, typeScale } from '@/theme/tokens';
 const ERROR_KEYS: Record<AccountErrorCode, string> = {
   'name-required': 'onboarding.account.error.nameRequired',
   'phone-invalid': 'onboarding.account.error.phoneInvalid',
+  'email-required': 'onboarding.account.error.emailRequired',
+  'email-invalid': 'onboarding.account.error.emailInvalid',
+  'password-invalid': 'onboarding.account.error.passwordInvalid',
+  'password-mismatch': 'onboarding.account.error.passwordMismatch',
   'pin-invalid': 'onboarding.account.error.pinInvalid',
   'pin-mismatch': 'onboarding.account.error.pinMismatch',
 };
 
-const API_ERROR_KEYS: Record<ApiErrorCode, string> = {
+const API_ERROR_KEYS: Partial<Record<ApiErrorCode, string>> = {
   offline: 'onboarding.account.error.offline',
   'duplicate-phone': 'onboarding.account.error.duplicatePhone',
+  'duplicate-email': 'onboarding.account.error.duplicateEmail',
+  'account-conflict': 'onboarding.account.error.accountConflict',
   validation: 'onboarding.account.error.validation',
   server: 'onboarding.account.error.server',
 };
@@ -34,6 +40,9 @@ export default function AccountScreen() {
 
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [pin, setPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -43,7 +52,15 @@ export default function AccountScreen() {
     if (saving) return;
     setError(null);
 
-    const errors = validateOwnerAccount({ name, phone, pin, confirmPin });
+    const errors = validateOwnerAccount({
+      name,
+      phone,
+      email,
+      password,
+      confirmPassword,
+      pin,
+      confirmPin,
+    });
     if (errors.length > 0) {
       setError(errors.map((code) => t(ERROR_KEYS[code])).join(' '));
       return;
@@ -51,13 +68,13 @@ export default function AccountScreen() {
 
     setSaving(true);
     try {
-      await registerOwner({ name, phone, pin });
+      await registerOwner({ name, phone, email, password, pin });
       // Registration just completed against the backend. The index gate sends
       // the owner to the next unfinished setup step.
       router.replace('/');
     } catch (cause) {
       if (cause instanceof ApiError) {
-        setError(t(API_ERROR_KEYS[cause.code]));
+        setError(t(API_ERROR_KEYS[cause.code] ?? 'onboarding.account.error.server'));
       } else {
         setError(cause instanceof Error ? cause.message : t('onboarding.account.error.generic'));
       }
@@ -94,6 +111,30 @@ export default function AccountScreen() {
           required
         />
         <Field
+          label={t('onboarding.account.email')}
+          value={email}
+          onChangeText={setEmail}
+          placeholder="you@example.com"
+          keyboardType="default"
+          required
+        />
+        <Field
+          label={t('onboarding.account.password')}
+          value={password}
+          onChangeText={setPassword}
+          placeholder={t('onboarding.account.passwordHint')}
+          secureTextEntry
+          required
+        />
+        <Field
+          label={t('onboarding.account.confirmPassword')}
+          value={confirmPassword}
+          onChangeText={setConfirmPassword}
+          placeholder="••••••••"
+          secureTextEntry
+          required
+        />
+        <Field
           label={t('onboarding.account.pin')}
           value={pin}
           onChangeText={(value) => setPin(normalisePin(value))}
@@ -117,6 +158,16 @@ export default function AccountScreen() {
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
       <Text style={styles.note}>{t('onboarding.account.note')}</Text>
+      <Button
+        label={t('onboarding.account.signIn')}
+        variant="secondary"
+        onPress={() => router.push('/email-sign-in')}
+      />
+      <Button
+        label={t('onboarding.account.staff')}
+        variant="secondary"
+        onPress={() => router.push('/staff-sign-in')}
+      />
     </Screen>
   );
 }

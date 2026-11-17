@@ -68,9 +68,23 @@ async function insertMessage(provider: string, amount: number, receivedAt: strin
 describe('ST-01 first run: account, onboarding and first products', () => {
   it('takes a new owner from an empty phone to a shop ready to sell', async () => {
     // Account screen: the form is validated before anything is stored.
-    const form = { name: 'Elton', phone: '+260 97 123 4567', pin: '4821', confirmPin: '4821' };
+    const form = {
+      name: 'Elton',
+      phone: '+260 97 123 4567',
+      email: 'elton@example.com',
+      password: 'correct horse battery',
+      confirmPassword: 'correct horse battery',
+      pin: '4821',
+      confirmPin: '4821',
+    };
     expect(validateOwnerAccount(form)).toEqual([]);
-    await createOwner(db, { id: 'owner_1', name: form.name, phone: normalisePhone(form.phone), pinHash: 'sha256$x$y' });
+    await createOwner(db, {
+      id: 'owner_1',
+      name: form.name,
+      phone: normalisePhone(form.phone),
+      email: form.email,
+      pinHash: 'sha256$x$y',
+    });
 
     expect(await getOnboardingState(db)).toMatchObject({ hasShop: false, onboardingComplete: false });
 

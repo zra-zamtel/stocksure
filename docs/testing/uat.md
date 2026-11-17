@@ -10,7 +10,7 @@ happens exactly as written.
 | Item | Setup |
 | --- | --- |
 | Phone | Android phone with the latest StockSure development build installed. Camera works. |
-| Backend | The account service is running and reachable (only needed for UAT-01). |
+| Backend | The account service is running and reachable (needed for UAT-01 and the first half of UAT-21). |
 | Data | Start from a fresh install (uninstall and reinstall) unless the script says otherwise. |
 | Money | Print or write out these products: **School shirt** buy K50, sell K80, 10 in stock. **Cap** buy K20, sell K40, 2 in stock, low-stock level 1. |
 | Barcode | One real product with a printed barcode (any supermarket item works). |
@@ -42,6 +42,8 @@ Write amounts exactly as shown on screen. "K" means Zambian Kwacha.
 | UAT-18 | Tax estimate and TaxPot | | | | |
 | UAT-19 | Works with no internet all day | | | | |
 | UAT-20 | Chichewa (Nyanja) language | | | | |
+| UAT-21 | Staff add, first sign-in and owner-only screens | | | | |
+| UAT-22 | Owner email sign-in and magic link on a new phone | | | | |
 
 Sign-off: the build is accepted when every script passes, or when the product
 owner has accepted each failure in writing as a known issue.
@@ -62,7 +64,7 @@ owner has accepted each failure in writing as a known issue.
 | --- | --- | --- |
 | 1 | Open StockSure. | The language screen appears. |
 | 2 | Choose **English**, tap **Next**. | "Create your account" appears. |
-| 3 | Enter your name, phone `+260 97 123 4567`, PIN `4821` twice. Tap **Create account**. | "Creating account..." shows, then the shop screen opens. |
+| 3 | Enter your name, phone `+260 97 123 4567`, email `elton@example.com`, password `stocksure-demo`, phone PIN `4821` twice. Tap **Create account**. | "Creating account..." shows, then the shop screen opens. |
 | 4 | Note the time taken from step 1. | Under two minutes. |
 
 ## UAT-02 Account creation without internet
@@ -74,7 +76,7 @@ owner has accepted each failure in writing as a known issue.
 | 1 | Fill the account form as in UAT-01, tap **Create account**. | Message: connect to the internet once. Your details are still on the screen. |
 | 2 | Turn airplane mode off, tap **Create account** again. | The account is created without retyping anything. |
 | 3 | Reinstall and try to register the same phone number again with a different name. | Message: "That phone number is already registered." |
-| 4 | Type PINs that do not match. | Message: "The two PINs do not match." Nothing is sent. |
+| 4 | Type passwords that do not match. | Message: "The two passwords do not match." Nothing is sent. |
 
 ## UAT-03 Set up the shop
 
@@ -228,3 +230,34 @@ owner has accepted each failure in writing as a known issue.
 | 1 | Settings → Language → Nyanja. | Every screen switches language. No English is left on Home, Record sale, Reconcile and Tax. |
 | 2 | Record a sale in Nyanja. | The sale saves and amounts are still shown as K with two decimals. |
 | 3 | Switch back to English. | Everything returns to English; no data is lost. |
+
+## UAT-21 Staff add, first sign-in and owner-only screens
+
+**Start:** UAT-03 completed, internet on, and the backend running.
+
+| Step | Do this | Expected result |
+| --- | --- | --- |
+| 1 | Settings → Staff → **Add staff**. Enter name `Given`, phone `096 555 1122`, PIN `7315` twice. Save. | Given appears under Staff with "First sign-in pending". Settings still shows the owner row. |
+| 2 | Sign out, then sign in with `7315` while online. | Home opens as Given, with no gross profit, discounts or Tax card. The Tax tab is gone. |
+| 3 | Try Settings, Staff, Add product, Restock, Void sale and Tax. | None of those controls are visible. |
+| 4 | While signed in as Given, open a deep link such as `stocksure://settings`, `stocksure://staff` or `stocksure://tax`. | None of the owner-only screens opens; the app falls back to an available screen. Confirm and note the exact fallback on this device. |
+| 5 | Record a sale as Given. Open Sales. | The sale is listed with "Recorded by Given". Given cannot see cost or discount totals. |
+| 6 | Sign out, sign in as the owner, and open the sale. | The owner sees cost, discounts and "Recorded by Given", and can void it. |
+| 7 | On a second phone with no shop data, sign in as Given with phone `096 555 1122` and PIN `7315`. | The first sign-in needs internet and completes; the app says shop data is not on this phone yet. |
+| 8 | Turn airplane mode on, force-close and reopen the second phone. | Given signs in with `7315` offline, and still sees the waiting screen. |
+
+## UAT-22 Owner email sign-in and magic link on a new phone
+
+**Start:** UAT-03 completed on the owner's phone, a second phone with the app installed, internet on, and the backend running.
+
+| Step | Do this | Expected result |
+| --- | --- | --- |
+| 1 | On the second phone, choose English. On "Create your account", tap **Already registered? Sign in with email**. | The email sign-in screen opens. |
+| 2 | Enter `elton@example.com` and password `stocksure-demo`. Tap **Sign in**. | The "Set your phone PIN" screen opens. |
+| 3 | Enter PIN `4821` twice and save. | The app says shop data is not on this phone yet. |
+| 4 | Turn airplane mode on, force-close and reopen. Enter `4821`. | The waiting screen opens offline. |
+| 5 | On the first phone, sign out. Tap **Sign in with email or a magic link**. Enter `elton@example.com` and tap **Email me a magic link**. | A demo magic-link card appears (development build). |
+| 6 | Tap **Open demo link**. | The set-PIN screen opens. Setting `4821` returns to the existing shop with all data. |
+| 7 | Try the same magic link again. | It is rejected as already used. |
+
+**Note:** in a real deployment the link arrives by email and the demo card is hidden.

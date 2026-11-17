@@ -9,6 +9,7 @@ import {
   listMovements,
   listProductsWithStock,
   listSales,
+  listStaff,
   lowStockVariants,
   reconcileDay,
   taxSnapshot,
@@ -20,6 +21,7 @@ import {
   type SaleDetail,
   type SaleSummary,
   type ShopRecord,
+  type StaffRecord,
   type TaxPotView,
   type TaxSnapshot,
 } from './repos';
@@ -81,6 +83,10 @@ export function useShop() {
 
 export function useSales() {
   return useQuery<SaleSummary[]>([], (db) => listSales(db));
+}
+
+export function useStaff() {
+  return useQuery<StaffRecord[]>([], (db) => listStaff(db));
 }
 
 export function useSaleDetail(saleId: string) {

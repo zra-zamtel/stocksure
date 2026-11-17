@@ -2,6 +2,7 @@ import { useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useMemo, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { usePermissionGuard } from '@/auth/permissions';
 import { useAuth } from '@/auth/session';
 import { BarcodeScanner } from '@/components/barcode-scanner';
 import { Button, Card, Choice, EmptyState, Field, Pill, Row, Screen, SectionTitle } from '@/components/ui';
@@ -42,9 +43,12 @@ export default function NewSaleScreen() {
   const { t } = useI18n();
   const router = useRouter();
   const db = useSQLiteContext();
-  const { user } = useAuth();
+  const { user, can } = useAuth();
+  const guard = usePermissionGuard();
   const { data: products, loading, error: loadError } = useProducts();
   const { data: shop } = useShop();
+  const seesMoney = can('money.insights');
+  const canApproveOverride = can('stock.override');
 
   const [quantityByVariant, setQuantityByVariant] = useState<Record<string, number>>({});
   const [scannerOpen, setScannerOpen] = useState(false);
@@ -143,6 +147,13 @@ export default function NewSaleScreen() {
       setError(t('sale.new.signInRequired'));
       return;
     }
+    try {
+      guard('sales.record');
+      if (approved) guard('stock.override');
+    } catch {
+      setError(t('permission.denied'));
+      return;
+    }
     setError(null);
     setShortfalls(null);
     setSubmitting(true);
@@ -151,8 +162,7 @@ export default function NewSaleScreen() {
         recordedBy: user.id,
         lines,
         payments,
-        // Staff sign-in (#29) will add a second person; today the signed-in
-        // owner approves an override and the movement records that.
+        // Only the owner can approve an override; the movement records who did.
         override: approved ? { approvedBy: user.id, shortfalls: approved } : undefined,
       });
       setQuantityByVariant({});
@@ -236,14 +246,18 @@ export default function NewSaleScreen() {
             />
           ))}
           <View style={styles.totals}>
-            <Row label={t('sale.new.subtotal')} value={formatKwacha(priced.subtotal)} />
-            <Row label={t('sale.new.discounts')} value={formatKwacha(priced.discountTotal)} />
+            {seesMoney ? (
+              <>
+                <Row label={t('sale.new.subtotal')} value={formatKwacha(priced.subtotal)} />
+                <Row label={t('sale.new.discounts')} value={formatKwacha(priced.discountTotal)} />
+              </>
+            ) : null}
             <Row label={t('sales.total')} value={formatKwacha(priced.total)} emphasis />
           </View>
         </Card>
       )}
 
-      {belowCostLabels.length > 0 ? (
+      {seesMoney && belowCostLabels.length > 0 ? (
         <Card style={styles.warningCard}>
           <Pill label="!" tone="warning" />
           <Text style={styles.warningText}>
@@ -269,12 +283,16 @@ export default function NewSaleScreen() {
               })}
             </Text>
           ))}
-          <Button
-            label={t('sale.new.sellAnyway')}
-            variant="danger"
-            disabled={submitting}
-            onPress={() => submit(shortfalls)}
-          />
+          {canApproveOverride ? (
+            <Button
+              label={t('sale.new.sellAnyway')}
+              variant="danger"
+              disabled={submitting}
+              onPress={() => submit(shortfalls)}
+            />
+          ) : (
+            <Text style={styles.warningText}>{t('sale.new.overrideOwner')}</Text>
+          )}
         </Card>
       ) : null}
 

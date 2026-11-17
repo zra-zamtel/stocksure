@@ -100,15 +100,19 @@ npx expo run:android
 ```
 
 A fresh install starts at the language and account screens. Account creation
-needs one online moment so the backend can register the owner; after that,
-PIN sign-in and the rest of the app work offline. The shop, products and sales
-are stored in SQLite, and the remaining sync work is still being wired up. The
-demo-shop seed remains in `mobile/src/db/seed.ts` for #41 and is not loaded
-automatically.
+needs one online moment so the backend can register the owner's email and
+password; the phone PIN is then set for fast offline sign-in and the rest of the
+app works offline. The owner can sign in on a new phone, or recover a forgotten
+PIN, with email/password or a magic link. Adding staff also needs one online
+moment, and so does that staff member's first sign-in on a phone. The shop,
+products and sales are stored in SQLite, and the remaining sync work is still
+being wired up. The demo-shop seed remains in `mobile/src/db/seed.ts` for #41
+and is not loaded automatically.
 
 ### Registration backend
 
-The one online call is a minimal Django + DRF service in `backend/`:
+The online identity calls are a minimal Django + DRF service in `backend/`:
+owner registration and PIN reset. Sign-in and the rest of the app stay offline.
 
 ```bash
 cd backend
@@ -117,6 +121,8 @@ python -m venv .venv
 # macOS/Linux: source .venv/bin/activate
 pip install -r requirements.txt
 python manage.py migrate
+# PowerShell: enable the demo tokens for magic links and PIN reset
+$env:DJANGO_DEBUG="1"; $env:EXPOSE_EMAIL_TOKEN="1"; $env:EXPOSE_RESET_CODE="1"
 python manage.py runserver 0.0.0.0:8000
 ```
 
@@ -138,10 +144,12 @@ See [`backend/README.md`](./backend/README.md).
 
 ## Status
 
-The demo path is being built. Owner registration runs against the local Django
-API. Onboarding, products, sales, reconciliation and TaxPot run against SQLite.
-The rest of sync, USSD and the remaining demo steps are in flight — see the
-board for what is next.
+The demo path is being built. Owner email/password registration, magic-link
+sign-in, staff registration, a staff member's first sign-in and phone PIN reset
+run against the local Django API. Onboarding, products, sales, reconciliation
+and TaxPot run against SQLite, with staff roles gated by the same permission
+matrix in the app and on the routes. The rest of sync, USSD and the remaining
+demo steps are in flight — see the board for what is next.
 
 ## Working agreements
 

@@ -1,6 +1,7 @@
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
+import { useAuth } from '@/auth/session';
 import { Button, Card, EmptyState, Pill, Screen } from '@/components/ui';
 import { useProducts, useShop } from '@/db/hooks';
 import { useI18n } from '@/i18n';
@@ -10,9 +11,13 @@ import { colors, radii, spacing, typeScale } from '@/theme/tokens';
 export default function ProductsScreen() {
   const { t } = useI18n();
   const router = useRouter();
+  const { can } = useAuth();
   const { data: products, loading, error } = useProducts();
   const { data: shop } = useShop();
   const [query, setQuery] = useState('');
+
+  const managesProducts = can('products.manage');
+  const seesMoney = can('money.insights');
 
   const needle = query.trim().toLowerCase();
   const visible = needle
@@ -28,20 +33,22 @@ export default function ProductsScreen() {
     <Screen
       title={t('products.title')}
       footer={
-        <View style={styles.footerRow}>
-          <View style={styles.footerButton}>
-            <Button label={t('products.addProduct')} onPress={() => router.push('/product/new')} />
-          </View>
-          {shop?.usesBarcodes ? (
+        managesProducts ? (
+          <View style={styles.footerRow}>
             <View style={styles.footerButton}>
-              <Button
-                label={t('products.scanBarcode')}
-                variant="secondary"
-                onPress={() => router.push('/scan')}
-              />
+              <Button label={t('products.addProduct')} onPress={() => router.push('/product/new')} />
             </View>
-          ) : null}
-        </View>
+            {shop?.usesBarcodes ? (
+              <View style={styles.footerButton}>
+                <Button
+                  label={t('products.scanBarcode')}
+                  variant="secondary"
+                  onPress={() => router.push('/scan')}
+                />
+              </View>
+            ) : null}
+          </View>
+        ) : undefined
       }
     >
       <TextInput
@@ -75,8 +82,8 @@ export default function ProductsScreen() {
               />
             </View>
             <Text style={styles.muted}>
-              {t('products.buyPrice')} {formatKwacha(product.defaultBuyPrice)} ·{' '}
               {t('products.sellPrice')} {formatKwacha(product.defaultSellPrice)}
+              {seesMoney ? ` · ${t('products.buyPrice')} ${formatKwacha(product.defaultBuyPrice)}` : ''}
             </Text>
             {product.variants.length > 1 ? (
               <Text style={styles.muted}>
@@ -87,11 +94,13 @@ export default function ProductsScreen() {
                   .join(', ')}
               </Text>
             ) : null}
-            <Button
-              label={t('products.restock')}
-              variant="secondary"
-              onPress={() => router.push(`/product/${product.id}`)}
-            />
+            {managesProducts ? (
+              <Button
+                label={t('products.restock')}
+                variant="secondary"
+                onPress={() => router.push(`/product/${product.id}`)}
+              />
+            ) : null}
           </Card>
         );
       })}

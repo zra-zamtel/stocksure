@@ -239,4 +239,19 @@ export const migrations: string[] = [
   ALTER TABLE payment ADD COLUMN matched_txn_id TEXT REFERENCES mobile_money_txn (id);
   CREATE INDEX idx_payment_matched_txn ON payment (matched_txn_id);
   `,
+
+  // v6 - a staff member's first sign-in on a phone is the one online moment
+  // after the owner adds them. The flag remembers that the server check already
+  // happened, so later sign-ins can work in airplane mode.
+  `
+  ALTER TABLE staff ADD COLUMN first_signed_in_at TEXT;
+  `,
+
+  // v7 - the owner's online identity is an email address. The local row keeps
+  // it for account recovery and for welcoming the owner back, while the PIN
+  // remains the offline unlock.
+  `
+  ALTER TABLE owner ADD COLUMN email TEXT;
+  CREATE UNIQUE INDEX idx_owner_email ON owner (email) WHERE email IS NOT NULL;
+  `,
 ];

@@ -5,6 +5,7 @@ import {
   completeOnboarding,
   createOwner,
   createProduct,
+  createStaff,
   ensureTaxPeriod,
   findVariantByBarcode,
   getOnboardingState,
@@ -15,10 +16,14 @@ import {
   ignorePayment,
   injectDemoMessages,
   InsufficientStockError,
+  listIdentities,
   listMovements,
   listProductsWithStock,
+  listSales,
+  listStaff,
   lowStockVariants,
   markSalePaid,
+  markStaffFirstSignIn,
   payTaxPot,
   reconcileDay,
   recordSale,
@@ -30,6 +35,9 @@ import {
   taxSnapshot,
   topUpTaxPot,
   totalsForDay,
+  updateOwnerPinHash,
+  upsertOwnerFromServer,
+  upsertStaffFromServer,
   voidSale,
   type RecordSaleInput,
 } from './repos';
@@ -231,6 +239,158 @@ describe('IT-ONB onboarding and account', () => {
     expect(await getOwner(db)).toEqual({ id: 'owner_1', name: 'Elton', phone: '0971234567', pinHash: 'h' });
     await expect(createOwner(db, { id: 'owner_2', name: 'B', phone: '0961234567', pinHash: 'h' })).rejects.toThrow();
     expect(await count(db, 'sync_queue', "entity = 'owner'")).toBe(0);
+  });
+
+  it('IT-ONB-09 replaces the local PIN hash after an online reset', async () => {
+    await createOwner(db, { id: 'owner_1', name: 'Elton', phone: '0971234567', pinHash: 'old' });
+    await updateOwnerPinHash(db, 'owner_1', 'new');
+    expect((await getOwner(db))?.pinHash).toBe('new');
+    await expect(updateOwnerPinHash(db, 'missing', 'new')).rejects.toThrow();
+  });
+
+  it('IT-ONB-10 caches the owner email with the local account', async () => {
+    await createOwner(db, {
+      id: 'owner_1',
+      name: 'Elton',
+      phone: '0971234567',
+      email: 'Elton@Example.com',
+      pinHash: 'h',
+    });
+
+    expect(await getOwner(db)).toMatchObject({
+      id: 'owner_1',
+      email: 'elton@example.com',
+      pinHash: 'h',
+    });
+  });
+
+  it('IT-ONB-11 replaces a cached identity after an email login on another phone', async () => {
+    await createOwner(db, {
+      id: 'owner_1',
+      name: 'Elton',
+      phone: '0971234567',
+      email: 'old@example.com',
+      pinHash: 'old',
+    });
+
+    const owner = await upsertOwnerFromServer(db, {
+      id: 'owner_1',
+      name: 'Elton C.',
+      phone: '0971234567',
+      email: 'new@example.com',
+      pinHash: 'new',
+    });
+
+    expect(owner).toMatchObject({
+      id: 'owner_1',
+      name: 'Elton C.',
+      email: 'new@example.com',
+      pinHash: 'new',
+    });
+    expect(await count(db, 'owner')).toBe(1);
+    expect((await getOwner(db))?.email).toBe('new@example.com');
+  });
+
+  it('IT-ONB-12 refuses to replace a different owner already on the phone', async () => {
+    await createOwner(db, {
+      id: 'owner_1',
+      name: 'Owner A',
+      phone: '0971234567',
+      email: 'a@example.com',
+      pinHash: 'a',
+    });
+
+    await expect(
+      upsertOwnerFromServer(db, {
+        id: 'owner_2',
+        name: 'Owner B',
+        phone: '0965551122',
+        email: 'b@example.com',
+        pinHash: 'b',
+      })
+    ).rejects.toThrow('different owner');
+
+    expect(await getOwner(db)).toMatchObject({ id: 'owner_1', email: 'a@example.com' });
+  });
+});
+
+describe('IT-STAFF staff identity', () => {
+  const owner = { id: 'owner_1', name: 'Elton', phone: '0971234567', pinHash: 'owner-hash' };
+  const staff = { id: 'staff_1', name: 'Given', phone: '0965551122', pinHash: 'staff-hash' };
+
+  beforeEach(async () => {
+    await createOwner(db, owner);
+  });
+
+  it('IT-STAFF-01 caches a staff member without writing to the outbox', async () => {
+    const created = await createStaff(db, staff);
+
+    expect(created).toEqual({ ...staff, role: 'staff' });
+    expect(await listStaff(db)).toEqual([{ ...staff, role: 'staff' }]);
+    expect(await count(db, 'staff')).toBe(1);
+    expect(await count(db, 'sync_queue')).toBe(0);
+  });
+
+  it('IT-STAFF-02 rejects a phone already used on this phone', async () => {
+    await createStaff(db, staff);
+
+    await expect(createStaff(db, { ...staff, id: 'staff_2', phone: '0971234567' })).rejects.toThrow(
+      'owner'
+    );
+    await expect(createStaff(db, { ...staff, id: 'staff_3' })).rejects.toThrow('staff account');
+    await expect(createStaff(db, { ...staff, id: 'staff_4', phone: '0960000000', name: '  ' })).rejects.toThrow(
+      'name'
+    );
+  });
+
+  it('IT-STAFF-03 lists everyone who can unlock the phone, owner first', async () => {
+    await createStaff(db, staff);
+
+    const identities = await listIdentities(db);
+
+    expect(identities.map((identity) => [identity.role, identity.name])).toEqual([
+      ['owner', 'Elton'],
+      ['staff', 'Given'],
+    ]);
+    expect(identities[1].firstSignedInAt).toBeUndefined();
+  });
+
+  it('IT-STAFF-04 records the online first check once and can re-cache after a server sign-in', async () => {
+    await createStaff(db, staff);
+    await markStaffFirstSignIn(db, 'staff_1', '2026-11-17T08:00:00.000Z');
+    await markStaffFirstSignIn(db, 'staff_1', '2026-11-17T09:00:00.000Z');
+
+    expect((await listStaff(db))[0].firstSignedInAt).toBe('2026-11-17T08:00:00.000Z');
+
+    const upserted = await upsertStaffFromServer(db, {
+      ...staff,
+      name: 'Given P.',
+      pinHash: 'new-staff-hash',
+    });
+
+    expect(upserted.name).toBe('Given P.');
+    expect(upserted.pinHash).toBe('new-staff-hash');
+    expect(await listStaff(db)).toHaveLength(1);
+    expect((await listStaff(db))[0].firstSignedInAt).toBe('2026-11-17T08:00:00.000Z');
+  });
+
+  it('IT-STAFF-05 names the owner or staff member who recorded each sale', async () => {
+    await createStaff(db, staff);
+    await shop();
+    const { variantId } = await product(5);
+
+    const ownerSale = await recordSale(db, {
+      ...cashSale(variantId, 1, at(DAY, '09:00')),
+      recordedBy: owner.id,
+    });
+    const staffSale = await recordSale(db, {
+      ...cashSale(variantId, 1, at(DAY, '10:00')),
+      recordedBy: staff.id,
+    });
+
+    expect((await getSaleDetail(db, ownerSale.saleId))?.recordedByName).toBe('Elton');
+    expect((await getSaleDetail(db, staffSale.saleId))?.recordedByName).toBe('Given');
+    expect((await listSales(db)).map((sale) => sale.recordedByName).sort()).toEqual(['Elton', 'Given']);
   });
 });
 
@@ -572,7 +732,8 @@ describe('IT-REC reconciliation', () => {
       DAY
     );
     expect(await saveCashCount(db, DAY, 20000, 'short')).toEqual({ expected: 21000, variance: -1000 });
-    expect(await saveCashCount(db, DAY, 21000)).toEqual({ expected: 21000, variance: 0 });
+    await expect(saveCashCount(db, DAY, 21000)).rejects.toThrow('already been saved');
+    expect(await saveCashCount(db, DAY, 21000, undefined, true)).toEqual({ expected: 21000, variance: 0 });
     expect(await count(db, 'reconciliation')).toBe(1);
     expect((await reconcileDay(db, DAY)).cash).toMatchObject({ openingFloat: 5000, expected: 21000, countedCash: 21000, variance: 0 });
   });
