@@ -26,7 +26,9 @@ const PARITY = [
   'LGGLLG', 'LGGGLL', 'LGLGLG', 'LGLGGL', 'LGGLGL',
 ];
 
-export const IN_STORE_PREFIX = '2';
+// GS1 20: restricted circulation for a shop's own items. 21-29 are commonly
+// read by tills and scales as variable-weight codes with a price embedded.
+export const IN_STORE_PREFIX = '20';
 
 export function ean13CheckDigit(firstTwelve: string): number {
   if (!/^\d{12}$/.test(firstTwelve)) {
@@ -64,7 +66,7 @@ export function encodeEan13(code: string): string {
 
 export function generateInStoreBarcode(random: () => number = Math.random): string {
   let body = IN_STORE_PREFIX;
-  for (let index = 0; index < 11; index += 1) {
+  while (body.length < 12) {
     body += Math.floor(random() * 10);
   }
   return `${body}${ean13CheckDigit(body)}`;

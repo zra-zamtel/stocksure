@@ -74,11 +74,11 @@ export default function NewSaleScreen() {
   }, [products]);
 
   const lines = useMemo<LineInput[]>(() => {
+    // A variant that vanished on reload is dropped from the basket, not thrown on.
     return Object.entries(quantityByVariant)
-      .filter(([, quantity]) => quantity > 0)
+      .filter(([variantId, quantity]) => quantity > 0 && index.has(variantId))
       .map(([variantId, quantity]) => {
-        const entry = index.get(variantId);
-        if (!entry) throw new Error(`Unknown variant ${variantId}`);
+        const entry = index.get(variantId)!;
         return {
           variantId,
           quantity,
@@ -99,14 +99,19 @@ export default function NewSaleScreen() {
     if (method === 'mobile_money') {
       return [{ method: 'mobile_money', provider, amount: priced.total, reference }];
     }
+    // Split with nothing left for mobile money is just a cash sale.
+    if (cashAmount === priced.total) return [{ method: 'cash', amount: priced.total }];
     return [
       { method: 'cash', amount: cashAmount },
       { method: 'mobile_money', provider, amount: priced.total - cashAmount, reference },
     ];
   }, [method, priced.total, provider, reference, cashAmount]);
 
-  const setQuantity = (variantId: string, next: number) =>
+  // Any basket change voids an override shown for the old basket.
+  const setQuantity = (variantId: string, next: number) => {
+    setShortfalls(null);
     setQuantityByVariant((current) => ({ ...current, [variantId]: Math.min(99, Math.max(0, next)) }));
+  };
 
   /** A scan adds one unit to the basket; the basket itself never leaves this screen. */
   async function handleScanned(code: string) {
@@ -122,6 +127,7 @@ export default function NewSaleScreen() {
         setScanMessage(t('sale.new.scanNotFound', { code }));
         return;
       }
+      setShortfalls(null);
       setQuantityByVariant((current) => ({
         ...current,
         [match.variantId]: Math.min(99, (current[match.variantId] ?? 0) + 1),
@@ -132,7 +138,8 @@ export default function NewSaleScreen() {
     }
   }
 
-  async function submit(allowNegativeStock: boolean) {
+  async function submit(approved: StockShortfall[] | null) {
+    if (submitting) return;
     setError(null);
     setShortfalls(null);
     setSubmitting(true);
@@ -141,7 +148,9 @@ export default function NewSaleScreen() {
         recordedBy: RECORDED_BY,
         lines,
         payments,
-        allowNegativeStock,
+        // Until staff sign-in (#29) there is no separate owner to check, so the
+        // approval is attributed to the signed-in user and noted on the movement.
+        override: approved ? { approvedBy: RECORDED_BY, shortfalls: approved } : undefined,
       });
       setQuantityByVariant({});
       router.replace(`/sale/${result.saleId}`);
@@ -171,7 +180,7 @@ export default function NewSaleScreen() {
               : t('sale.new.confirm')
           }
           disabled={lines.length === 0 || submitting}
-          onPress={() => submit(false)}
+          onPress={() => submit(null)}
         />
       }
     >
@@ -257,7 +266,12 @@ export default function NewSaleScreen() {
               })}
             </Text>
           ))}
-          <Button label={t('sale.new.sellAnyway')} variant="danger" onPress={() => submit(true)} />
+          <Button
+            label={t('sale.new.sellAnyway')}
+            variant="danger"
+            disabled={submitting}
+            onPress={() => submit(shortfalls)}
+          />
         </Card>
       ) : null}
 

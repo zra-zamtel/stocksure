@@ -4,7 +4,7 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { Button, Card, Choice, EmptyState, Field, Pill, Row, Screen, SectionTitle } from '@/components/ui';
-import { toNgwee } from '@/core';
+import { isValidEan13, toNgwee } from '@/core';
 import { useMovements, useProducts, useShop } from '@/db/hooks';
 import { restockVariant, setVariantBarcode } from '@/db/repos';
 import { useI18n } from '@/i18n';
@@ -171,11 +171,13 @@ export default function ProductScreen() {
             {selectedVariant.barcode ? (
               <>
                 <Row label="Barcode" value={selectedVariant.barcode} />
-                <Button
-                  label={t('products.printLabel')}
-                  variant="secondary"
-                  onPress={() => handlePrintLabel(selectedVariant.barcode!)}
-                />
+                {isValidEan13(selectedVariant.barcode) ? (
+                  <Button
+                    label={t('products.printLabel')}
+                    variant="secondary"
+                    onPress={() => handlePrintLabel(selectedVariant.barcode!)}
+                  />
+                ) : null}
               </>
             ) : shop?.usesBarcodes ? (
               <>

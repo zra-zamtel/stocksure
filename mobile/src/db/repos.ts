@@ -70,6 +70,16 @@ interface ProductRow {
   quantity: number | null;
 }
 
+/** A bad discount on one product must not stop every product screen loading. */
+function parseDiscount(json: string | null): ProductDiscount | undefined {
+  if (!json) return undefined;
+  try {
+    return JSON.parse(json) as ProductDiscount;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function listProductsWithStock(db: SQLiteDatabase): Promise<ProductWithStock[]> {
   const rows = await db.getAllAsync<ProductRow>(
     `SELECT p.id, p.name, p.category,
@@ -96,7 +106,7 @@ export async function listProductsWithStock(db: SQLiteDatabase): Promise<Product
         category: row.category ?? undefined,
         defaultBuyPrice: row.defaultBuyPrice,
         defaultSellPrice: row.defaultSellPrice,
-        discount: row.discountJson ? (JSON.parse(row.discountJson) as ProductDiscount) : undefined,
+        discount: parseDiscount(row.discountJson),
         stock: 0,
         variants: [],
       };
@@ -213,7 +223,16 @@ export interface RecordSaleInput {
   payments: PaymentInput[];
   createdAt?: string;
   /** Set only after the owner has approved selling more than is on hand. */
-  allowNegativeStock?: boolean;
+  override?: StockOverride;
+}
+
+/**
+ * Approval to sell below stock. It covers only the shortfalls that were shown
+ * when it was given, so a basket changed afterwards is checked again.
+ */
+export interface StockOverride {
+  approvedBy: string;
+  shortfalls: StockShortfall[];
 }
 
 export interface StockShortfall {
@@ -253,18 +272,26 @@ export async function recordSale(db: SQLiteDatabase, input: RecordSaleInput): Pr
   }
 
   await db.withTransactionAsync(async () => {
-    if (!input.allowNegativeStock) {
-      const shortfalls: StockShortfall[] = [];
-      for (const [variantId, quantity] of requested) {
-        const row = await db.getFirstAsync<{ quantity: number }>(
-          'SELECT quantity FROM variant_stock WHERE variant_id = ?',
-          variantId
-        );
-        const onHand = row?.quantity ?? 0;
-        if (needsOverride(onHand, quantity)) shortfalls.push({ variantId, onHand, requested: quantity });
-      }
-      if (shortfalls.length > 0) throw new InsufficientStockError(shortfalls);
+    const shortfalls: StockShortfall[] = [];
+    for (const [variantId, quantity] of requested) {
+      const row = await db.getFirstAsync<{ quantity: number }>(
+        'SELECT quantity FROM variant_stock WHERE variant_id = ?',
+        variantId
+      );
+      const onHand = row?.quantity ?? 0;
+      if (needsOverride(onHand, quantity)) shortfalls.push({ variantId, onHand, requested: quantity });
     }
+    const approved = new Map(input.override?.shortfalls.map((item) => [item.variantId, item.requested]));
+    const unapproved = shortfalls.filter((item) => (approved.get(item.variantId) ?? -1) < item.requested);
+    if (unapproved.length > 0) throw new InsufficientStockError(shortfalls);
+
+    // Overridden lines say so in stock history, with who approved it.
+    const overrideNotes = new Map(
+      shortfalls.map((item) => [
+        item.variantId,
+        `Override by ${input.override?.approvedBy}: sold ${item.requested} with ${item.onHand} on hand`,
+      ])
+    );
 
     const syncLines: object[] = [];
     const syncMovements: object[] = [];
@@ -302,6 +329,7 @@ export async function recordSale(db: SQLiteDatabase, input: RecordSaleInput): Pr
         variantId: line.variantId,
         quantityChange: -line.quantity,
         reason: 'sale',
+        note: overrideNotes.get(line.variantId) ?? null,
         saleId,
         createdAt,
         updatedAt: createdAt,
@@ -323,11 +351,12 @@ export async function recordSale(db: SQLiteDatabase, input: RecordSaleInput): Pr
       );
 
       await db.runAsync(
-        `INSERT INTO stock_movement (id, variant_id, quantity_change, reason, sale_id, created_at, updated_at)
-         VALUES (?, ?, ?, 'sale', ?, ?, ?)`,
+        `INSERT INTO stock_movement (id, variant_id, quantity_change, reason, note, sale_id, created_at, updated_at)
+         VALUES (?, ?, ?, 'sale', ?, ?, ?, ?)`,
         movementId,
         line.variantId,
         -line.quantity,
+        overrideNotes.get(line.variantId) ?? null,
         saleId,
         createdAt,
         createdAt

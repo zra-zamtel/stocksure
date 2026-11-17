@@ -7,7 +7,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { captureRef } from 'react-native-view-shot';
 import { BarcodeLabel } from '@/components/barcode-label';
 import { Button, Card, Field, Screen, SectionTitle } from '@/components/ui';
-import { generateInStoreBarcode, isValidEan13, toNgwee } from '@/core';
+import { generateInStoreBarcode, isValidEan13, normaliseBarcode, toNgwee } from '@/core';
 import { useShop } from '@/db/hooks';
 import { createProduct } from '@/db/repos';
 import { useI18n } from '@/i18n';
@@ -34,8 +34,10 @@ export default function NewProductScreen() {
   const [saving, setSaving] = useState(false);
 
   const labelRef = useRef<ComponentRef<typeof View>>(null);
-  const usesBarcodes = shop?.usesBarcodes ?? true;
-  const scannable = barcode.trim() !== '' && isValidEan13(barcode.trim());
+  const usesBarcodes = shop?.usesBarcodes ?? false;
+  // Compare what will actually be saved: a 12-digit UPC-A is stored padded to EAN-13.
+  const savedCode = barcode.trim() === '' ? '' : normaliseBarcode(barcode);
+  const scannable = savedCode !== '' && isValidEan13(savedCode);
 
   async function handleSave() {
     setError(null);
@@ -98,7 +100,7 @@ export default function NewProductScreen() {
           shopName: shop?.name ?? 'StockSure',
           productName: name.trim() || 'New product',
           priceText,
-          code: barcode.trim(),
+          code: savedCode,
         }),
       });
     } catch (cause) {
@@ -146,7 +148,7 @@ export default function NewProductScreen() {
         <Card>
           {scannable ? (
             <>
-              <BarcodeLabel code={barcode.trim()} viewRef={labelRef} />
+              <BarcodeLabel code={savedCode} viewRef={labelRef} />
               <View style={styles.labelActions}>
                 <View style={styles.rowButton}>
                   <Button label={t('products.shareLabel')} variant="secondary" onPress={handleShareLabel} />

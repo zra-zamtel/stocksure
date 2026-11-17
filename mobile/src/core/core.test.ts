@@ -195,7 +195,7 @@ describe('barcodes', () => {
     expect(() => encodeEan13('5901234123458')).toThrow();
   });
 
-  it('generates in-store codes that are valid and in the GS1 2 range', () => {
+  it('generates in-store codes that are valid and in the GS1 20 range', () => {
     let seed = 0.42;
     const random = () => {
       seed = (seed * 9301 + 49297) % 233280 / 233280;
@@ -203,7 +203,7 @@ describe('barcodes', () => {
     };
     const code = generateInStoreBarcode(random);
     expect(code).toHaveLength(13);
-    expect(code.startsWith('2')).toBe(true);
+    expect(code.startsWith('20')).toBe(true);
     expect(isValidEan13(code)).toBe(true);
     expect(isInStoreBarcode(code)).toBe(true);
   });
