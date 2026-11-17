@@ -210,16 +210,24 @@ export const saleLinesData = saleLines;
 export const paymentsData = payments;
 
 // Opening stock, minus sales, so quantities are always derived from movements.
+// A variant with no opening stock gets no movement at all: zero-quantity
+// movements are meaningless and the schema rejects them.
 export const stockMovements: StockMovement[] = [
   ...products.flatMap((product) =>
-    product.variants.map((variant) => ({
-      id: `open-${variant.id}`,
-      createdAt: at('07:30'),
-      updatedAt: at('07:30'),
-      variantId: variant.id,
-      quantityChange: variant.id === 'var-6' ? 1 : variant.id === 'var-7' ? 0 : 6,
-      reason: 'opening' as const,
-    }))
+    product.variants.flatMap((variant) => {
+      const opening = variant.id === 'var-6' ? 1 : variant.id === 'var-7' ? 0 : 6;
+      if (opening === 0) return [];
+      return [
+        {
+          id: `open-${variant.id}`,
+          createdAt: at('07:30'),
+          updatedAt: at('07:30'),
+          variantId: variant.id,
+          quantityChange: opening,
+          reason: 'opening' as const,
+        },
+      ];
+    })
   ),
   ...saleLines.map((line) => ({
     id: `move-${line.id}`,

@@ -87,6 +87,9 @@ export async function seedDemoShop(db: SQLiteDatabase): Promise<void> {
     }
 
     for (const movement of stockMovements) {
+      // A zero movement is meaningless and the schema rejects it. An
+      // out-of-stock variant simply has no opening movement at all.
+      if (movement.quantityChange === 0) continue;
       await db.runAsync(
         `INSERT INTO stock_movement (id, variant_id, quantity_change, reason, note, sale_id, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
