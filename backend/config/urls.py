@@ -16,6 +16,9 @@ urlpatterns = [
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="docs"),
     path("api/auth/", include("apps.accounts.urls")),
+    # The mobile app's existing paths. Keep them until the app moves to the
+    # domain API prefixes in the sync step.
+    path("api/v1/auth/", include("apps.accounts.urls")),
     path("api/", include("apps.shops.urls")),
     path("api/", include("apps.inventory.urls")),
     path("api/", include("apps.sales.urls")),

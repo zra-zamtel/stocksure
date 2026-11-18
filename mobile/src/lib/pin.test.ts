@@ -11,7 +11,7 @@ vi.mock('expo-crypto', () => ({
 
 const { hashPin, verifyPin } = await import('./pin');
 
-// Copied from backend/accounts/serializers.py: the server rejects anything else.
+// Copied from backend/apps/accounts/serializers.py: the server rejects anything else.
 const BACKEND_PIN_HASH = /^sha256\$[0-9a-f]{32}\$[0-9a-f]{64}$/i;
 
 describe('UT-PIN PIN hashing', () => {

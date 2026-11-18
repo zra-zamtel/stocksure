@@ -30,15 +30,33 @@ python manage.py runserver
 > The code was written without being able to run Django in the authoring environment, so it has been
 > syntax-checked and linted but **not executed**. Run the tests first; expect a few small fixes.
 
-## Mobile account layer (pending port)
+## Auth (mobile app and domain clients)
 
-This tree also contains the mobile-side auth service in `backend/accounts`: email/password login,
-magic links, device PIN hashes, staff first sign-in and PIN reset. It was written before this backend
-landed and is not installed in `config.settings` yet. The next step is to move those features into
-`apps/accounts` on top of the `User` + `Membership` + JWT model below, so one backend serves both the
-app and the domain API. Until that port lands, the mobile app still calls `/api/v1/auth/...` and only
-one of the two backends can be active at a time. The agreed split is in the PR #44 review and
-`docs/sync-contract.md`.
+`apps/accounts` is the one account layer. It keeps Tabo's `User` + `Membership`
++ JWT model and adds the mobile-side pieces:
+
+- `POST /api/auth/register` (and `/api/v1/auth/register`) — owner signup, optional
+  `shop_name` (a placeholder shop and owner Membership are created when it is
+  omitted), phone-generated `id` for safe retries. A verification magic link
+  is emailed automatically. The phone's PIN hash is validated and discarded.
+- `POST /api/auth/login` — email + password for the app (blocked until the email
+  is verified) or phone + password for domain clients.
+- `POST /api/auth/magic-link/request` and `/verify` — single-use, 15-minute link;
+  while the email is unverified the request must also name the account phone.
+- `POST /api/auth/refresh`, `/logout` — JWT rotation and refresh-token blacklist.
+- `POST /api/auth/device-pin` — accepts the JWT after an email login; the server
+  does not store the phone PIN hash.
+- `POST /api/auth/pin-reset/request` and `/confirm` — 6-digit code, hashed and
+  single-use; the new PIN hash is never stored.
+- `POST /api/auth/staff` — owner-authenticated staff User + assistant Membership
+  + Django PIN verifier.
+- `POST /api/auth/staff-sign-in/confirm` — first sign-in by phone + PIN, with a
+  5-try / 15-minute lockout.
+- `POST /api/auth/staff/<id>/pin-reset` — owner-only replacement of a staff PIN.
+
+The phone PIN remains the offline unlock. The server keeps only a Django
+`make_password` verifier for staff first sign-in; it never stores the phone's
+salted SHA-256 PIN hash.
 
 ---
 

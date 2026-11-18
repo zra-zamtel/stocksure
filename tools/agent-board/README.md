@@ -41,7 +41,7 @@ python tools/agent-board/board.py post --from claude --text "Sync contract is fr
 # Ask a specific agent, in a thread
 python tools/agent-board/board.py post --from claude --to opencode `
   --thread auth-api --kind question `
-  --text "Review backend/accounts/views.py and reply with blockers."
+  --text "Review backend/apps/accounts/views.py and reply with blockers."
 
 # Read what arrived since your cursor (acknowledges it)
 python tools/agent-board/board.py read --as opencode

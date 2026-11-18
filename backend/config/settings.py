@@ -56,6 +56,7 @@ INSTALLED_APPS = [
     # third party
     "rest_framework",
     "rest_framework_simplejwt",
+    "rest_framework_simplejwt.token_blacklist",
     "corsheaders",
     "drf_spectacular",
     # local
@@ -148,12 +149,28 @@ REST_FRAMEWORK = {
         "rest_framework.filters.OrderingFilter",
     ],
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
-    "DEFAULT_THROTTLE_RATES": {"auth": "20/min", "ussd": "120/min", "webhook": "300/min"},
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": "300/min",
+        "register": "60/min",
+        "login": "60/min",
+        "magic": "60/min",
+        "staff-signin": "60/min",
+        "staff-register": "60/min",
+        "staff-pin-reset": "60/min",
+        "pin-reset": "60/min",
+        "device-pin": "60/min",
+        "logout": "60/min",
+        "auth": "20/min",
+        "ussd": "120/min",
+        "webhook": "300/min",
+    },
 }
 
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(hours=8),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=30),
+    "ROTATE_REFRESH_TOKENS": True,
+    "BLACKLIST_AFTER_ROTATION": True,
 }
 
 SPECTACULAR_SETTINGS = {
@@ -174,6 +191,37 @@ if not ZAMTEL_WEBHOOK_SECRET and not DEBUG and not RUNNING_TESTS:
     raise ImproperlyConfigured("Set ZAMTEL_WEBHOOK_SECRET when DJANGO_DEBUG is off.")
 # A mobile-money payment is matched to a sale of the same amount recorded within this window.
 PAYMENT_MATCH_WINDOW_MINUTES = int(os.environ.get("PAYMENT_MATCH_WINDOW_MINUTES", "120"))
+
+# --- Email (magic links) ---------------------------------------------------
+# With EMAIL_HOST empty, Django prints the message and link to the server
+# console, which is enough for local work. Set EMAIL_HOST for real delivery.
+EMAIL_HOST = os.environ.get("EMAIL_HOST", "")
+EMAIL_USE_SSL = env_bool("EMAIL_USE_SSL", False)
+_default_tls = "0" if EMAIL_USE_SSL else ("1" if EMAIL_HOST else "0")
+EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS", _default_tls) == "1"
+if EMAIL_USE_TLS and EMAIL_USE_SSL:
+    raise ImproperlyConfigured("Set only one of EMAIL_USE_TLS or EMAIL_USE_SSL.")
+if EMAIL_HOST:
+    EMAIL_BACKEND = os.environ.get(
+        "DJANGO_EMAIL_BACKEND", "django.core.mail.backends.smtp.EmailBackend"
+    )
+    EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "465" if EMAIL_USE_SSL else "587"))
+    EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
+    EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
+    EMAIL_TIMEOUT = int(os.environ.get("EMAIL_TIMEOUT", "10"))
+else:
+    EMAIL_BACKEND = os.environ.get(
+        "DJANGO_EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend"
+    )
+DEFAULT_FROM_EMAIL = os.environ.get(
+    "DJANGO_DEFAULT_FROM_EMAIL", "StockSure <no-reply@stocksure.local>"
+)
+MAGIC_LINK_BASE_URL = os.environ.get("MAGIC_LINK_BASE_URL", "stocksure://magic-link")
+
+# Never enable these on a deployed server: they return one-time codes and
+# tokens in API responses instead of sending them by email or SMS.
+EXPOSE_EMAIL_TOKEN = env_bool("EXPOSE_EMAIL_TOKEN", False)
+EXPOSE_RESET_CODE = env_bool("EXPOSE_RESET_CODE", False)
 
 LOGGING = {
     "version": 1,
