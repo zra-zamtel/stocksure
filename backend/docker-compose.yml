@@ -1,4 +1,4 @@
-# Optional: a local PostgreSQL for development.  docker compose up -d db
+# Optional local PostgreSQL:  docker compose up -d db
 # Then in .env:  DATABASE_URL=postgres://stocksure:stocksure@localhost:5432/stocksure
 services:
   db:

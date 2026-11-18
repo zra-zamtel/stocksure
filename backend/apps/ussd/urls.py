@@ -1,5 +1,5 @@
 from django.urls import path
 
-from .views import USSDView
+from .views import UssdView
 
-urlpatterns = [path("ussd/", USSDView.as_view(), name="ussd")]
+urlpatterns = [path("ussd", UssdView.as_view(), name="ussd")]

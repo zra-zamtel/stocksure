@@ -4,9 +4,9 @@ djangorestframework-simplejwt>=5.3
 django-cors-headers>=4.4
 drf-spectacular>=0.27
 dj-database-url>=2.2
-psycopg[binary]>=3.2
-Pillow>=10.4
 python-dotenv>=1.0
 whitenoise>=6.7
-# Optional: only needed if AI_INVOICE_READER=apps.integrations.ai.AnthropicInvoiceReader
-anthropic>=0.40
+tzdata
+# Production only (Linux hosts). Not needed on Windows for development:
+# gunicorn>=22.0
+# psycopg[binary]>=3.2

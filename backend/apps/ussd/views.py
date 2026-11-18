@@ -8,12 +8,15 @@ from rest_framework.permissions import AllowAny
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
-from .services import handle
+from apps.accounts.models import User
+from apps.core.utils import normalize_phone
+
+from .menus import handle
 
 
-class USSDView(APIView):
-    """POST phoneNumber + text. Replies with plain text starting CON (continue) or END (finish).
-    In production set USSD_SHARED_SECRET and restrict to the operator's gateway."""
+class UssdView(APIView):
+    """Africa's Talking callback: POST phoneNumber + text (e.g. "1*2*3"). Replies in plain text, starting
+    CON (continue) or END (finish). Works only on data the owner's phone has already synced."""
 
     authentication_classes = []
     permission_classes = [AllowAny]
@@ -25,6 +28,11 @@ class USSDView(APIView):
         secret = getattr(settings, "USSD_SHARED_SECRET", "")
         if secret and not hmac.compare_digest(request.headers.get("X-USSD-Secret", ""), secret):
             raise PermissionDenied("Bad gateway secret.")
-        phone = request.data.get("phoneNumber") or request.data.get("phone") or ""
-        text = request.data.get("text", "")
-        return HttpResponse(handle(phone, text), content_type="text/plain; charset=utf-8")
+        phone = normalize_phone(request.data.get("phoneNumber") or request.data.get("phone") or "")
+        text = request.data.get("text") or ""
+        user = User.objects.filter(phone=phone, is_active=True).first()
+        if user is None or user.tenant_id is None:
+            body = "END This number is not registered. Create your account in the StockSure app first."
+        else:
+            body = handle(user, [p.strip() for p in text.split("*")] if text else [])
+        return HttpResponse(body, content_type="text/plain; charset=utf-8")

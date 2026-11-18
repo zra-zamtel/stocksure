@@ -1,23 +1,15 @@
 import re
-from datetime import date, datetime, timedelta
-from decimal import ROUND_HALF_UP, Decimal
+from datetime import date, datetime, time, timedelta, timezone as dt_timezone
+from zoneinfo import ZoneInfo
 
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
-TWO_PLACES = Decimal("0.01")
-
-
-def money(value) -> Decimal:
-    """Round to 2 decimal places (ngwee), half up."""
-    return Decimal(value).quantize(TWO_PLACES, rounding=ROUND_HALF_UP)
+LUSAKA = ZoneInfo("Africa/Lusaka")
 
 
 def normalize_phone(raw: str) -> str:
-    """Normalise Zambian numbers to 260XXXXXXXXX (digits only).
-
-    0977123456 -> 260977123456, +260 977 123 456 -> 260977123456, 977123456 -> 260977123456
-    """
+    """0977123456 / +260 977 123 456 / 977123456 -> 260977123456"""
     digits = re.sub(r"\D", "", raw or "")
     if digits.startswith("00"):
         digits = digits[2:]
@@ -31,37 +23,48 @@ def normalize_phone(raw: str) -> str:
 def validate_zm_phone(raw: str) -> str:
     phone = normalize_phone(raw)
     if not re.fullmatch(r"260\d{9}", phone):
-        raise ValidationError("Enter a valid Zambian phone number, e.g. 0977123456.")
+        raise ValidationError({"phone": "Enter a valid Zambian phone number, e.g. 0977123456."})
     return phone
 
 
-def local_today() -> date:
-    return timezone.localdate()
+def validate_pin(pin) -> str:
+    if not isinstance(pin, str) or not re.fullmatch(r"\d{4,6}", pin):
+        raise ValidationError({"pin": "PIN must be 4 to 6 digits."})
+    return pin
 
 
-def local_date(dt: datetime) -> date:
-    return timezone.localtime(dt).date()
-
-
-def month_bounds(year: int, month: int):
-    start = date(year, month, 1)
-    nxt = date(year + (month == 12), (month % 12) + 1, 1)
-    return start, nxt - timedelta(days=1)
-
-
-def parse_month(value: str):
-    """'2026-11' -> (first_day, last_day)."""
+def parse_iso(value):
+    """ISO 8601 text -> aware datetime, or None if it is not a valid timestamp."""
+    if not isinstance(value, str) or not value:
+        return None
     try:
-        y, m = value.split("-")
-        return month_bounds(int(y), int(m))
-    except (ValueError, AttributeError):
-        raise ValidationError({"month": "Use the format YYYY-MM, e.g. 2026-11."})
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=dt_timezone.utc)
+    return dt
 
 
-def parse_date(value, field="date"):
-    if isinstance(value, date):
-        return value
+def iso_now() -> str:
+    return timezone.now().astimezone(dt_timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+
+def parse_day(value):
+    if not isinstance(value, str):
+        return None
     try:
         return date.fromisoformat(value)
-    except (ValueError, TypeError):
-        raise ValidationError({field: "Use the format YYYY-MM-DD."})
+    except ValueError:
+        return None
+
+
+def lusaka_today() -> date:
+    return timezone.now().astimezone(LUSAKA).date()
+
+
+def day_bounds_utc(start: date, end: date):
+    """[start 00:00, end+1 00:00) in Lusaka time, as aware datetimes."""
+    lo = datetime.combine(start, time.min, tzinfo=LUSAKA)
+    hi = datetime.combine(end + timedelta(days=1), time.min, tzinfo=LUSAKA)
+    return lo, hi
