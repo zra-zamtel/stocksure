@@ -14,8 +14,8 @@ class Command(BaseCommand):
     )
 
     def add_arguments(self, parser):
-        parser.add_argument("--rate", default="4", help="Placeholder rate in percent (default 4).")
-        parser.add_argument("--threshold", default="", help="Placeholder annual turnover limit in ZMW (optional).")
+        parser.add_argument("--rate", default="5", help="Turnover-tax rate in percent (default 5).")
+        parser.add_argument("--threshold", default="5000000", help="Yearly turnover limit in ZMW (default 5000000).")
 
     def handle(self, *args, **opts):
         rs, created = TaxRuleSet.objects.get_or_create(

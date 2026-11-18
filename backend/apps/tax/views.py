@@ -37,9 +37,11 @@ class TaxEstimateViewSet(ShopScopedMixin, mixins.CreateModelMixin, mixins.Retrie
         s.is_valid(raise_exception=True)
         start, end = _period(s.validated_data)
         result = services.compute_estimate(self.shop, start, end, s.validated_data["include_unverified"])
+        model_fields = {field.name for field in TaxEstimate._meta.fields}
         estimate = TaxEstimate.objects.create(
-            shop=self.shop, created_by=request.user,
-            **{k: v for k, v in result.items() if k != "disclaimer"},
+            shop=self.shop,
+            created_by=request.user,
+            **{k: v for k, v in result.items() if k in model_fields},
         )
         return Response(TaxEstimateSerializer(estimate).data, status=status.HTTP_201_CREATED)
 

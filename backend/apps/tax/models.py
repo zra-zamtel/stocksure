@@ -68,6 +68,8 @@ class TaxEstimate(TimeStampedModel):
     basis_income = models.DecimalField(max_digits=14, decimal_places=2)
     rate_percent = models.DecimalField(max_digits=7, decimal_places=4)
     estimated_tax = models.DecimalField(max_digits=14, decimal_places=2)
+    income_tax = models.BooleanField(default=False)
+    year_to_date_turnover = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     rules_validated = models.BooleanField(default=False)
     assumptions = models.JSONField(default=list)
     warnings = models.JSONField(default=list)

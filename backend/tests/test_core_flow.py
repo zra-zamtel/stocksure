@@ -2,11 +2,14 @@ import uuid
 from datetime import date
 
 from django.test import TestCase, override_settings
+from django.utils import timezone
 
 from apps.inventory.models import Item
 from apps.ledger.models import LedgerEntry
 from apps.notifications.models import Notification
 from apps.sales.models import Sale
+from apps.sync.models import Sale as SyncSale
+from apps.sync.models import Shop as SyncShop
 from apps.tax.models import TaxRuleSet
 from apps.taxmate.models import ReviewedAnswer
 
@@ -114,6 +117,20 @@ class TaxTests(TestCase):
         self.oc = client_for(self.owner)
         self.ac = client_for(self.assistant)
         self.ac.post("/api/sales/", {"payment_method": "cash", "amount": "1000.00"}, format="json")
+        self.sync_shop = SyncShop.objects.get(owner=self.owner)
+        now = timezone.now()
+        SyncSale.objects.create(
+            id="tax_sale_1",
+            shop=self.sync_shop,
+            recorded_by=self.owner,
+            subtotal=100000,
+            discount_total=0,
+            total=100000,
+            status="active",
+            reconcile_status="unresolved",
+            created_at=now,
+            updated_at=now,
+        )
 
     def month(self):
         return date.today().strftime("%Y-%m")
@@ -137,6 +154,35 @@ class TaxTests(TestCase):
         self.assertEqual(str(r.data["estimated_tax"]), "0.00")
         r = self.oc.get(f"/api/tax/estimates/preview/?month={self.month()}")
         self.assertEqual(str(r.data["estimated_tax"]), "50.00")
+
+    def test_income_tax_applies_at_the_yearly_threshold(self):
+        TaxRuleSet.objects.create(
+            name="Test rules",
+            version=1,
+            rate_percent="5",
+            annual_turnover_threshold="5000000",
+            effective_from=date(2020, 1, 1),
+        )
+        now = timezone.now()
+        SyncSale.objects.create(
+            id="tax_sale_big",
+            shop=self.sync_shop,
+            recorded_by=self.owner,
+            subtotal=499900000,
+            discount_total=0,
+            total=499900000,
+            status="active",
+            reconcile_status="unresolved",
+            created_at=now,
+            updated_at=now,
+        )
+
+        r = self.oc.post("/api/tax/estimates/", {"month": self.month()}, format="json")
+
+        self.assertEqual(r.status_code, 201, r.content)
+        self.assertTrue(r.data["income_tax"])
+        self.assertEqual(str(r.data["estimated_tax"]), "0.00")
+        self.assertEqual(str(r.data["year_to_date_turnover"]), "5000000.00")
 
     def test_taxpot_target_suggestion_and_contribution(self):
         TaxRuleSet.objects.create(name="Test rules", version=1, rate_percent="5", effective_from=date(2020, 1, 1))

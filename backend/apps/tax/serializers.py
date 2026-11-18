@@ -22,8 +22,9 @@ class TaxEstimateSerializer(serializers.ModelSerializer):
         model = TaxEstimate
         fields = [
             "id", "label", "period_start", "period_end", "verified_income", "reported_income",
-            "include_unverified", "basis_income", "rate_percent", "estimated_tax", "rules_validated",
-            "rule_set", "assumptions", "warnings", "disclaimer", "created_at",
+            "include_unverified", "basis_income", "rate_percent", "estimated_tax", "income_tax",
+            "year_to_date_turnover", "rules_validated", "rule_set", "assumptions", "warnings",
+            "disclaimer", "created_at",
         ]
 
     def get_label(self, obj):

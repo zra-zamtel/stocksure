@@ -413,6 +413,26 @@ class SyncTestCase(TestCase):
         pull = self.client.get("/api/v1/sync/pull?cursor=0", **auth(self.owner))
         self.assertIn("sale", [change["entity"] for change in pull.json()["changes"]])
 
+    def test_ussd_tax_estimate_uses_synced_sales(self):
+        from datetime import date
+
+        from apps.tax.models import TaxRuleSet
+        from apps.ussd.services import handle
+
+        TaxRuleSet.objects.create(
+            name="Test rules",
+            version=1,
+            rate_percent="5",
+            annual_turnover_threshold="5000000",
+            effective_from=date(2020, 1, 1),
+        )
+        self.push_schema()
+        self.push([self.change("q_sale", "sale", "sale_1", sale_payload())])
+
+        answer = handle("0971234567", "3")
+
+        self.assertIn("Estimated tax this month: K22.50", answer)
+
     def test_push_requires_auth(self):
         response = self.client.post(
             "/api/v1/sync/push",

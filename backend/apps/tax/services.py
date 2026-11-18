@@ -1,17 +1,17 @@
 from datetime import date
 from decimal import Decimal
 
-from django.db.models import Q
+from django.db.models import Sum
 from rest_framework.exceptions import ValidationError
 
-from apps.core.utils import money
-from apps.ledger import services_reports as reports
-from apps.ledger.models import LedgerEntry
+from apps.sync.models import Sale, Shop as SyncShop
 
 from .models import DISCLAIMER, TaxRuleSet
 
 
 def find_rule_set(on_date, tax_type="turnover_tax"):
+    from django.db.models import Q
+
     return (
         TaxRuleSet.objects.filter(tax_type=tax_type, is_active=True, effective_from__lte=on_date)
         .filter(Q(effective_to__isnull=True) | Q(effective_to__gte=on_date))
@@ -20,8 +20,38 @@ def find_rule_set(on_date, tax_type="turnover_tax"):
     )
 
 
+def _sync_shop(shop):
+    """The tax API still receives the legacy Shop from ShopScopedMixin; the
+    phone's data lives on the sync shop with the same owner."""
+    if isinstance(shop, SyncShop):
+        return shop
+    return SyncShop.objects.filter(owner=shop.owner).first()
+
+
+def _turnover(shop: SyncShop, start: date, end: date, *, verified_only=False) -> int:
+    qs = Sale.objects.filter(
+        shop=shop,
+        status=Sale.Status.ACTIVE,
+        created_at__date__gte=start,
+        created_at__date__lte=end,
+    )
+    if verified_only:
+        qs = qs.filter(reconcile_status=Sale.Reconcile.MATCHED)
+    return qs.aggregate(total=Sum("total"))["total"] or 0
+
+
+def _zmw(ngwee: int) -> Decimal:
+    return (Decimal(ngwee) / 100).quantize(Decimal("0.01"))
+
+
 def compute_estimate(shop, start: date, end: date, include_unverified=True):
-    """Return a dict describing the estimate (not saved). Every figure carries its assumptions."""
+    """Estimate turnover tax from the phone's sales.
+
+    ZRA's regime switches to income tax once yearly turnover reaches the
+    threshold, so income tax returns a zero turnover-tax estimate and a clear
+    message instead of inventing a figure. Money is stored in ngwee on the
+    phone and returned here in kwacha for the existing API shape.
+    """
     if end < start:
         raise ValidationError({"period": "The end date is before the start date."})
     rules = find_rule_set(end)
@@ -31,45 +61,68 @@ def compute_estimate(shop, start: date, end: date, include_unverified=True):
             "(and validate them with ZRA) before estimates can be made."
         )
 
-    income = reports.base_qs(shop, start, end).filter(entry_type=LedgerEntry.Type.INCOME)
-    t = reports.totals(income)
-    verified, reported = t["verified_income"], t["trader_reported_income"]
-    basis = verified + (reported if include_unverified else Decimal("0"))
-    tax = money(basis * rules.rate_percent / Decimal("100"))
+    sync_shop = _sync_shop(shop)
+    if sync_shop is None:
+        raise ValidationError("This shop has not synced any sales yet.")
+
+    period_all = _turnover(sync_shop, start, end)
+    period_verified = _turnover(sync_shop, start, end, verified_only=True)
+    reported = period_all - period_verified
+    basis = period_all if include_unverified else period_verified
+
+    ytd = _turnover(sync_shop, date(end.year, 1, 1), end)
+    threshold_ngwee = (
+        int(rules.annual_turnover_threshold * 100)
+        if rules.annual_turnover_threshold
+        else None
+    )
+    income_tax = bool(threshold_ngwee and ytd >= threshold_ngwee)
+    estimated_ngwee = (
+        0 if income_tax else int(Decimal(basis) * rules.rate_percent / Decimal("100"))
+    )
 
     warnings = []
     if not rules.is_validated:
         warnings.append(
             "These tax rules have not been validated with ZRA yet. Do not rely on this figure."
         )
-    ytd = reports.totals(
-        reports.base_qs(shop, date(end.year, 1, 1), end).filter(entry_type=LedgerEntry.Type.INCOME)
-    )["income"]
-    if rules.annual_turnover_threshold and ytd > rules.annual_turnover_threshold:
+    if income_tax:
         warnings.append(
-            f"Your recorded turnover this year (K{ytd:,.2f}) is above the limit in these rules "
-            f"(K{rules.annual_turnover_threshold:,.2f}). A different regime may apply: confirm with ZRA."
+            f"Your sales this year (K{_zmw(ytd):,.2f}) are at or above the turnover-tax "
+            f"threshold (K{rules.annual_turnover_threshold:,.2f}). Income tax applies instead; "
+            "confirm with ZRA."
         )
     if reported > 0 and include_unverified:
         warnings.append(
-            f"K{reported:,.2f} of the income is trader-reported (not yet confirmed by matched payments "
-            "or a balanced daily close)."
+            f"K{_zmw(reported):,.2f} of the sales are still unresolved "
+            "(not yet matched to a payment or a balanced close)."
         )
 
     assumptions = [
         f"Period used: {start:%d %b %Y} to {end:%d %b %Y}.",
         f"Rules used: {rules.name}, version {rules.version}, effective from {rules.effective_from:%d %b %Y}.",
-        f"Rate applied: {rules.rate_percent.normalize():f}% of income (turnover) in the period.",
-        "Income counted: all non-voided income entries in your ledger for the period.",
-        "Verified income is confirmed by matched mobile-money payments or a balanced daily close. "
-        + ("Trader-reported income is included." if include_unverified else "Trader-reported income is excluded."),
-        "Expenses are not deducted: turnover tax is worked out on turnover, not profit, under these rules.",
-        "Rules are configurable and versioned; they may change.",
+        f"Rate applied: {rules.rate_percent.normalize():f}% of sales in the period.",
+        "Sales counted: non-voided sales synced from the phone.",
+        "Verified sales are matched to a mobile-money payment or a balanced close."
+        + (" Unresolved sales are included." if include_unverified else " Unresolved sales are excluded."),
+        "Expenses are not deducted: turnover tax is worked out on sales, not profit.",
+        "The threshold is measured on sales so far this calendar year.",
     ]
+
     return {
-        "rule_set": rules, "period_start": start, "period_end": end,
-        "verified_income": verified, "reported_income": reported, "include_unverified": include_unverified,
-        "basis_income": basis, "rate_percent": rules.rate_percent, "estimated_tax": tax,
-        "rules_validated": rules.is_validated, "assumptions": assumptions, "warnings": warnings,
+        "rule_set": rules,
+        "period_start": start,
+        "period_end": end,
+        "verified_income": _zmw(period_verified),
+        "reported_income": _zmw(reported),
+        "include_unverified": include_unverified,
+        "basis_income": _zmw(basis),
+        "rate_percent": rules.rate_percent,
+        "estimated_tax": _zmw(estimated_ngwee),
+        "income_tax": income_tax,
+        "year_to_date_turnover": _zmw(ytd),
+        "rules_validated": rules.is_validated,
+        "assumptions": assumptions,
+        "warnings": warnings,
         "disclaimer": DISCLAIMER,
     }

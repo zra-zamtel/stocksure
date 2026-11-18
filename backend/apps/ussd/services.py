@@ -19,7 +19,7 @@ from apps.accounts.models import User
 from apps.core.utils import local_today, month_bounds, normalize_phone
 from apps.sync.models import Payment, Sale, Shop, SyncChange, TaxPeriod, TaxPotEntry
 from apps.sync.services import resolve_shop
-from apps.tax.models import TaxRuleSet
+from apps.tax.services import compute_estimate
 
 MENU_OWNER = "CON StockSure\n1. Record a sale\n2. Today's summary\n3. Tax estimate\n4. Save to TaxPot"
 MENU_ASSISTANT = "CON StockSure\n1. Record a sale\n2. Today's summary"
@@ -101,22 +101,6 @@ def _month_start_end(today):
     return month_bounds(today.year, today.month)
 
 
-def _turnover(shop, start, end):
-    return sum(
-        sale.total
-        for sale in Sale.objects.filter(
-            shop=shop,
-            status=Sale.Status.ACTIVE,
-            created_at__date__gte=start,
-            created_at__date__lte=end,
-        )
-    )
-
-
-def _tax_rule():
-    return TaxRuleSet.objects.filter(is_active=True).order_by("-version").first()
-
-
 def _period(shop, today):
     start, end = _month_start_end(today)
     period = TaxPeriod.objects.filter(
@@ -124,10 +108,11 @@ def _period(shop, today):
     ).first()
     if period:
         return period
-    rule = _tax_rule()
-    rate = rule.rate_percent if rule else Decimal("0")
-    turnover = _turnover(shop, start, end)
-    estimated = int(Decimal(turnover) * rate / Decimal("100"))
+
+    result = compute_estimate(shop, start, end)
+    turnover = int(result["basis_income"] * 100)
+    estimated = int(result["estimated_tax"] * 100)
+    rate = result["rate_percent"]
     now = timezone.now()
     period = TaxPeriod.objects.create(
         id=f"tax_{uuid.uuid4().hex}",
@@ -267,15 +252,18 @@ def _registered(user, shop, role, parts):
     if choice == "3":  # tax estimate for this month
         today = local_today()
         start, end = _month_start_end(today)
-        rule = _tax_rule()
-        if rule is None:
-            return "END No tax rules are configured yet."
-        turnover = _turnover(shop, start, end)
-        estimated = int(Decimal(turnover) * rule.rate_percent / Decimal("100"))
-        extra = "\nRules not yet validated with ZRA." if not rule.is_validated else ""
+        result = compute_estimate(shop, start, end)
+        if result["income_tax"]:
+            return (
+                "END Your sales this year are at or above the turnover-tax threshold. "
+                "Income tax applies instead of turnover tax. Confirm with ZRA."
+            )
+        estimated = int(result["estimated_tax"] * 100)
+        basis = int(result["basis_income"] * 100)
+        extra = "\nRules not yet validated with ZRA." if not result["rules_validated"] else ""
         return (
             f"END Estimated tax this month: {_k(estimated)} "
-            f"(on {_k(turnover)} sales). Estimate only, not a ZRA assessment.{extra}"
+            f"(on {_k(basis)} sales). Estimate only, not a ZRA assessment.{extra}"
         )
 
     if choice == "4":  # simulated TaxPot contribution
