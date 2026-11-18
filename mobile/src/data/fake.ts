@@ -16,12 +16,15 @@ const kwacha = (amount: number) => Math.round(amount * 100);
 const at = (time: string) => `2026-11-17T${time}:00+02:00`;
 
 export const taxRules: TaxRules = {
-  version: 1,
-  // PLACEHOLDER VALUES. Open question 3 in the scope sheet must be settled
-  // against ZRA's published rules before the demo. Every tax figure on screen
-  // is derived from this object, so only this file changes.
-  rate: 0.04,
-  threshold: 800_000,
+  version: 2,
+  // From ZRA, 18 November 2026 (scope sheet section 7): 5% of monthly
+  // turnover, turnover tax below K5 million and income tax from K5 million,
+  // due on the 14th of the following month. Whether K5 million is yearly is
+  // still to confirm; until then it is measured against sales this year.
+  // Every tax figure on screen is derived from this object.
+  rate: 0.05,
+  threshold: 500_000_000, // K5,000,000 in ngwee
+  thresholdBasis: 'year',
   periodDays: 30,
   dueDaysAfterPeriod: 14,
   reminderDaysBefore: [7, 3, 0],

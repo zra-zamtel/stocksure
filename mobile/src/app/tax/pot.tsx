@@ -20,7 +20,7 @@ export default function TaxPotScreen() {
   const [message, setMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  const estimate = estimateTurnoverTax(data.turnover, taxRules);
+  const estimate = estimateTurnoverTax(data.turnover, taxRules, data.yearToDate);
   const pot = potStatus(estimate.estimatedTax, data.potBalance);
   const period = data.period;
   const shortfall = Math.max(0, estimate.estimatedTax - data.potBalance);

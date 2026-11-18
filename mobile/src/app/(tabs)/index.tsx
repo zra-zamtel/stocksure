@@ -18,7 +18,7 @@ export default function HomeScreen() {
   const { data: tax } = useTaxSnapshot();
   const { data: shopRecord } = useShop();
   const { data: reconciliation } = useReconciliation();
-  const estimate = estimateTurnoverTax(tax.turnover, taxRules);
+  const estimate = estimateTurnoverTax(tax.turnover, taxRules, tax.yearToDate);
   const matched = reconciliation?.matched.length ?? 0;
   const unmatchedSales = reconciliation?.salesWithoutPayment.length ?? 0;
   const unmatchedPayments = reconciliation?.paymentsWithoutSale.length ?? 0;

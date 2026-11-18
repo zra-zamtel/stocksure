@@ -56,6 +56,7 @@ const rules: TaxRules = {
   version: 1,
   rate: 0.04,
   threshold: 80_000_000,
+  thresholdBasis: 'period',
   periodDays: 30,
   dueDaysAfterPeriod: 14,
   reminderDaysBefore: [7, 3, 0],
@@ -808,7 +809,7 @@ describe('IT-TAX tax and TaxPot', () => {
 
   it('IT-TAX-05 shows an empty view before any tax period exists', async () => {
     const fresh = await openTestDb();
-    expect(await getTaxPotView(fresh, DAY)).toEqual({ turnover: 0, potBalance: 0, period: null, unresolvedSales: 0, entries: [] });
+    expect(await getTaxPotView(fresh, DAY)).toEqual({ turnover: 0, yearToDate: 0, potBalance: 0, period: null, unresolvedSales: 0, entries: [] });
     fresh.close();
   });
 });

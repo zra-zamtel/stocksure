@@ -112,14 +112,14 @@ export function useLowStock() {
 
 export function useTaxSnapshot() {
   return useQuery<TaxSnapshot>(
-    { turnover: 0, potBalance: 0, period: null, unresolvedSales: 0 },
+    { turnover: 0, yearToDate: 0, potBalance: 0, period: null, unresolvedSales: 0 },
     (db) => taxSnapshot(db)
   );
 }
 
 export function useTaxPot() {
   return useQuery<TaxPotView>(
-    { turnover: 0, potBalance: 0, period: null, unresolvedSales: 0, entries: [] },
+    { turnover: 0, yearToDate: 0, potBalance: 0, period: null, unresolvedSales: 0, entries: [] },
     (db) => getTaxPotView(db)
   );
 }
