@@ -28,9 +28,7 @@ export default function TaxScreen() {
         <Row label={t('tax.due')} value={period?.dueOn ?? t('common.notYet')} />
         {estimate.incomeTax ? (
           <Text style={styles.disclaimer}>
-            Sales this year have reached {formatKwacha(estimate.threshold)}. From this level
-            income tax applies instead of turnover tax, so no turnover tax figure is shown.
-            Speak to ZRA about income tax.
+            {t('tax.incomeTax', { amount: formatKwacha(estimate.threshold) })}
           </Text>
         ) : null}
         <Text style={styles.disclaimer}>{t('tax.warning')}</Text>

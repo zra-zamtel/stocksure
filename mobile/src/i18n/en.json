@@ -325,6 +325,7 @@
   "tax.rate": "Rate used",
   "tax.due": "Next due date",
   "tax.warning": "This is an estimate, not a tax return.",
+  "tax.incomeTax": "Sales this year have reached {amount}. From this level income tax applies instead of turnover tax, so no turnover tax figure is shown. Speak to ZRA about income tax.",
   "tax.unreconciled": "Unreconciled items could change this figure.",
   "tax.pot.title": "TaxPot",
   "tax.pot.balance": "Set aside",
@@ -413,5 +414,7 @@
 
   "sync.lastSync": "Last sync",
   "sync.pending": "Changes waiting to upload",
-  "sync.never": "Never"
+  "sync.never": "Never",
+  "sync.now": "Sync now",
+  "sync.syncing": "Syncing…"
 }

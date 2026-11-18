@@ -174,14 +174,14 @@ People working in tax at ZRA gave the team these rules and advice. They replace 
 | Rule | Value from ZRA | What the app does |
 | --- | --- | --- |
 | Rate | 5% of turnover | Rules file `rate: 0.05` |
-| Who pays turnover tax | Businesses with turnover below K5 million | Shows the turnover tax estimate |
-| K5 million and above | Income tax applies instead, at no fixed percentage | Shows no turnover tax figure. Says income tax applies and the owner should speak to ZRA. |
+| Who pays turnover tax | Businesses with turnover below K5 million a year | Shows the turnover tax estimate |
+| K5 million a year and above | Income tax applies instead, at no fixed percentage | Compares sales so far this year with K5 million. At or above it, shows no turnover tax figure, and says income tax applies and the owner should speak to ZRA. |
 | Period | One calendar month; each return covers the previous month | One tax period per calendar month |
 | Filing window | From the 1st to the 14th of the following month | The Tax screen shows the window for last month's return |
 | Due date | The 14th of every month. Filing after the 14th attracts penalties. | Due date = the 14th of the month after the period. Reminders count down to it. |
 | Amendments | A filed return can be amended if an error is found | The owner can mark a period as amended and see what changed |
 
-Still to confirm with ZRA: whether the K5 million threshold is measured over a year (sales so far this year) or a single month. The app should compare year-to-date turnover with K5 million until ZRA says otherwise, because measuring one month would put almost every small shop on turnover tax regardless of its yearly size. Also to confirm: what "excluding all income" means for which receipts count as turnover.
+The K5 million threshold is yearly: it applies to businesses that make that much in a year. The tax itself is still 5% of each month's turnover. Still to confirm with ZRA: what "excluding all income" means for which receipts count as turnover.
 
 **What this means for the product**
 
@@ -301,7 +301,7 @@ Thirteen record types cover the whole MVP; the detailed fields and the API go in
 
 1. Settled: account creation needs internet once; after that everything works offline.
 2. Which online barcode catalogue, if any? Barcode use is now a shop setting (scanner on, manual entry off), so this only affects the optional online lookup; clothes and shoes are poorly covered.
-3. Mostly settled by ZRA on 18 November 2026 (see section 7): a 5% rate, a K5 million threshold, monthly periods covering the previous month, a filing window from the 1st to the 14th, and the 14th as the due date. Still open: is the K5 million measured per year or per month, and what does "excluding all income" cover?
+3. Mostly settled by ZRA on 18 November 2026 (see section 7): a 5% rate, a K5 million yearly threshold, monthly periods covering the previous month, a filing window from the 1st to the 14th, and the 14th as the due date. Still open: what does "excluding all income" cover?
 4. Which backend: Django with Django REST Framework (settled), because the business logic lives in the app.
 5. How does mobile money payments reach the app? Settled: read automatically from the provider's confirmation messages on the phone. Still needed: sample messages from MTN, Airtel and Zamtel to build the readers.
 6. Settled: the stock, reconciliation and tax logic runs on the phone and Elton writes it; Elton also owns the USSD menus, which run on the backend through Africa's Talking.

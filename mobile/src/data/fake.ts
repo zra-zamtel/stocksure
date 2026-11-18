@@ -18,9 +18,8 @@ const at = (time: string) => `2026-11-17T${time}:00+02:00`;
 export const taxRules: TaxRules = {
   version: 2,
   // From ZRA, 18 November 2026 (scope sheet section 7): 5% of monthly
-  // turnover, turnover tax below K5 million and income tax from K5 million,
-  // due on the 14th of the following month. Whether K5 million is yearly is
-  // still to confirm; until then it is measured against sales this year.
+  // turnover, turnover tax for businesses below K5 million a year and income
+  // tax from K5 million a year, due on the 14th of the following month.
   // Every tax figure on screen is derived from this object.
   rate: 0.05,
   threshold: 500_000_000, // K5,000,000 in ngwee
