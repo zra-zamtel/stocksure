@@ -1,6 +1,7 @@
 import hashlib
 import logging
 import secrets
+import uuid
 from datetime import timedelta
 from urllib.parse import urlencode
 
@@ -17,6 +18,7 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken, TokenError
 
 from apps.shops.models import Membership, Shop
+from apps.sync.models import Shop as SyncShop
 
 from .models import MagicLinkToken, PinResetCode, StaffProfile, User
 from .serializers import (
@@ -225,6 +227,22 @@ class RegisterOwnerView(APIView):
                 )
                 Membership.objects.create(
                     user=user, shop=shop, role=Membership.Role.OWNER
+                )
+                # The phone's real shop arrives through the sync endpoint and
+                # replaces this empty placeholder. It exists so staff and USSD
+                # have a shop before the first sync.
+                now = timezone.now()
+                SyncShop.objects.create(
+                    id=f"shop_{uuid.uuid4().hex}",
+                    owner=user,
+                    name=shop.name,
+                    type="other",
+                    town=shop.town,
+                    currency="ZMW",
+                    language=user.language,
+                    onboarding_completed=False,
+                    created_at=now,
+                    updated_at=now,
                 )
         except IntegrityError:
             return error(

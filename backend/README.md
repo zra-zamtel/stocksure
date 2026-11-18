@@ -45,10 +45,10 @@ is `{queueId, entity, entityId, operation, payload, clientCreatedAt}`.
 `GET /api/v1/sync/pull?cursor=…&limit=…` returns `{changes, nextCursor,
 serverTime}` for the caller's shops. Both need the JWT access token.
 
-The new store is the source of truth for the app. The older domain API
-(`/api/shops`, `/api/items`, `/api/sales`, …) is still present for the
-server-side demo features (USSD, dashboards, tax reports) and has not yet been
-repointed at these tables; that is the next migration step.
+The new store is the source of truth for the app, using `apps.sync` for USSD and the
+owner dashboard. The older domain write API (`/api/shops`, `/api/items`,
+`/api/sales`, …) remains for the server-side demo and is not the phone's store;
+its remaining tax/TaxPot endpoints have not yet been repointed.
 
 ## Auth (mobile app and domain clients)
 

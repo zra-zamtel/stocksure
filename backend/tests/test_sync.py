@@ -398,6 +398,21 @@ class SyncTestCase(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["changes"], [])
 
+    def test_ussd_uses_the_synced_shop_and_records_a_sale(self):
+        from apps.ussd.services import handle
+
+        self.push_schema()
+
+        self.assertTrue(handle("0971234567", "").startswith("CON StockSure"))
+        recorded = handle("0971234567", "1*150*1")
+        self.assertTrue(recorded.startswith("END Sale of K150.00"), recorded)
+        summary = handle("0971234567", "2")
+        self.assertIn("K150.00", summary)
+        self.assertEqual(Sale.objects.filter(shop_id="shop_1").count(), 1)
+
+        pull = self.client.get("/api/v1/sync/pull?cursor=0", **auth(self.owner))
+        self.assertIn("sale", [change["entity"] for change in pull.json()["changes"]])
+
     def test_push_requires_auth(self):
         response = self.client.post(
             "/api/v1/sync/push",

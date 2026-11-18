@@ -2,10 +2,12 @@ import logging
 from datetime import date, datetime
 
 from django.db import IntegrityError, transaction
+from django.db.models import Q
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
 
 from apps.accounts.models import User
+from apps.shops.models import Membership
 
 from .models import (
     MobileMoneyTxn,
@@ -130,8 +132,21 @@ def _require_shop(shop: Shop | None) -> Shop:
     return shop
 
 
+def user_shops(user: User):
+    """Sync shops the user can use: their own, plus the shop of an owner who
+    added them as an assistant (the assistant link still lives on Membership)."""
+    owned = Shop.objects.filter(owner=user)
+    memberships = (
+        Membership.objects.select_related("shop__owner")
+        .filter(user=user, is_active=True, shop__is_active=True)
+        .exclude(shop__owner=user)
+    )
+    staff_owner_ids = {membership.shop.owner_id for membership in memberships}
+    return Shop.objects.filter(Q(owner=user) | Q(owner_id__in=staff_owner_ids))
+
+
 def resolve_shop(user: User, shop_id: str | None = None) -> Shop | None:
-    qs = Shop.objects.filter(owner=user)
+    qs = user_shops(user)
     if shop_id:
         return qs.filter(id=shop_id).first()
     return qs.first()
@@ -146,6 +161,14 @@ def upsert_shop(payload, user: User) -> Shop:
     if shop and shop.owner_id != user.id:
         raise SyncError("That shop belongs to another account.")
     if shop is None:
+        # Registration creates an empty placeholder so staff and USSD have a
+        # shop before the phone syncs. The phone's first real shop replaces it;
+        # after any data exists, a second shop is refused.
+        placeholder = Shop.objects.filter(owner=user).exclude(id=ids["id"]).first()
+        if placeholder is not None:
+            if placeholder.products.exists() or placeholder.sales.exists():
+                raise SyncError("This account already has a synced shop.")
+            placeholder.delete()
         shop = Shop(id=ids["id"], owner=user, created_at=ids["created_at"])
     shop.name = _text(payload, "name", required=True, max_length=150)
     shop.type = _text(payload, "type", default="other", max_length=20)
@@ -646,7 +669,7 @@ def cursor_value(raw) -> int:
 
 
 def pull_changes(user: User, cursor: int, limit: int, shop_id: str | None = None):
-    qs = SyncChange.objects.filter(shop__owner=user, id__gt=cursor).select_related("shop")
+    qs = SyncChange.objects.filter(shop__in=user_shops(user), id__gt=cursor).select_related("shop")
     if shop_id:
         qs = qs.filter(shop_id=shop_id)
     rows = list(qs.order_by("id")[:limit])

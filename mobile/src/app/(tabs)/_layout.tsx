@@ -1,11 +1,13 @@
 import { Tabs } from 'expo-router';
 import { useAuth } from '@/auth/session';
+import { useAutoSync } from '@/db/use-sync';
 import { useI18n } from '@/i18n';
 import { colors, typeScale } from '@/theme/tokens';
 
 export default function TabsLayout() {
   const { t } = useI18n();
   const { can } = useAuth();
+  useAutoSync();
 
   return (
     <Tabs

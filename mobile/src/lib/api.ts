@@ -459,7 +459,7 @@ export type SyncChangePayload = {
 
 export type SyncPushResult = {
   accepted: string[];
-  rejected: Array<{ queueId: string; reason: string }>;
+  rejected: { queueId: string; reason: string }[];
   serverTime: string;
   cursor: string;
 };

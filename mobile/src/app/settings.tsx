@@ -4,6 +4,7 @@ import { useAuth } from '@/auth/session';
 import { Button, Card, Pill, Row, Screen, SectionTitle } from '@/components/ui';
 import { taxRules } from '@/data/fake';
 import { useShop } from '@/db/hooks';
+import { useSync } from '@/db/use-sync';
 import { LANGUAGE_LABELS, useI18n } from '@/i18n';
 import { colors, spacing, typeScale } from '@/theme/tokens';
 
@@ -12,6 +13,7 @@ export default function SettingsScreen() {
   const router = useRouter();
   const { ownerPreview, signOut } = useAuth();
   const { data: shop } = useShop();
+  const sync = useSync();
 
   return (
     <Screen title={t('settings.title')} subtitle={shop?.name ?? t('app.name')}>
@@ -51,8 +53,21 @@ export default function SettingsScreen() {
 
       <SectionTitle>{t('settings.sync')}</SectionTitle>
       <Card>
-        <Row label={t('sync.lastSync')} value={t('sync.never')} />
-        <Row label={t('sync.pending')} value="0" />
+        <Row
+          label={t('sync.lastSync')}
+          value={
+            sync.lastSyncAt
+              ? new Date(sync.lastSyncAt).toLocaleString()
+              : t('sync.never')
+          }
+        />
+        <Row label={t('sync.pending')} value={String(sync.pending)} />
+        {sync.error ? <Text style={styles.error}>{sync.error}</Text> : null}
+        <Button
+          label={sync.busy ? t('sync.syncing') : t('sync.now')}
+          disabled={sync.busy}
+          onPress={() => void sync.syncNow()}
+        />
       </Card>
 
       <SectionTitle>{t('settings.account')}</SectionTitle>
@@ -69,5 +84,6 @@ export default function SettingsScreen() {
 
 const styles = StyleSheet.create({
   muted: { fontSize: typeScale.label, color: colors.textMuted },
+  error: { fontSize: typeScale.label, color: colors.danger, fontWeight: '600' },
   footer: { alignItems: 'center', marginTop: spacing.lg },
 });
