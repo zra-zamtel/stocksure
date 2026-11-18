@@ -35,6 +35,7 @@ def _record(view, data):
         client_id=data.get("client_id"), sold_at=data.get("sold_at"),
         payer_phone=data.get("payer_phone", ""), payment_reference=data.get("payment_reference", ""),
         note=data.get("note", ""), allow_oversell=data.get("allow_oversell", False),
+        provider=data.get("provider", ""),
     )
     return sale, created, warnings
 
@@ -122,7 +123,7 @@ class SaleViewSet(ShopScopedMixin, mixins.CreateModelMixin, mixins.RetrieveModel
 class MobilePaymentViewSet(ShopScopedMixin, mixins.RetrieveModelMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
     queryset = MobilePayment.objects.all()
     serializer_class = MobilePaymentSerializer
-    owner_actions = {"manual_match", "simulate"}
+    owner_actions = {"manual_match", "simulate", "ignore"}
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -141,7 +142,8 @@ class MobilePaymentViewSet(ShopScopedMixin, mixins.RetrieveModelMixin, mixins.Li
         phone = validate_zm_phone(d["payer_phone"]) if d["payer_phone"] else ""
         payment, _ = services.register_payment(
             shop=self.shop, reference=d.get("reference") or f"SIM-{secrets.token_hex(4).upper()}",
-            amount=d["amount"], payer_phone=phone, source=MobilePayment.Source.SIMULATED,
+            amount=d["amount"], provider=d.get("provider", ""), payer_phone=phone,
+            source=MobilePayment.Source.SIMULATED,
         )
         return Response(MobilePaymentSerializer(payment).data, status=status.HTTP_201_CREATED)
 
@@ -153,6 +155,8 @@ class MobilePaymentViewSet(ShopScopedMixin, mixins.RetrieveModelMixin, mixins.Li
         s.is_valid(raise_exception=True)
         if payment.status == MobilePayment.Status.MATCHED:
             raise Conflict("This payment is already matched.")
+        if payment.status == MobilePayment.Status.IGNORED:
+            raise Conflict("This payment was ignored by the owner.")
         sale = Sale.objects.filter(
             shop=self.shop, pk=s.validated_data["sale_id"], status=Sale.Status.RECORDED,
             payment_method=Sale.Method.MOBILE_MONEY, match_status=Sale.Match.PENDING,
@@ -161,6 +165,17 @@ class MobilePaymentViewSet(ShopScopedMixin, mixins.RetrieveModelMixin, mixins.Li
             raise NotFound("No unmatched mobile-money sale with that id.")
         matching.link(sale, payment)
         payment.refresh_from_db()
+        return Response(MobilePaymentSerializer(payment).data)
+
+    @action(detail=True, methods=["post"])
+    def ignore(self, request, pk=None):
+        """Owner-only: mark a payment as not a sale. The decision sticks."""
+        payment = self.get_object()
+        if payment.status == MobilePayment.Status.MATCHED:
+            raise Conflict("This payment is already matched; void the sale first.")
+        payment.status = MobilePayment.Status.IGNORED
+        payment.sale = None
+        payment.save(update_fields=["status", "sale", "updated_at"])
         return Response(MobilePaymentSerializer(payment).data)
 
 
@@ -195,6 +210,7 @@ class ZamtelWebhookView(APIView):
             raise ValidationError({"amount": "Must be more than zero."})
         payment, created = services.register_payment(
             shop=shop, reference=str(d["reference"]), amount=amount,
-            payer_phone=str(d.get("payer_phone", "")), source=MobilePayment.Source.WEBHOOK,
+            provider=str(d.get("provider", "")), payer_phone=str(d.get("payer_phone", "")),
+            source=MobilePayment.Source.WEBHOOK,
         )
         return Response(MobilePaymentSerializer(payment).data, status=201 if created else 200)

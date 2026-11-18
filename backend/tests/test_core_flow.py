@@ -45,17 +45,21 @@ class CoreMatchTests(TestCase):
 
     @override_settings(ALLOW_PAYMENT_SIMULATION=True)
     def test_mobile_money_matches_payment_and_verifies_entry(self):
-        r = self.sell(self.ac, method="mobile_money")
+        r = self.sell(self.ac, method="mobile_money", payment_reference="REF-1")
         self.assertEqual(Sale.objects.get(pk=r.data["id"]).match_status, "pending")
-        p = self.oc.post("/api/payments/simulate/", {"amount": "450.00"}, format="json")
+        p = self.oc.post(
+            "/api/payments/simulate/", {"amount": "450.00", "reference": "REF-1"}, format="json"
+        )
         self.assertEqual(p.status_code, 201, p.content)
         self.assertEqual(p.data["status"], "matched")
         self.assertEqual(LedgerEntry.objects.get(sale_id=r.data["id"]).verification, "verified")
 
     @override_settings(ALLOW_PAYMENT_SIMULATION=True)
     def test_payment_before_sale_also_matches(self):
-        self.oc.post("/api/payments/simulate/", {"amount": "450.00"}, format="json")
-        r = self.sell(self.ac, method="mobile_money")
+        self.oc.post(
+            "/api/payments/simulate/", {"amount": "450.00", "reference": "REF-2"}, format="json"
+        )
+        r = self.sell(self.ac, method="mobile_money", payment_reference="REF-2")
         self.assertEqual(r.data["match_status"], "matched")
 
     def test_daily_close_flags_gap_and_alerts_owner(self):

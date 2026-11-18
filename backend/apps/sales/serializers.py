@@ -13,6 +13,9 @@ class SaleLineInputSerializer(serializers.Serializer):
 class SaleCreateSerializer(serializers.Serializer):
     client_id = serializers.UUIDField(required=False)
     payment_method = serializers.ChoiceField(choices=Sale.Method.choices)
+    provider = serializers.ChoiceField(
+        choices=MobilePayment.Provider.choices, required=False, allow_blank=True, default=""
+    )
     lines = SaleLineInputSerializer(many=True, required=False)
     amount = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, min_value=0.01)
     sold_at = serializers.DateTimeField(required=False)
@@ -45,7 +48,7 @@ class SaleSerializer(serializers.ModelSerializer):
     class Meta:
         model = Sale
         fields = [
-            "id", "client_id", "payment_method", "total", "status", "match_status", "verification",
+            "id", "client_id", "payment_method", "provider", "total", "status", "match_status", "verification",
             "sold_at", "sale_date", "payer_phone", "payment_reference", "note", "recorded_by",
             "recorded_by_name", "void_reason", "lines",
         ]
@@ -62,12 +65,15 @@ class VoidSerializer(serializers.Serializer):
 class MobilePaymentSerializer(serializers.ModelSerializer):
     class Meta:
         model = MobilePayment
-        fields = ["id", "provider_ref", "payer_phone", "amount", "received_at", "status", "sale", "source"]
+        fields = ["id", "provider_ref", "provider", "payer_phone", "amount", "received_at", "status", "sale", "source"]
         read_only_fields = fields
 
 
 class SimulatePaymentSerializer(serializers.Serializer):
     amount = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=0.01)
+    provider = serializers.ChoiceField(
+        choices=MobilePayment.Provider.choices, required=False, allow_blank=True, default=""
+    )
     payer_phone = serializers.CharField(max_length=15, required=False, allow_blank=True, default="")
     reference = serializers.CharField(max_length=60, required=False, allow_blank=True)
 

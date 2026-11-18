@@ -27,7 +27,7 @@ def _ensure_day_open(shop, date):
 @transaction.atomic
 def record_sale(*, shop, user, role, payment_method, lines=None, amount=None, client_id=None,
                 sold_at=None, payer_phone="", payment_reference="", note="", allow_amount_only=False,
-                allow_oversell=False):
+                allow_oversell=False, provider=""):
     """Record one sale: stock out, ledger in, and (for mobile money) try to match the payment.
 
     Returns (sale, created, warnings). Safe to retry: the same client_id returns the first sale.
@@ -83,7 +83,7 @@ def record_sale(*, shop, user, role, payment_method, lines=None, amount=None, cl
 
     sale = Sale.objects.create(
         shop=shop, client_id=client_id or uuid.uuid4(), recorded_by=user,
-        payment_method=payment_method, total=total, sold_at=sold_at, sale_date=sale_date,
+        payment_method=payment_method, provider=provider, total=total, sold_at=sold_at, sale_date=sale_date,
         match_status=(Sale.Match.PENDING if payment_method == Sale.Method.MOBILE_MONEY
                       else Sale.Match.NOT_APPLICABLE),
         payer_phone=payer_phone, payment_reference=payment_reference, note=note,
@@ -138,12 +138,12 @@ def void_sale(*, sale, user, reason):
 
 
 @transaction.atomic
-def register_payment(*, shop, reference, amount, payer_phone="", received_at=None, source):
+def register_payment(*, shop, reference, amount, payer_phone="", received_at=None, source, provider=""):
     """Idempotent on (shop, reference): Zamtel may retry the same notification."""
     payment, created = MobilePayment.objects.get_or_create(
         shop=shop, provider_ref=reference,
         defaults={
-            "amount": money(amount), "payer_phone": payer_phone,
+            "amount": money(amount), "provider": provider, "payer_phone": payer_phone,
             "received_at": received_at or timezone.now(), "source": source,
         },
     )

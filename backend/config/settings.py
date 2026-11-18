@@ -193,7 +193,7 @@ ZAMTEL_WEBHOOK_SECRET = os.environ.get("ZAMTEL_WEBHOOK_SECRET", "").strip()
 if not ZAMTEL_WEBHOOK_SECRET and not DEBUG and not RUNNING_TESTS:
     raise ImproperlyConfigured("Set ZAMTEL_WEBHOOK_SECRET when DJANGO_DEBUG is off.")
 # A mobile-money payment is matched to a sale of the same amount recorded within this window.
-PAYMENT_MATCH_WINDOW_MINUTES = int(os.environ.get("PAYMENT_MATCH_WINDOW_MINUTES", "120"))
+PAYMENT_MATCH_WINDOW_MINUTES = int(os.environ.get("PAYMENT_MATCH_WINDOW_MINUTES", "30"))
 
 # --- Email (magic links) ---------------------------------------------------
 # With EMAIL_HOST empty, Django prints the message and link to the server
