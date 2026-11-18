@@ -74,6 +74,7 @@ INSTALLED_APPS = [
     "apps.ussd",
     "apps.analytics",
     "apps.integrations",
+    "apps.sync",
 ]
 
 MIDDLEWARE = [
@@ -161,6 +162,8 @@ REST_FRAMEWORK = {
         "device-pin": "60/min",
         "logout": "60/min",
         "auth": "20/min",
+        "sync-push": "120/min",
+        "sync-pull": "120/min",
         "ussd": "120/min",
         "webhook": "300/min",
     },

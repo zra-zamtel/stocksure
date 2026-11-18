@@ -30,6 +30,31 @@ python manage.py runserver
 > The code was written without being able to run Django in the authoring environment, so it has been
 > syntax-checked and linted but **not executed**. Run the tests first; expect a few small fixes.
 
+## Phone sync (canonical phone store)
+
+`apps/sync` is the store for the data the phone owns. It follows
+`docs/sync-contract.md`:
+
+- primary keys are the phone-generated text ids, and every row carries the
+  phone's `createdAt`/`updatedAt`;
+- money is integer ngwee;
+- stock is append-only `stock_movement` rows; quantity is a sum, never a column;
+- a sale arrives as one payload with its lines, payments and movements, and the
+  server stores the phone's subtotal, discount and final prices instead of
+  repricing;
+- bad rows come back in `rejected` with a reason and are not repaired;
+- a replayed `queueId` is accepted without writing a second pull row.
+
+`POST /api/v1/sync/push` takes `{deviceId, batchId, changes}`, where each change
+is `{queueId, entity, entityId, operation, payload, clientCreatedAt}`.
+`GET /api/v1/sync/pull?cursor=…&limit=…` returns `{changes, nextCursor,
+serverTime}` for the caller's shops. Both need the JWT access token.
+
+The new store is the source of truth for the app. The older domain API
+(`/api/shops`, `/api/items`, `/api/sales`, …) is still present for the
+server-side demo features (USSD, dashboards, tax reports) and has not yet been
+repointed at these tables; that is the next migration step.
+
 ## Auth (mobile app and domain clients)
 
 `apps/accounts` is the one account layer. It keeps Tabo's `User` + `Membership`

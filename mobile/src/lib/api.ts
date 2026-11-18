@@ -10,6 +10,8 @@ const PIN_RESET_REQUEST_PATH = '/api/v1/auth/pin-reset/request';
 const PIN_RESET_CONFIRM_PATH = '/api/v1/auth/pin-reset/confirm';
 const STAFF_REGISTER_PATH = '/api/v1/staff';
 const STAFF_SIGN_IN_CONFIRM_PATH = '/api/v1/auth/staff-sign-in/confirm';
+const SYNC_PUSH_PATH = '/api/v1/sync/push';
+const SYNC_PULL_PATH = '/api/v1/sync/pull';
 const TIMEOUT_MS = 12_000;
 
 function staffPinResetPath(staffId: string): string {
@@ -111,6 +113,26 @@ async function postJson(
   } catch {
     // A refusal, a timeout and no signal all mean the same thing to the owner.
     throw new ApiError('offline', 'Could not reach the account service');
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function getJson(
+  path: string,
+  headers: Record<string, string> = {}
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
+  try {
+    return await fetch(`${API_BASE_URL}${path}`, {
+      method: 'GET',
+      headers,
+      signal: controller.signal,
+    });
+  } catch {
+    throw new ApiError('offline', 'Could not reach the sync service');
   } finally {
     clearTimeout(timer);
   }
@@ -421,4 +443,94 @@ export async function verifyStaffSignInOnServer(
   pin: string
 ): Promise<StaffSignInResult> {
   return confirmStaffSignInOnServer({ phone, pin });
+}
+
+export type SyncOperation = 'create' | 'update';
+
+export type SyncChangePayload = {
+  queueId: string;
+  entity: string;
+  entityId: string;
+  operation: SyncOperation;
+  payload: unknown;
+  clientCreatedAt?: string;
+  attempts?: number;
+};
+
+export type SyncPushResult = {
+  accepted: string[];
+  rejected: Array<{ queueId: string; reason: string }>;
+  serverTime: string;
+  cursor: string;
+};
+
+export type SyncPullChange = {
+  entity: string;
+  entityId: string;
+  operation: SyncOperation;
+  payload: unknown;
+  cursor: string;
+  clientCreatedAt: string;
+};
+
+export type SyncPullResult = {
+  changes: SyncPullChange[];
+  nextCursor: string;
+  serverTime: string;
+};
+
+/**
+ * Sends the phone's outbox. The server accepts or rejects each row on its own;
+ * a rejected row stays queued and keeps its reason, so nothing is lost.
+ */
+export async function pushSync(input: {
+  deviceId: string;
+  batchId: string;
+  changes: SyncChangePayload[];
+  accessToken: string;
+}): Promise<SyncPushResult> {
+  const response = await postJson(
+    SYNC_PUSH_PATH,
+    { deviceId: input.deviceId, batchId: input.batchId, changes: input.changes },
+    { Authorization: `Bearer ${input.accessToken}` }
+  );
+  if (response.ok) return (await response.json()) as SyncPushResult;
+
+  const payload = await readErrorPayload(response);
+  if (response.status === 401) {
+    throw new ApiError('unauthorized', payload?.detail ?? 'Sign in again to sync.');
+  }
+  if (response.status === 400) {
+    throw new ApiError('validation', payload?.detail ?? 'The sync batch could not be sent.');
+  }
+  throw new ApiError('server', payload?.detail ?? 'The sync service could not store this batch.');
+}
+
+/** Pulls changes made elsewhere after the cursor. */
+export async function pullSync(input: {
+  accessToken: string;
+  cursor?: string;
+  limit?: number;
+  shopId?: string;
+}): Promise<SyncPullResult> {
+  const params = new URLSearchParams({
+    cursor: input.cursor ?? '0',
+    limit: String(input.limit ?? 500),
+  });
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${input.accessToken}`,
+  };
+  if (input.shopId) headers['X-Shop-ID'] = input.shopId;
+
+  const response = await getJson(`${SYNC_PULL_PATH}?${params.toString()}`, headers);
+  if (response.ok) return (await response.json()) as SyncPullResult;
+
+  const payload = await readErrorPayload(response);
+  if (response.status === 401) {
+    throw new ApiError('unauthorized', payload?.detail ?? 'Sign in again to sync.');
+  }
+  if (response.status === 400) {
+    throw new ApiError('validation', payload?.detail ?? 'The sync cursor is not valid.');
+  }
+  throw new ApiError('server', payload?.detail ?? 'The sync service could not send changes.');
 }
