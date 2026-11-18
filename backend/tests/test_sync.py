@@ -1,8 +1,24 @@
 from apps.sync.models import ChangeLog, SyncRecord
 
 from .helpers import (
-    BaseTestCase, T1, T2, base_data, change, line_row, login, movement_row, owner_row, payment_row, product_row,
-    pull, push, register, sale_row, shop_row, staff_row, variant_row,
+    T1,
+    T2,
+    BaseTestCase,
+    base_data,
+    change,
+    line_row,
+    login,
+    movement_row,
+    owner_row,
+    payment_row,
+    product_row,
+    pull,
+    push,
+    register,
+    sale_row,
+    shop_row,
+    staff_row,
+    variant_row,
 )
 
 

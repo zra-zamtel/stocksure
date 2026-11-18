@@ -29,8 +29,8 @@ class Locked(APIException):
 def api_exception_handler(exc, context):
     """Same as DRF's, plus a stable machine-readable `code` next to every `detail` message."""
     response = exception_handler(exc, context)
-    if response is not None and isinstance(exc, APIException) and isinstance(response.data, dict):
-        if "detail" in response.data and "code" not in response.data:
-            codes = exc.get_codes()
-            response.data["code"] = codes if isinstance(codes, str) else "error"
+    is_api_error = response is not None and isinstance(exc, APIException) and isinstance(response.data, dict)
+    if is_api_error and "detail" in response.data and "code" not in response.data:
+        codes = exc.get_codes()
+        response.data["code"] = codes if isinstance(codes, str) else "error"
     return response
