@@ -141,7 +141,9 @@ def sale_payload(**extra):
     return data
 
 
-class SyncTestCase(TestCase):
+class SyncBase(TestCase):
+    """Helpers only, so other test modules can reuse them without re-running these tests."""
+
     def setUp(self):
         cache.clear()
         self.owner = User.objects.create_user(
@@ -183,6 +185,8 @@ class SyncTestCase(TestCase):
         self.assertEqual(response.json()["rejected"], [])
         return response
 
+
+class SyncTestCase(SyncBase):
     def test_push_shop_stores_text_id_and_ngwee(self):
         response = self.push([self.change("q_shop", "shop", "shop_1", shop_payload())])
 
@@ -334,7 +338,7 @@ class SyncTestCase(TestCase):
             "startsOn": "2026-11-01",
             "endsOn": "2026-11-30",
             "turnover": 45000,
-            "rateUsed": 4,
+            "rateUsed": 0.05,
             "estimatedTax": 1800,
             "dueOn": "2026-12-10",
             "paid": False,

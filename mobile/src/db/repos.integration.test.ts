@@ -227,6 +227,14 @@ describe('IT-ONB onboarding and account', () => {
     expect(await count(db, 'tax_period')).toBe(2);
   });
 
+  it('IT-ONB-06b names the period tax_<shopId>_<YYYY-MM>, the id the backend and USSD use', async () => {
+    await shop();
+    const shopRow = await db.getFirstAsync<{ id: string }>('SELECT id FROM shop');
+    await ensureTaxPeriod(db, rules, DAY);
+    const row = await db.getFirstAsync<{ id: string }>('SELECT id FROM tax_period');
+    expect(row?.id).toBe(`tax_${shopRow?.id}_${DAY.slice(0, 7)}`);
+  });
+
   it('IT-ONB-07 tracks onboarding progress through to completion', async () => {
     expect(await getOnboardingState(db)).toEqual({ hasShop: false, onboardingComplete: false, hasProducts: false });
     await expect(completeOnboarding(db)).rejects.toThrow();

@@ -9,7 +9,7 @@ from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from .models import SyncChange
-from .services import SyncError, apply_change, cursor_value, pull_changes
+from .services import SyncError, apply_change, cursor_value, pull_changes, user_shops
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +65,7 @@ class SyncPushView(APIView):
                     {"queueId": queue_id, "reason": "The server could not store this change."}
                 )
 
-        latest = SyncChange.objects.filter(shop__owner=request.user).order_by("-id").first()
+        latest = SyncChange.objects.filter(shop__in=user_shops(request.user)).order_by("-id").first()
         return Response(
             {
                 "accepted": accepted,

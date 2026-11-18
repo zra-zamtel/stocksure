@@ -236,3 +236,12 @@ class SyncChange(models.Model):
 
     class Meta:
         ordering = ["id"]
+        constraints = [
+            # A phone's outbox row is applied once per shop, even if two
+            # requests race; server-made rows (USSD) have no queue id.
+            models.UniqueConstraint(
+                fields=["shop", "queue_id"],
+                condition=~models.Q(queue_id=""),
+                name="sync_change_unique_queue_id",
+            )
+        ]

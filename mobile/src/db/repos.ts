@@ -1050,7 +1050,10 @@ export async function ensureTaxPeriod(
   if (existing) return;
 
   const { startsOn, endsOn, dueOn } = taxPeriodForMonth(today, rules);
-  const id = newId('tax');
+  // One period per shop and month, with the id the backend uses too, so a USSD
+  // TaxPot top-up lands on this same period after sync.
+  const shopRow = await db.getFirstAsync<{ id: string }>('SELECT id FROM shop LIMIT 1');
+  const id = shopRow ? `tax_${shopRow.id}_${startsOn.slice(0, 7)}` : newId('tax');
   const stamp = nowIso();
 
   await db.withTransactionAsync(async () => {

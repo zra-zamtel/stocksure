@@ -152,6 +152,100 @@ def resolve_shop(user: User, shop_id: str | None = None) -> Shop | None:
     return qs.first()
 
 
+def is_owner(user: User, shop: Shop) -> bool:
+    return shop.owner_id == user.id
+
+
+# ---- staff rules -------------------------------------------------------------
+#
+# The same matrix as mobile/src/core/permissions.ts. A staff member records
+# sales and counts cash; everything else is the owner's. The phone's automatic
+# matcher also runs on a staff phone, so its outputs (a stored match pair, a
+# sale's reconcile status, a message's matched/unmatched status) are allowed,
+# but a human decision (money arrived, not a sale, void) is not.
+
+OWNER_ONLY = "Only the shop owner can make this change."
+STAFF_HIDDEN_ENTITIES = {"tax_period", "tax_pot_entry", "reconciliation"}
+_META = {"id", "createdAt", "created_at", "updatedAt", "updated_at", "shopId", "shop_id"}
+
+
+def _only_keys(data: dict, allowed: set[str]) -> None:
+    if set(data) - allowed - _META:
+        raise SyncError(OWNER_ONLY)
+
+
+def check_staff_change(entity: str, operation: str, payload: dict, entity_id: str, shop: Shop) -> None:
+    """Raise SyncError unless a staff member may push this change."""
+    if entity == "sale":
+        data = _sale_body(payload, entity_id)
+        if operation == "create" and not Sale.objects.filter(id=entity_id).exists():
+            if _get(data, "status", default="active") != "active":
+                raise SyncError(OWNER_ONLY)
+            for payment in payload.get("payments") or []:
+                if isinstance(payment, dict) and any(
+                    _get(payment, key) for key in ("confirmedAt", "confirmed_at", "matchedTxnId", "matched_txn_id")
+                ):
+                    raise SyncError(OWNER_ONLY)
+            for movement in payload.get("stockMovements") or payload.get("stock_movements") or []:
+                if isinstance(movement, dict) and movement.get("reason") != StockMovement.Reason.SALE:
+                    raise SyncError(OWNER_ONLY)
+            return
+        # An existing sale: only the matcher's reconcile status may change.
+        if any(payload.get(key) for key in ("lines", "payments", "stockMovements", "stock_movements")):
+            raise SyncError(OWNER_ONLY)
+        _only_keys(data, {"reconcileStatus", "reconcile_status"})
+        return
+
+    if entity == "stock_movement":
+        if operation != "create" or payload.get("reason") != StockMovement.Reason.SALE:
+            raise SyncError(OWNER_ONLY)
+        return
+
+    if entity == "payment":
+        if operation != "update":
+            raise SyncError(OWNER_ONLY)
+        _only_keys(payload, {"matchedTxnId", "matched_txn_id"})
+        return
+
+    if entity == "mobile_money_txn":
+        if _get(payload, "status") == MobileMoneyTxn.Status.IGNORED:
+            raise SyncError(OWNER_ONLY)
+        if operation == "update":
+            _only_keys(payload, {"status"})
+        return
+
+    if entity == "reconciliation":
+        # A blind cash count: staff may record it once, never replace it.
+        row = Reconciliation.objects.filter(id=_get(payload, "id", default=entity_id), shop=shop).first()
+        if row is not None and row.counted_cash is not None:
+            raise SyncError("A cash count is already saved for this day. Ask the owner to change it.")
+        _only_keys(payload, {"day", "countedCash", "counted_cash", "note", "openingFloat", "opening_float"})
+        return
+
+    raise SyncError(OWNER_ONLY)
+
+
+def staff_payload(entity: str, payload: dict) -> dict | None:
+    """What a staff phone may receive. None means the row is not sent at all."""
+    if entity in STAFF_HIDDEN_ENTITIES:
+        return None
+    hidden = {
+        "product": {"defaultBuyPrice", "default_buy_price"},
+        "product_variant": {"buyPrice", "buy_price"},
+    }.get(entity)
+    if hidden:
+        return {key: value for key, value in payload.items() if key not in hidden}
+    if entity == "sale" and isinstance(payload.get("lines"), list):
+        lines = [
+            {key: value for key, value in line.items() if key not in ("buyPrice", "buy_price")}
+            if isinstance(line, dict)
+            else line
+            for line in payload["lines"]
+        ]
+        return {**payload, "lines": lines}
+    return payload
+
+
 # ---- per-entity upserts ---------------------------------------------------
 
 
@@ -161,15 +255,25 @@ def upsert_shop(payload, user: User) -> Shop:
     if shop and shop.owner_id != user.id:
         raise SyncError("That shop belongs to another account.")
     if shop is None:
-        # Registration creates an empty placeholder so staff and USSD have a
-        # shop before the phone syncs. The phone's first real shop replaces it;
-        # after any data exists, a second shop is refused.
-        placeholder = Shop.objects.filter(owner=user).exclude(id=ids["id"]).first()
-        if placeholder is not None:
-            if placeholder.products.exists() or placeholder.sales.exists():
-                raise SyncError("This account already has a synced shop.")
-            placeholder.delete()
+        # Registration creates a placeholder so staff and USSD have a shop
+        # before the phone syncs. The phone's first real shop adopts it: rows
+        # USSD already wrote there (sales, TaxPot top-ups) move to the phone's
+        # shop instead of being lost. A second real shop is refused.
+        existing = Shop.objects.filter(owner=user).exclude(id=ids["id"]).first()
+        if existing is not None and existing.products.exists():
+            raise SyncError("This account already has a synced shop.")
         shop = Shop(id=ids["id"], owner=user, created_at=ids["created_at"])
+        _fill_shop(shop, payload, ids)
+        shop.save()
+        if existing is not None:
+            adopt_placeholder(existing, shop)
+        return shop
+    _fill_shop(shop, payload, ids)
+    shop.save()
+    return shop
+
+
+def _fill_shop(shop: Shop, payload: dict, ids: dict) -> None:
     shop.name = _text(payload, "name", required=True, max_length=150)
     shop.type = _text(payload, "type", default="other", max_length=20)
     shop.town = _text(payload, "town", default="", max_length=80)
@@ -191,8 +295,71 @@ def upsert_shop(payload, user: User) -> Shop:
         payload, "onboardingCompleted", "onboarding_completed", default=False
     )
     shop.updated_at = ids["updated_at"]
-    shop.save()
-    return shop
+
+
+def period_id_for(shop: Shop, starts_on) -> str:
+    """One tax period per shop and month, with the same id on phone and server,
+    so a USSD TaxPot top-up and the phone's period are the same row."""
+    return f"tax_{shop.id}_{str(starts_on)[:7]}"
+
+
+def adopt_placeholder(placeholder: Shop, shop: Shop) -> None:
+    """Move everything written to the registration placeholder onto the phone's
+    shop, re-key tax periods to the phone's id scheme, and re-point the pull log,
+    then remove the empty placeholder."""
+    for model in (Product, ProductVariant, StockMovement, Sale, Payment, MobileMoneyTxn, Reconciliation):
+        model.objects.filter(shop=placeholder).update(shop=shop)
+
+    for period in list(TaxPeriod.objects.filter(shop=placeholder)):
+        new_id = period_id_for(shop, period.starts_on)
+        target = TaxPeriod.objects.filter(id=new_id).first()
+        if target is None:
+            target = TaxPeriod.objects.create(
+                id=new_id,
+                shop=shop,
+                starts_on=period.starts_on,
+                ends_on=period.ends_on,
+                turnover=period.turnover,
+                rate_used=period.rate_used,
+                estimated_tax=period.estimated_tax,
+                due_on=period.due_on,
+                paid=period.paid,
+                created_at=period.created_at,
+                updated_at=period.updated_at,
+            )
+        TaxPotEntry.objects.filter(period=period).update(period=target, shop=shop)
+        for change in SyncChange.objects.filter(shop=placeholder, entity="tax_pot_entry"):
+            if change.payload.get("periodId") == period.id:
+                change.payload = {**change.payload, "periodId": new_id}
+                change.save(update_fields=["payload"])
+        SyncChange.objects.filter(shop=placeholder, entity="tax_period", entity_id=period.id).delete()
+        SyncChange.objects.create(
+            shop=placeholder,
+            entity="tax_period",
+            entity_id=new_id,
+            operation="create",
+            payload=tax_period_payload(target),
+        )
+        period.delete()
+
+    TaxPotEntry.objects.filter(shop=placeholder).update(shop=shop)
+    SyncChange.objects.filter(shop=placeholder).update(shop=shop)
+    placeholder.delete()
+
+
+def tax_period_payload(period: TaxPeriod) -> dict:
+    return {
+        "id": period.id,
+        "startsOn": str(period.starts_on),
+        "endsOn": str(period.ends_on),
+        "turnover": period.turnover,
+        "rateUsed": float(period.rate_used),
+        "estimatedTax": period.estimated_tax,
+        "dueOn": str(period.due_on),
+        "paid": period.paid,
+        "createdAt": period.created_at.isoformat(),
+        "updatedAt": period.updated_at.isoformat(),
+    }
 
 
 def upsert_product(payload, shop: Shop) -> Product:
@@ -249,9 +416,12 @@ def upsert_variant(payload, shop: Shop) -> ProductVariant:
 
 def insert_movement(payload, shop: Shop, *, existing_is_ok=True) -> StockMovement:
     ids = _record(payload)
-    if StockMovement.objects.filter(id=ids["id"]).exists():
+    existing = StockMovement.objects.filter(id=ids["id"]).first()
+    if existing is not None:
+        if existing.shop_id != shop.id:
+            raise SyncError("That stock movement belongs to another shop.")
         if existing_is_ok:
-            return StockMovement.objects.get(id=ids["id"])
+            return existing
         raise SyncError("Stock movements are append-only; that id already exists.")
     variant_id = _text(payload, "variantId", "variant_id", required=True, max_length=64)
     variant = ProductVariant.objects.filter(id=variant_id, shop=shop).first()
@@ -308,7 +478,19 @@ def _upsert_sale_fields(sale: Sale, data: dict) -> Sale:
     return sale
 
 
-def upsert_sale(payload: dict, shop: Shop, entity_id: str, user: User) -> Sale:
+def _check_sale_totals(sale: Sale) -> None:
+    stored = list(sale.lines.all())
+    if not stored:
+        raise SyncError("A sale needs at least one line.")
+    if sum(line.list_price for line in stored) != sale.subtotal:
+        raise SyncError("subtotal does not match the sum of line list prices.")
+    if sum(line.discount for line in stored) != sale.discount_total:
+        raise SyncError("discountTotal does not match the sum of line discounts.")
+    if sum(line.final_price for line in stored) != sale.total:
+        raise SyncError("total does not match the sum of line final prices.")
+
+
+def upsert_sale(payload: dict, shop: Shop, entity_id: str, user: User, *, owner: bool = True) -> Sale:
     data = _sale_body(payload, entity_id)
     ids = _record(data, default_id=entity_id)
     sale = Sale.objects.filter(id=ids["id"]).first()
@@ -341,7 +523,11 @@ def upsert_sale(payload: dict, shop: Shop, entity_id: str, user: User) -> Sale:
         if variant is None:
             raise SyncError(f"variant {variant_id} does not exist in this shop.")
         quantity = _int(line, "quantity", required=True, minimum=1)
-        buy_price = _int(line, "buyPrice", "buy_price", default=0, minimum=0)
+        # A staff phone never receives buy prices, so the cost snapshot for its
+        # sale comes from the server's variant instead of the phone.
+        buy_price = (
+            _int(line, "buyPrice", "buy_price", default=0, minimum=0) if owner else variant.buy_price
+        )
         list_price = _int(line, "listPrice", "list_price", default=0, minimum=0)
         discount = _int(line, "discount", default=0, minimum=0)
         final_price = _int(line, "finalPrice", "final_price", default=0, minimum=0)
@@ -363,14 +549,13 @@ def upsert_sale(payload: dict, shop: Shop, entity_id: str, user: User) -> Sale:
             },
         )
 
-    if created and lines:
-        stored = list(sale.lines.all())
-        if sum(line.list_price for line in stored) != sale.subtotal:
-            raise SyncError("subtotal does not match the sum of line list prices.")
-        if sum(line.discount for line in stored) != sale.discount_total:
-            raise SyncError("discountTotal does not match the sum of line discounts.")
-        if sum(line.final_price for line in stored) != sale.total:
-            raise SyncError("total does not match the sum of line final prices.")
+    # Any change that could move money is checked against the lines, on create
+    # and on update alike. A status-only update leaves both sides untouched.
+    touches_money = created or lines or any(
+        key in data for key in ("subtotal", "discountTotal", "discount_total", "total")
+    )
+    if touches_money:
+        _check_sale_totals(sale)
 
     payments = payload.get("payments") or []
     if not isinstance(payments, list):
@@ -542,10 +727,11 @@ def upsert_tax_period(payload: dict, shop: Shop, *, partial=False) -> TaxPeriod:
         row.turnover = _int(payload, "turnover", default=0, minimum=0)
     if "rateUsed" in payload or "rate_used" in payload:
         value = _get(payload, "rateUsed", "rate_used", default=0)
-        try:
-            row.rate_used = value
-        except (TypeError, ValueError):
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
             raise SyncError("rateUsed must be a number.")
+        if not 0 <= value <= 1:
+            raise SyncError("rateUsed is a fraction, like 0.05 for 5%.")
+        row.rate_used = value
     if not partial or "estimatedTax" in payload or "estimated_tax" in payload:
         row.estimated_tax = _int(
             payload, "estimatedTax", "estimated_tax", default=0, minimum=0
@@ -604,7 +790,9 @@ def apply_change(change: dict, user: User, queue_id: str = "") -> Shop:
         raise SyncError("payload must be an object.")
 
     if queue_id:
-        prior = SyncChange.objects.filter(queue_id=queue_id, shop__owner=user).first()
+        # Staff push to the owner's shop, so a replay is recognised across every
+        # shop the user can use, not only the ones they own.
+        prior = SyncChange.objects.filter(queue_id=queue_id, shop__in=user_shops(user)).first()
         if prior:
             # A replayed queue row is already applied. Return without writing so
             # the phone gets the same accepted answer and no duplicate pull row.
@@ -621,6 +809,9 @@ def apply_change(change: dict, user: User, queue_id: str = "") -> Shop:
         else:
             shop = resolve_shop(user, _get(payload, "shopId", "shop_id"))
             shop = _require_shop(shop)
+            owner = is_owner(user, shop)
+            if not owner:
+                check_staff_change(entity, operation, payload, entity_id, shop)
             if entity == "product":
                 upsert_product(payload, shop)
             elif entity == "product_variant":
@@ -630,7 +821,7 @@ def apply_change(change: dict, user: User, queue_id: str = "") -> Shop:
                     raise SyncError("Stock movements are append-only.")
                 insert_movement(payload, shop, existing_is_ok=True)
             elif entity == "sale":
-                upsert_sale(payload, shop, entity_id, user)
+                upsert_sale(payload, shop, entity_id, user, owner=owner)
             elif entity == "payment":
                 upsert_payment(payload, shop, partial=operation == "update")
             elif entity == "mobile_money_txn":
@@ -673,16 +864,21 @@ def pull_changes(user: User, cursor: int, limit: int, shop_id: str | None = None
     if shop_id:
         qs = qs.filter(shop_id=shop_id)
     rows = list(qs.order_by("id")[:limit])
-    changes = [
-        {
-            "entity": row.entity,
-            "entityId": row.entity_id,
-            "operation": row.operation,
-            "payload": row.payload,
-            "cursor": str(row.id),
-            "clientCreatedAt": (row.client_created_at or row.created_at).isoformat(),
-        }
-        for row in rows
-    ]
+    changes = []
+    for row in rows:
+        # The cursor still advances past rows a staff phone may not see.
+        payload = row.payload if is_owner(user, row.shop) else staff_payload(row.entity, row.payload)
+        if payload is None:
+            continue
+        changes.append(
+            {
+                "entity": row.entity,
+                "entityId": row.entity_id,
+                "operation": row.operation,
+                "payload": payload,
+                "cursor": str(row.id),
+                "clientCreatedAt": (row.client_created_at or row.created_at).isoformat(),
+            }
+        )
     next_cursor = str(rows[-1].id) if rows else str(cursor)
     return changes, next_cursor

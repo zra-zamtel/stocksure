@@ -9,7 +9,16 @@ from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-load_dotenv(BASE_DIR / ".env")
+
+# Tests must never read a developer's backend/.env: it holds the real database
+# URL and secrets. They run on a throwaway SQLite database instead.
+RUNNING_TESTS = (
+    "test" in sys.argv
+    or "pytest" in sys.modules
+    or "PYTEST_CURRENT_TEST" in os.environ
+)
+if not RUNNING_TESTS:
+    load_dotenv(BASE_DIR / ".env")
 
 
 def env_bool(name, default=False):
@@ -22,7 +31,6 @@ def env_list(name, default=""):
 
 # Debug is opt-in. A deployment that forgets the env file must not expose tokens.
 DEBUG = env_bool("DJANGO_DEBUG", False)
-RUNNING_TESTS = "test" in sys.argv
 
 INSECURE_SECRET_KEYS = {
     "dev-insecure-key-change-me",
@@ -107,7 +115,11 @@ TEMPLATES = [
     }
 ]
 
-_db_url = os.environ.get("DATABASE_URL", "").strip()
+# Under tests only TEST_DATABASE_URL can point away from SQLite, so an exported
+# DATABASE_URL in the shell cannot send test writes to a real database.
+_db_url = (
+    os.environ.get("TEST_DATABASE_URL", "") if RUNNING_TESTS else os.environ.get("DATABASE_URL", "")
+).strip()
 if _db_url:  # PostgreSQL (or anything else) when DATABASE_URL is filled in
     DATABASES = {"default": dj_database_url.parse(_db_url, conn_max_age=600)}
 else:  # local SQLite file

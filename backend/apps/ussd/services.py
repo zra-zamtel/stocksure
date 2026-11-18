@@ -18,7 +18,7 @@ from rest_framework.exceptions import APIException
 from apps.accounts.models import User
 from apps.core.utils import local_today, month_bounds, normalize_phone
 from apps.sync.models import Payment, Sale, Shop, SyncChange, TaxPeriod, TaxPotEntry
-from apps.sync.services import resolve_shop
+from apps.sync.services import period_id_for, resolve_shop, tax_period_payload
 from apps.tax.services import compute_estimate
 
 MENU_OWNER = "CON StockSure\n1. Record a sale\n2. Today's summary\n3. Tax estimate\n4. Save to TaxPot"
@@ -102,6 +102,12 @@ def _month_start_end(today):
 
 
 def _period(shop, today):
+    """The shop's tax period for this month, shared with the phone.
+
+    The id is the same one the phone uses (tax_<shopId>_<YYYY-MM>), so a USSD
+    TaxPot top-up and the phone's period are one row, and the rate is stored as
+    a fraction (0.05), like the phone's rules file.
+    """
     start, end = _month_start_end(today)
     period = TaxPeriod.objects.filter(
         shop=shop, starts_on__lte=today, ends_on__gte=today
@@ -110,18 +116,15 @@ def _period(shop, today):
         return period
 
     result = compute_estimate(shop, start, end)
-    turnover = int(result["basis_income"] * 100)
-    estimated = int(result["estimated_tax"] * 100)
-    rate = result["rate_percent"]
     now = timezone.now()
     period = TaxPeriod.objects.create(
-        id=f"tax_{uuid.uuid4().hex}",
+        id=period_id_for(shop, start),
         shop=shop,
         starts_on=start,
         ends_on=end,
-        turnover=turnover,
-        rate_used=rate,
-        estimated_tax=estimated,
+        turnover=int(result["basis_income"] * 100),
+        rate_used=result["rate_percent"] / Decimal("100"),
+        estimated_tax=int(result["estimated_tax"] * 100),
         due_on=end + timedelta(days=14),
         paid=False,
         created_at=now,
@@ -132,18 +135,7 @@ def _period(shop, today):
         entity="tax_period",
         entity_id=period.id,
         operation="create",
-        payload={
-            "id": period.id,
-            "startsOn": str(period.starts_on),
-            "endsOn": str(period.ends_on),
-            "turnover": period.turnover,
-            "rateUsed": float(period.rate_used),
-            "estimatedTax": period.estimated_tax,
-            "dueOn": str(period.due_on),
-            "paid": period.paid,
-            "createdAt": now.isoformat(),
-            "updatedAt": now.isoformat(),
-        },
+        payload=tax_period_payload(period),
         client_created_at=now,
     )
     return period
@@ -255,8 +247,8 @@ def _registered(user, shop, role, parts):
         result = compute_estimate(shop, start, end)
         if result["income_tax"]:
             return (
-                "END Your sales this year are at or above the turnover-tax threshold. "
-                "Income tax applies instead of turnover tax. Confirm with ZRA."
+                "END Sales this year are K5,000,000 or more. "
+                "Income tax applies, not turnover tax. Speak to ZRA."
             )
         estimated = int(result["estimated_tax"] * 100)
         basis = int(result["basis_income"] * 100)
@@ -273,9 +265,9 @@ def _registered(user, shop, role, parts):
         if amount is None:
             return "END Invalid amount. Please dial again."
         if len(parts) == 2:
-            return f"CON Save {_k(amount)}. Enter your PIN"
+            return f"CON Save {_k(amount)}. Enter your StockSure password (your PIN if you registered by USSD)"
         if not user.check_password(parts[2]):
-            return "END Wrong PIN."
+            return "END That password is not correct."
 
         now = timezone.now()
         period = _period(shop, local_today())

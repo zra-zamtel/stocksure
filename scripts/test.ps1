@@ -27,7 +27,7 @@ if (-not $MobileOnly) {
     Write-Host '==> Backend tests' -ForegroundColor Cyan
     Push-Location $BackendDir
     try {
-        & $VenvPython manage.py test accounts
+        & $VenvPython manage.py test
         if ($LASTEXITCODE -ne 0) { throw "Backend tests failed with exit code $LASTEXITCODE." }
     } finally {
         Pop-Location
