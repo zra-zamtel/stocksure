@@ -1,5 +1,5 @@
 import re
-from datetime import date, datetime, time, timedelta, timezone as dt_timezone
+from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from django.utils import timezone
@@ -11,8 +11,7 @@ LUSAKA = ZoneInfo("Africa/Lusaka")
 def normalize_phone(raw: str) -> str:
     """0977123456 / +260 977 123 456 / 977123456 -> 260977123456"""
     digits = re.sub(r"\D", "", raw or "")
-    if digits.startswith("00"):
-        digits = digits[2:]
+    digits = digits.removeprefix("00")
     if digits.startswith("0") and len(digits) == 10:
         digits = "260" + digits[1:]
     elif len(digits) == 9:
@@ -38,16 +37,16 @@ def parse_iso(value):
     if not isinstance(value, str) or not value:
         return None
     try:
-        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        dt = datetime.fromisoformat(value)
     except ValueError:
         return None
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=dt_timezone.utc)
+        dt = dt.replace(tzinfo=UTC)
     return dt
 
 
 def iso_now() -> str:
-    return timezone.now().astimezone(dt_timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+    return timezone.now().astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
 
 def parse_day(value):

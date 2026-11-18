@@ -9,7 +9,15 @@ from apps.sync.models import ChangeLog
 from apps.ussd import data
 
 from .helpers import (
-    BaseTestCase, base_data, change, login, pull, push, register, row, staff_row,
+    BaseTestCase,
+    base_data,
+    change,
+    login,
+    pull,
+    push,
+    register,
+    row,
+    staff_row,
 )
 from .test_config import RULES
 
@@ -115,7 +123,7 @@ class UssdTests(BaseTestCase):
             self.assertEqual(ussd("0977000001", "", secret="s3cret")[0], 200)
 
     def test_account_that_has_not_synced_cannot_sell(self):
-        fresh, _ = register(phone="0977000009", client_id="owner_z", name="Fresh")
+        register(phone="0977000009", client_id="owner_z", name="Fresh")
         self.assertIn("No products have synced", self.reply("1", phone="0977000009"))
         self.assertIn("No products have synced", self.reply("2", phone="0977000009"))
 

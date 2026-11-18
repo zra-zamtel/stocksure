@@ -1,6 +1,7 @@
 from django import forms
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
+from rest_framework.exceptions import ValidationError as ApiValidationError
 
 from apps.core.utils import validate_zm_phone
 
@@ -18,8 +19,8 @@ class UserCreateForm(forms.ModelForm):
     def clean_phone(self):
         try:
             phone = validate_zm_phone(self.cleaned_data["phone"])
-        except Exception:
-            raise forms.ValidationError("Enter a valid Zambian phone number.")
+        except ApiValidationError:
+            raise forms.ValidationError("Enter a valid Zambian phone number.") from None
         if User.objects.filter(phone=phone).exists():
             raise forms.ValidationError("This phone number is already registered.")
         return phone

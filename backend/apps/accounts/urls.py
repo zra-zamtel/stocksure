@@ -2,7 +2,12 @@ from django.urls import path
 from rest_framework_simplejwt.views import TokenRefreshView
 
 from .views import (
-    ChangePinView, LoginView, MeView, PinResetConfirmView, PinResetRequestView, RegisterView,
+    ChangePinView,
+    LoginView,
+    MeView,
+    PinResetConfirmView,
+    PinResetRequestView,
+    RegisterView,
 )
 
 urlpatterns = [

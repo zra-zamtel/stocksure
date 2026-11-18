@@ -18,7 +18,7 @@ class ConfigVersionAdmin(admin.ModelAdmin):
             try:
                 cfg.save()
                 done += 1
-            except Exception as exc:  # a validation failure keeps the last good version live
+            except Exception as exc:  # noqa: BLE001 - a validation failure keeps the last good version live
                 self.message_user(request, f"{cfg}: not published. {getattr(exc, 'message', exc)}", messages.ERROR)
         if done:
             self.message_user(request, f"{done} version(s) published.", messages.SUCCESS)

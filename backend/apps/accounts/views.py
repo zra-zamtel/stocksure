@@ -10,8 +10,14 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from . import services
 from .models import User
 from .serializers import (
-    ChangePinSerializer, LoginSerializer, PinResetConfirmSerializer, PinResetRequestSerializer,
-    RegisterSerializer, StaffCreateSerializer, StaffPinSerializer, user_payload,
+    ChangePinSerializer,
+    LoginSerializer,
+    PinResetConfirmSerializer,
+    PinResetRequestSerializer,
+    RegisterSerializer,
+    StaffCreateSerializer,
+    StaffPinSerializer,
+    user_payload,
 )
 
 
