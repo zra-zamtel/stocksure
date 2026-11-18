@@ -23,7 +23,13 @@ class USSDView(APIView):
 
     def post(self, request):
         secret = getattr(settings, "USSD_SHARED_SECRET", "")
-        if secret and not hmac.compare_digest(request.headers.get("X-USSD-Secret", ""), secret):
+        if not secret:
+            # An unset secret used to mean "open to anyone", which let a caller
+            # act as any owner's phone number. Local debug runs may stay open;
+            # everything else must configure the gateway secret.
+            if not settings.DEBUG:
+                raise PermissionDenied("USSD gateway secret is not configured.")
+        elif not hmac.compare_digest(request.headers.get("X-USSD-Secret", ""), secret):
             raise PermissionDenied("Bad gateway secret.")
         phone = request.data.get("phoneNumber") or request.data.get("phone") or ""
         text = request.data.get("text", "")

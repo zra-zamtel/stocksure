@@ -26,10 +26,13 @@ def _ensure_day_open(shop, date):
 
 @transaction.atomic
 def record_sale(*, shop, user, role, payment_method, lines=None, amount=None, client_id=None,
-                sold_at=None, payer_phone="", payment_reference="", note="", allow_amount_only=False):
+                sold_at=None, payer_phone="", payment_reference="", note="", allow_amount_only=False,
+                allow_oversell=False):
     """Record one sale: stock out, ledger in, and (for mobile money) try to match the payment.
 
     Returns (sale, created, warnings). Safe to retry: the same client_id returns the first sale.
+    Selling past the recorded quantity needs the owner's explicit approval, matching the
+    phone's override prompt; an assistant cannot approve it.
     """
     if client_id:
         existing = Sale.objects.filter(shop=shop, client_id=client_id).first()
@@ -91,6 +94,14 @@ def record_sale(*, shop, user, role, payment_method, lines=None, amount=None, cl
             sale=sale, item=item, description=description, quantity=qty, unit_price=price, line_total=line_total
         )
         if item:
+            # Check the balance under the same row lock apply_movement uses, so
+            # two concurrent phones cannot both pass the check.
+            locked = Item.objects.select_for_update().get(pk=item.id)
+            if locked.quantity < qty and (role != "owner" or not allow_oversell):
+                raise ValidationError(
+                    {"lines": f"Not enough stock for {item.display_name}: {locked.quantity} on hand, "
+                              f"{qty} requested. The owner must approve an override."}
+                )
             mv = apply_movement(
                 item_id=item.id, change=-qty, kind=StockMovement.Kind.SALE, user=user, reference=f"sale:{sale.id}"
             )

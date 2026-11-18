@@ -25,13 +25,16 @@ from .serializers import (
 )
 
 
+MAX_SYNC_ROWS = 500
+
+
 def _record(view, data):
     sale, created, warnings = services.record_sale(
         shop=view.shop, user=view.request.user, role=view.membership.role,
         payment_method=data["payment_method"], lines=data.get("lines"), amount=data.get("amount"),
         client_id=data.get("client_id"), sold_at=data.get("sold_at"),
         payer_phone=data.get("payer_phone", ""), payment_reference=data.get("payment_reference", ""),
-        note=data.get("note", ""),
+        note=data.get("note", ""), allow_oversell=data.get("allow_oversell", False),
     )
     return sale, created, warnings
 
@@ -81,7 +84,7 @@ class SaleViewSet(ShopScopedMixin, mixins.CreateModelMixin, mixins.RetrieveModel
         if not isinstance(rows, list) or not rows:
             raise ValidationError({"sales": "Send a non-empty list of sales."})
         results = []
-        for row in rows[:200]:
+        for row in rows[:MAX_SYNC_ROWS]:
             s = SaleCreateSerializer(data=row)
             if not s.is_valid() or not s.validated_data.get("client_id"):
                 errors = s.errors or {"client_id": ["client_id is required for offline sync."]}
@@ -96,6 +99,14 @@ class SaleViewSet(ShopScopedMixin, mixins.CreateModelMixin, mixins.RetrieveModel
                 })
             except (ValidationError, Conflict) as exc:
                 results.append({"client_id": str(s.validated_data["client_id"]), "status": "error", "errors": exc.detail})
+        # Never drop the tail silently. Tell the phone which rows still need
+        # sending in a second batch.
+        for row in rows[MAX_SYNC_ROWS:]:
+            results.append({
+                "client_id": row.get("client_id") if isinstance(row, dict) else None,
+                "status": "error",
+                "errors": {"detail": f"Batch limit is {MAX_SYNC_ROWS} rows. Send the remaining rows in another request."},
+            })
         return Response({"results": results})
 
     @action(detail=True, methods=["post"])
@@ -111,7 +122,7 @@ class SaleViewSet(ShopScopedMixin, mixins.CreateModelMixin, mixins.RetrieveModel
 class MobilePaymentViewSet(ShopScopedMixin, mixins.RetrieveModelMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
     queryset = MobilePayment.objects.all()
     serializer_class = MobilePaymentSerializer
-    owner_actions = {"manual_match"}
+    owner_actions = {"manual_match", "simulate"}
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -122,7 +133,7 @@ class MobilePaymentViewSet(ShopScopedMixin, mixins.RetrieveModelMixin, mixins.Li
     @action(detail=False, methods=["post"])
     def simulate(self, request):
         """Prototype only: pretend Zamtel just notified us of a payment on the shop's merchant number."""
-        if not getattr(settings, "ALLOW_PAYMENT_SIMULATION", True):
+        if not getattr(settings, "ALLOW_PAYMENT_SIMULATION", False):
             raise PermissionDenied("Payment simulation is disabled.")
         s = SimulatePaymentSerializer(data=request.data)
         s.is_valid(raise_exception=True)
@@ -164,7 +175,11 @@ class ZamtelWebhookView(APIView):
 
     def post(self, request):
         secret = request.headers.get("X-Webhook-Secret", "")
-        if not hmac.compare_digest(secret, settings.ZAMTEL_WEBHOOK_SECRET):
+        expected = getattr(settings, "ZAMTEL_WEBHOOK_SECRET", "")
+        if not expected:
+            if not settings.DEBUG:
+                raise PermissionDenied("Webhook secret is not configured.")
+        elif not hmac.compare_digest(secret, expected):
             raise PermissionDenied("Bad webhook secret.")
         d = request.data
         shop = Shop.objects.filter(zamtel_merchant_number=str(d.get("merchant_number", "")), is_active=True).first()

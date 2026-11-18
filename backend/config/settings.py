@@ -1,5 +1,6 @@
 """StockSure settings. Everything environment-specific comes from env vars (.env in dev)."""
 import os
+import sys
 from datetime import timedelta
 from pathlib import Path
 
@@ -19,11 +20,31 @@ def env_list(name, default=""):
     return [v.strip() for v in os.environ.get(name, default).split(",") if v.strip()]
 
 
-DEBUG = env_bool("DJANGO_DEBUG", True)
-SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "dev-insecure-key-change-me")
-if not DEBUG and SECRET_KEY == "dev-insecure-key-change-me":
-    raise ImproperlyConfigured("Set DJANGO_SECRET_KEY when DJANGO_DEBUG is off.")
-ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1")
+# Debug is opt-in. A deployment that forgets the env file must not expose tokens.
+DEBUG = env_bool("DJANGO_DEBUG", False)
+RUNNING_TESTS = "test" in sys.argv
+
+INSECURE_SECRET_KEYS = {
+    "dev-insecure-key-change-me",
+    "dev-only-change-me-before-deploying",
+    "dev-only-change-me-stocksure",
+    "change-me",
+    "changeme",
+}
+SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "").strip()
+if not SECRET_KEY:
+    if DEBUG or RUNNING_TESTS:
+        SECRET_KEY = "dev-only-change-me-stocksure"
+    else:
+        raise ImproperlyConfigured("Set DJANGO_SECRET_KEY when DJANGO_DEBUG is off.")
+if not DEBUG and not RUNNING_TESTS and SECRET_KEY in INSECURE_SECRET_KEYS:
+    raise ImproperlyConfigured("Replace the placeholder DJANGO_SECRET_KEY before deploying.")
+
+ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS")
+if not ALLOWED_HOSTS:
+    if not DEBUG and not RUNNING_TESTS:
+        raise ImproperlyConfigured("Set DJANGO_ALLOWED_HOSTS when DJANGO_DEBUG is off.")
+    ALLOWED_HOSTS = ["*"]
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -148,7 +169,9 @@ SMS_BACKEND = os.environ.get("SMS_BACKEND", "apps.integrations.sms.ConsoleSMSBac
 AI_INVOICE_READER = os.environ.get("AI_INVOICE_READER", "apps.integrations.ai.MockInvoiceReader")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-5-5")
-ZAMTEL_WEBHOOK_SECRET = os.environ.get("ZAMTEL_WEBHOOK_SECRET", "dev-webhook-secret")
+ZAMTEL_WEBHOOK_SECRET = os.environ.get("ZAMTEL_WEBHOOK_SECRET", "").strip()
+if not ZAMTEL_WEBHOOK_SECRET and not DEBUG and not RUNNING_TESTS:
+    raise ImproperlyConfigured("Set ZAMTEL_WEBHOOK_SECRET when DJANGO_DEBUG is off.")
 # A mobile-money payment is matched to a sale of the same amount recorded within this window.
 PAYMENT_MATCH_WINDOW_MINUTES = int(os.environ.get("PAYMENT_MATCH_WINDOW_MINUTES", "120"))
 
@@ -159,4 +182,4 @@ LOGGING = {
     "root": {"handlers": ["console"], "level": "INFO"},
 }
 USSD_SHARED_SECRET = os.environ.get("USSD_SHARED_SECRET", "")  # set in production; the USSD gateway sends it in X-USSD-Secret
-ALLOW_PAYMENT_SIMULATION = env_bool("ALLOW_PAYMENT_SIMULATION", True)  # turn off once real Zamtel payments are live
+ALLOW_PAYMENT_SIMULATION = env_bool("ALLOW_PAYMENT_SIMULATION", False)  # demo-only; off unless explicitly enabled

@@ -19,6 +19,9 @@ class SaleCreateSerializer(serializers.Serializer):
     payer_phone = serializers.CharField(max_length=15, required=False, allow_blank=True, default="")
     payment_reference = serializers.CharField(max_length=60, required=False, allow_blank=True, default="")
     note = serializers.CharField(max_length=255, required=False, allow_blank=True, default="")
+    # The phone shows an owner-approval prompt before selling past stock. The
+    # server must require the same approval; an assistant cannot self-approve.
+    allow_oversell = serializers.BooleanField(required=False, default=False, write_only=True)
 
     def validate(self, attrs):
         if not attrs.get("lines") and attrs.get("amount") is None:

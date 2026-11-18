@@ -1,7 +1,7 @@
 import uuid
 from datetime import date
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from apps.inventory.models import Item
 from apps.ledger.models import LedgerEntry
@@ -43,16 +43,18 @@ class CoreMatchTests(TestCase):
         self.item.refresh_from_db()
         self.assertEqual(self.item.quantity, 2)
 
+    @override_settings(ALLOW_PAYMENT_SIMULATION=True)
     def test_mobile_money_matches_payment_and_verifies_entry(self):
         r = self.sell(self.ac, method="mobile_money")
         self.assertEqual(Sale.objects.get(pk=r.data["id"]).match_status, "pending")
-        p = self.ac.post("/api/payments/simulate/", {"amount": "450.00"}, format="json")
+        p = self.oc.post("/api/payments/simulate/", {"amount": "450.00"}, format="json")
         self.assertEqual(p.status_code, 201, p.content)
         self.assertEqual(p.data["status"], "matched")
         self.assertEqual(LedgerEntry.objects.get(sale_id=r.data["id"]).verification, "verified")
 
+    @override_settings(ALLOW_PAYMENT_SIMULATION=True)
     def test_payment_before_sale_also_matches(self):
-        self.ac.post("/api/payments/simulate/", {"amount": "450.00"}, format="json")
+        self.oc.post("/api/payments/simulate/", {"amount": "450.00"}, format="json")
         r = self.sell(self.ac, method="mobile_money")
         self.assertEqual(r.data["match_status"], "matched")
 
@@ -146,6 +148,7 @@ class TaxTests(TestCase):
         self.assertEqual(self.oc.post(f"/api/taxpot/targets/{t.data['id']}/simulate-payment/", {"amount": "999"}, format="json").status_code, 400)
 
 
+@override_settings(USSD_SHARED_SECRET="gateway-secret")
 class TaxMateAndUssdTests(TestCase):
     def setUp(self):
         self.shop, self.owner, self.assistant = make_shop(mode="lite")
@@ -163,7 +166,12 @@ class TaxMateAndUssdTests(TestCase):
 
     def ussd(self, phone, text):
         from rest_framework.test import APIClient
-        return APIClient().post("/api/ussd/", {"phoneNumber": phone, "text": text}, format="json").content.decode()
+        return APIClient().post(
+            "/api/ussd/",
+            {"phoneNumber": phone, "text": text},
+            format="json",
+            HTTP_X_USSD_SECRET="gateway-secret",
+        ).content.decode()
 
     def test_ussd_menu_sale_and_summary(self):
         self.assertTrue(self.ussd("0977000001", "").startswith("CON"))
