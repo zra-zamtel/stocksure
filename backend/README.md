@@ -14,7 +14,6 @@ is entered once and feeds stock, money matching, the ledger, tax estimate, TaxPo
 python -m venv .venv && source .venv/bin/activate      # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 cp .env.example .env                                    # SQLite by default; set DATABASE_URL for PostgreSQL
-python manage.py makemigrations accounts shops inventory sales reconciliation ledger tax taxpot taxmate notifications
 python manage.py migrate
 python manage.py seed_demo --reset                      # demo shop, users, placeholder tax rules, TaxMate content
 python manage.py test tests                             # run the test suite
@@ -24,11 +23,7 @@ python manage.py runserver
 - API docs (try every endpoint): http://localhost:8000/api/docs/
 - Django admin (tax rules, TaxMate content, users): http://localhost:8000/admin/
 - Demo logins are printed by `seed_demo` (owner `0970000001` / `demo1234`, assistant `0970000002` / `1234`).
-- Migrations are not committed yet: `makemigrations` creates them on your machine. Commit them afterwards.
 - PostgreSQL: `docker compose up -d db`, then `DATABASE_URL=postgres://stocksure:stocksure-dev@localhost:5432/stocksure` in `.env`.
-
-> The code was written without being able to run Django in the authoring environment, so it has been
-> syntax-checked and linted but **not executed**. Run the tests first; expect a few small fixes.
 
 ## Phone sync (canonical phone store)
 
