@@ -162,9 +162,33 @@ The app turns reconciled sales into an estimated turnover tax figure, helps the 
 **Turnover tax estimate**
 
 - Estimate = taxable turnover for the tax period × the turnover tax rate.
-- The rate, the turnover threshold, the filing period and the due date live in a tax rules file, not in the code, so they can be changed without a new app release. The values must be checked against ZRA's published rules before the demo (see open question 3). Until then the file holds placeholder values.
+- The rate, the turnover threshold, the filing period and the due date live in a tax rules file, not in the code, so they can be changed without a new app release.
 - The Tax screen shows turnover so far this period, the estimated tax, the next due date, and any unreconciled items that could change the figure.
 - The screen states clearly that this is an estimate and not a tax return.
+- The calculation runs on the phone, like the rest of the business logic (section 9). The backend stores what the phone works out and does not recalculate it, except for USSD, which uses the same rules file.
+
+**What ZRA told us (18 November 2026)**
+
+People working in tax at ZRA gave the team these rules and advice. They replace the placeholder values in the rules file.
+
+| Rule | Value from ZRA | What the app does |
+| --- | --- | --- |
+| Rate | 5% of turnover | Rules file `rate: 0.05` |
+| Who pays turnover tax | Businesses with turnover below K5 million a year | Shows the turnover tax estimate |
+| K5 million a year and above | Income tax applies instead, at no fixed percentage | Compares sales so far this year with K5 million. At or above it, shows no turnover tax figure, and says income tax applies and the owner should speak to ZRA. |
+| Period | One calendar month; each return covers the previous month | One tax period per calendar month |
+| Filing window | From the 1st to the 14th of the following month | The Tax screen shows the window for last month's return |
+| Due date | The 14th of every month. Filing after the 14th attracts penalties. | Due date = the 14th of the month after the period. Reminders count down to it. |
+| Amendments | A filed return can be amended if an error is found | The owner can mark a period as amended and see what changed |
+
+The K5 million threshold is yearly: it applies to businesses that make that much in a year. The tax itself is still 5% of each month's turnover. Still to confirm with ZRA: what "excluding all income" means for which receipts count as turnover.
+
+**What this means for the product**
+
+- **Never understate.** ZRA's main warning is that small merchants hide sales and invoices, and that it is better not to understate turnover to avoid tax. The app therefore never deletes a sale: a void keeps the record, the reason and who did it, and the owner can see every void.
+- **Audit-ready records.** In an audit ZRA asks for financial records, B2B and B2C transactions, invoices and receipts. The app should give each sale a receipt and let the owner export sales, receipts and expenses for any period.
+- **Expenses.** ZRA lists good record keeping of both sales and expenses. Expenses are not in the MVP yet; this is a gap to decide on.
+- **Smart Invoice.** ZRA's Smart Invoice system tracks invoices, debts and refunds, and includes stock management, which ZRA says is a current weak spot. Using Smart Invoice makes it easier for ZRA to trust a business. StockSure's sales and stock records are a natural feed into Smart Invoice, and the team should present that as a possible improvement to Smart Invoice, which is the question ZRA asked. Real Smart Invoice integration stays out of the MVP.
 
 **TaxPot (simulated savings wallet)**
 
@@ -174,7 +198,7 @@ The app turns reconciled sales into an estimated turnover tax figure, helps the 
 
 **Reminders**
 
-- Local phone notifications before the due date, using days-before values from the tax rules file, and a second one on the due date if the estimate is not covered.
+- Local phone notifications before the due date (the 14th), using days-before values from the tax rules file, and a second one on the due date if the estimate is not covered. The first reminder also says the filing window for last month is open (from the 1st).
 - They work offline because the phone schedules them itself.
 
 ## 8. USSD simulator and languages (Modules F and G)
@@ -264,7 +288,7 @@ Thirteen record types cover the whole MVP; the detailed fields and the API go in
 | Risk | Mitigation |
 | --- | --- |
 | Scope grows again, as the five-module version did | This sheet is the limit; any addition needs a team decision and something else comes out |
-| Tax figures are wrong in front of ZRA judges | Rules held in a file, checked against ZRA's published rules, estimate clearly labelled |
+| Tax figures are wrong in front of ZRA judges | Rules held in a file, set from ZRA's guidance of 18 November 2026 (section 7), estimate clearly labelled |
 | Barcode scanning struggles in poor light or on cheap cameras | Manual entry always available; test on real low-end phones early |
 | Sync loses or duplicates data | Phone-made IDs, append-only stock movements, test with the phone toggled offline and online |
 | Nyanja wording is unclear | Native-speaker review before the video is recorded |
@@ -277,10 +301,11 @@ Thirteen record types cover the whole MVP; the detailed fields and the API go in
 
 1. Settled: account creation needs internet once; after that everything works offline.
 2. Which online barcode catalogue, if any? Barcode use is now a shop setting (scanner on, manual entry off), so this only affects the optional online lookup; clothes and shoes are poorly covered.
-3. What are the exact turnover tax rate, threshold, filing period and due date to put in the tax rules file?
+3. Mostly settled by ZRA on 18 November 2026 (see section 7): a 5% rate, a K5 million yearly threshold, monthly periods covering the previous month, a filing window from the 1st to the 14th, and the 14th as the due date. Still open: what does "excluding all income" cover?
 4. Which backend: Django with Django REST Framework (settled), because the business logic lives in the app.
 5. How does mobile money payments reach the app? Settled: read automatically from the provider's confirmation messages on the phone. Still needed: sample messages from MTN, Airtel and Zamtel to build the readers.
 6. Settled: the stock, reconciliation and tax logic runs on the phone and Elton writes it; Elton also owns the USSD menus, which run on the backend through Africa's Talking.
+7. Do we add expenses to the MVP? ZRA lists records of expenses as part of good record keeping.
 
 ## 12. Demo path and phase 2
 

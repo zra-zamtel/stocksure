@@ -1050,7 +1050,10 @@ export async function ensureTaxPeriod(
   if (existing) return;
 
   const { startsOn, endsOn, dueOn } = taxPeriodForMonth(today, rules);
-  const id = newId('tax');
+  // One period per shop and month, with the id the backend uses too, so a USSD
+  // TaxPot top-up lands on this same period after sync.
+  const shopRow = await db.getFirstAsync<{ id: string }>('SELECT id FROM shop LIMIT 1');
+  const id = shopRow ? `tax_${shopRow.id}_${startsOn.slice(0, 7)}` : newId('tax');
   const stamp = nowIso();
 
   await db.withTransactionAsync(async () => {
@@ -1495,6 +1498,8 @@ export interface TaxPeriodRef {
 
 export interface TaxSnapshot {
   turnover: Ngwee;
+  /** Active sales from 1 January of the period's year to the period end: the ZRA threshold basis. */
+  yearToDate: Ngwee;
   potBalance: Ngwee;
   period: TaxPeriodRef | null;
   /** Active sales in this period that the owner has not reconciled yet. */
@@ -1514,17 +1519,20 @@ export async function taxSnapshot(db: SQLiteDatabase, today: string = todayLocal
       LIMIT 1`,
     today
   );
-  if (!period) return { turnover: 0, potBalance: 0, period: null, unresolvedSales: 0 };
+  if (!period) return { turnover: 0, yearToDate: 0, potBalance: 0, period: null, unresolvedSales: 0 };
 
   const [start] = localDayBounds(period.startsOn);
   const [, end] = localDayBounds(period.endsOn);
+  const [yearStart] = localDayBounds(`${period.startsOn.slice(0, 4)}-01-01`);
   const row = await db.getFirstAsync<{
     turnover: number;
+    yearToDate: number;
     potBalance: number;
     unresolvedSales: number;
   }>(
     `SELECT
        COALESCE((SELECT SUM(total) FROM sale WHERE status = 'active' AND ${inRange('created_at')}), 0) AS turnover,
+       COALESCE((SELECT SUM(total) FROM sale WHERE status = 'active' AND ${inRange('created_at')}), 0) AS yearToDate,
        COALESCE((SELECT COUNT(*) FROM sale
                   WHERE status = 'active'
                     AND reconcile_status <> 'matched'
@@ -1537,12 +1545,15 @@ export async function taxSnapshot(db: SQLiteDatabase, today: string = todayLocal
                   WHERE period_id = ?), 0) AS potBalance`,
     start,
     end,
+    yearStart,
+    end,
     start,
     end,
     period.id
   );
   return {
     turnover: row?.turnover ?? 0,
+    yearToDate: row?.yearToDate ?? 0,
     potBalance: row?.potBalance ?? 0,
     period,
     unresolvedSales: row?.unresolvedSales ?? 0,

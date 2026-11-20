@@ -44,6 +44,7 @@ const rules: TaxRules = {
   version: 1,
   rate: 0.04,
   threshold: 80_000_000,
+  thresholdBasis: 'period',
   periodDays: 30,
   dueDaysAfterPeriod: 14,
   reminderDaysBefore: [7, 3, 0],

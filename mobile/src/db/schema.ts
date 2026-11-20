@@ -254,4 +254,14 @@ export const migrations: string[] = [
   ALTER TABLE owner ADD COLUMN email TEXT;
   CREATE UNIQUE INDEX idx_owner_email ON owner (email) WHERE email IS NOT NULL;
   `,
+
+  // v8 - the sync engine records why a queued change was rejected and keeps
+  // the pull cursor plus the device id in one small key/value table.
+  `
+  ALTER TABLE sync_queue ADD COLUMN last_error TEXT;
+  CREATE TABLE sync_meta (
+    key TEXT PRIMARY KEY NOT NULL,
+    value TEXT NOT NULL
+  );
+  `,
 ];

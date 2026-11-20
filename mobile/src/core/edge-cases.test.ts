@@ -27,6 +27,7 @@ import {
   normaliseBarcode,
 } from './barcode';
 import type { StockMovement, TaxRules } from './types';
+import { taxRules as shippedTaxRules } from '../data/fake';
 
 /**
  * Unit tests: one function at a time, no database, no screens. These cover the
@@ -37,6 +38,7 @@ const rules: TaxRules = {
   version: 1,
   rate: 0.04,
   threshold: toNgwee(800_000),
+  thresholdBasis: 'period',
   periodDays: 30,
   dueDaysAfterPeriod: 14,
   reminderDaysBefore: [7, 3, 0],
@@ -277,9 +279,12 @@ describe('UT-REC reconciliation matching', () => {
 });
 
 describe('UT-TAX turnover tax', () => {
-  it('UT-TAX-01 still estimates at exactly the threshold', () => {
-    expect(estimateTurnoverTax(rules.threshold, rules).eligible).toBe(true);
-    expect(estimateTurnoverTax(rules.threshold + 1, rules).eligible).toBe(false);
+  it('UT-TAX-01 switches to income tax at exactly the threshold (ZRA: below K5M only)', () => {
+    expect(estimateTurnoverTax(rules.threshold - 1, rules).eligible).toBe(true);
+    const at = estimateTurnoverTax(rules.threshold, rules);
+    expect(at.eligible).toBe(false);
+    expect(at.incomeTax).toBe(true);
+    expect(at.estimatedTax).toBe(0);
   });
 
   it('UT-TAX-02 rounds the estimate to whole ngwee', () => {
@@ -313,6 +318,39 @@ describe('UT-TAX turnover tax', () => {
   it('UT-TAX-07 sets aside nothing on a tiny sale rather than rounding up', () => {
     expect(autoSetAside(24, rules)).toBe(0);
     expect(autoSetAside(25, rules)).toBe(1);
+  });
+});
+
+describe('UT-ZRA rules from ZRA (18 Nov 2026)', () => {
+  const zra: TaxRules = { ...rules, rate: 0.05, threshold: toNgwee(5_000_000), thresholdBasis: 'year' };
+
+  it('UT-ZRA-01 the shipped rules file holds 5%, K5M, yearly basis, due 14 days after month end', () => {
+    expect(shippedTaxRules.rate).toBe(0.05);
+    expect(shippedTaxRules.threshold).toBe(toNgwee(5_000_000));
+    expect(shippedTaxRules.thresholdBasis).toBe('year');
+    expect(shippedTaxRules.dueDaysAfterPeriod).toBe(14);
+  });
+
+  it('UT-ZRA-02 taxes a month at 5%', () => {
+    expect(estimateTurnoverTax(toNgwee(20_000), zra).estimatedTax).toBe(toNgwee(1_000));
+  });
+
+  it('UT-ZRA-03 a small month is still income tax once sales this year reach K5M', () => {
+    const estimate = estimateTurnoverTax(toNgwee(20_000), zra, toNgwee(5_000_000));
+    expect(estimate.incomeTax).toBe(true);
+    expect(estimate.estimatedTax).toBe(0);
+  });
+
+  it('UT-ZRA-04 a big month alone does not count as income tax while the year is below K5M', () => {
+    const estimate = estimateTurnoverTax(toNgwee(600_000), zra, toNgwee(4_000_000));
+    expect(estimate.incomeTax).toBe(false);
+    expect(estimate.estimatedTax).toBe(toNgwee(30_000));
+  });
+
+  it('UT-ZRA-05 every monthly return is due on the 14th of the next month', () => {
+    for (const today of ['2026-01-20', '2026-02-03', '2026-04-30', '2026-11-18', '2028-02-29']) {
+      expect(taxPeriodForMonth(today, zra).dueOn.slice(8)).toBe('14');
+    }
   });
 });
 

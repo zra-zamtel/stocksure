@@ -161,8 +161,11 @@ export interface SyncQueueItem extends BaseRecord {
 // Configuration that ships with the app and refreshes from the backend.
 export interface TaxRules {
   version: number;
-  rate: number; // 0.04 = 4%
+  rate: number; // 0.05 = 5%
+  /** Turnover at or above this is income tax, not turnover tax. */
   threshold: Ngwee;
+  /** What the threshold is measured against: sales so far this calendar year, or this period only. */
+  thresholdBasis: 'year' | 'period';
   periodDays: number;
   dueDaysAfterPeriod: number;
   reminderDaysBefore: number[];

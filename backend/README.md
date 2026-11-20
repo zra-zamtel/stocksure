@@ -1,431 +1,173 @@
-# StockSure backend
+# StockSure backend (Django + Django REST Framework)
 
-Minimal Django + DRF service for the online identity moments: owner
-email/password registration, magic-link sign-in, adding staff, a staff member's
-first sign-in, changing a staff PIN, and resetting a forgotten owner PIN. The
-phone keeps a local PIN hash so counter sign-in works offline.
+One API behind both views (owner and assistant). Every feature reuses the same sales data, so a sale
+is entered once and feeds stock, money matching, the ledger, tax estimate, TaxPot and TaxMate.
 
-## Run it
+**Stack:** Django 5.2, DRF, SimpleJWT (phone + password/PIN), PostgreSQL (SQLite in dev), drf-spectacular (API docs).
+**Mocked behind interfaces:** Zamtel payments, SMS, USSD gateway, AI invoice reading, ZRA. Swap a dotted path in `.env` to go live.
 
-On Windows, the repository root has a one-command setup:
+---
 
-```powershell
-.\scripts\setup.ps1          # venv, dependencies, local-demo .env, migrations
-.\scripts\start-backend.ps1  # migrate and run on 0.0.0.0:8000
-```
-
-The manual steps below do the same thing on any platform.
+## Setup (do this after reading)
 
 ```bash
-cd backend
-python -m venv .venv
-# Windows
-.venv\Scripts\activate
-# macOS/Linux
-# source .venv/bin/activate
-
+python -m venv .venv && source .venv/bin/activate      # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-# Windows PowerShell
-Copy-Item .env.example .env
-# macOS/Linux
-# cp .env.example .env
-# Edit backend/.env: set DJANGO_SECRET_KEY, or uncomment the local demo block.
+cp .env.example .env                                    # SQLite by default; set DATABASE_URL for PostgreSQL
 python manage.py migrate
-python manage.py runserver 0.0.0.0:8000
+python manage.py seed_demo --reset                      # demo shop, users, placeholder tax rules, TaxMate content
+python manage.py test tests                             # run the test suite
+python manage.py runserver
 ```
 
-`runserver 0.0.0.0:8000` matters when the app runs on a phone or emulator: the
-phone must be able to reach the machine running Django.
+- API docs (try every endpoint): http://localhost:8000/api/docs/
+- Django admin (tax rules, TaxMate content, users): http://localhost:8000/admin/
+- Demo logins are printed by `seed_demo` (owner `0970000001` / `demo1234`, assistant `0970000002` / `1234`).
+- PostgreSQL: `docker compose up -d db`, then `DATABASE_URL=postgres://stocksure:stocksure-dev@localhost:5432/stocksure` in `.env`.
 
-`.env` is a local convenience; every setting can also be exported as a real
-environment variable, which wins over the file. It is git-ignored and must not
-hold production secrets. Real email and Postgres are optional for local work
-and are covered below.
+## Phone sync (canonical phone store)
 
-The example is safe by default: debug and demo token exposure are off, and
-`DJANGO_SECRET_KEY` is empty so the server refuses to start until one is set.
-For a throwaway local demo, uncomment the "local demo" block in `.env.example`;
-that turns debug on, shows the magic link and reset code in API responses, and
-lets debug mode generate a development key. Do not use that block on a
-deployed server. Generation for a real key:
+`apps/sync` is the store for the data the phone owns. It follows
+`docs/sync-contract.md`:
 
-```bash
-python -c "import secrets; print(secrets.token_urlsafe(50))"
+- primary keys are the phone-generated text ids, and every row carries the
+  phone's `createdAt`/`updatedAt`;
+- money is integer ngwee;
+- stock is append-only `stock_movement` rows; quantity is a sum, never a column;
+- a sale arrives as one payload with its lines, payments and movements, and the
+  server stores the phone's subtotal, discount and final prices instead of
+  repricing;
+- bad rows come back in `rejected` with a reason and are not repaired;
+- a replayed `queueId` is accepted without writing a second pull row.
+
+`POST /api/v1/sync/push` takes `{deviceId, batchId, changes}`, where each change
+is `{queueId, entity, entityId, operation, payload, clientCreatedAt}`.
+`GET /api/v1/sync/pull?cursor=…&limit=…` returns `{changes, nextCursor,
+serverTime}` for the caller's shops. Both need the JWT access token.
+
+The new store is the source of truth for the app, using `apps.sync` for USSD and the
+owner dashboard. The older domain write API (`/api/shops`, `/api/items`,
+`/api/sales`, …) remains for the server-side demo and is not the phone's store;
+its remaining tax/TaxPot endpoints have not yet been repointed.
+
+## Auth (mobile app and domain clients)
+
+`apps/accounts` is the one account layer. It keeps Tabo's `User` + `Membership`
++ JWT model and adds the mobile-side pieces:
+
+- `POST /api/auth/register` (and `/api/v1/auth/register`) — owner signup, optional
+  `shop_name` (a placeholder shop and owner Membership are created when it is
+  omitted), phone-generated `id` for safe retries. A verification magic link
+  is emailed automatically. The phone's PIN hash is validated and discarded.
+- `POST /api/auth/login` — email + password for the app (blocked until the email
+  is verified) or phone + password for domain clients.
+- `POST /api/auth/magic-link/request` and `/verify` — single-use, 15-minute link;
+  while the email is unverified the request must also name the account phone.
+- `POST /api/auth/refresh`, `/logout` — JWT rotation and refresh-token blacklist.
+- `POST /api/auth/device-pin` — accepts the JWT after an email login; the server
+  does not store the phone PIN hash.
+- `POST /api/auth/pin-reset/request` and `/confirm` — 6-digit code, hashed and
+  single-use; the new PIN hash is never stored.
+- `POST /api/auth/staff` — owner-authenticated staff User + assistant Membership
+  + Django PIN verifier.
+- `POST /api/auth/staff-sign-in/confirm` — first sign-in by phone + PIN, with a
+  5-try / 15-minute lockout.
+- `POST /api/auth/staff/<id>/pin-reset` — owner-only replacement of a staff PIN.
+
+The phone PIN remains the offline unlock. The server keeps only a Django
+`make_password` verifier for staff first sign-in; it never stores the phone's
+salted SHA-256 PIN hash.
+
+---
+
+## Phases (build order from the proposal: each module works end to end before the next)
+
+### Phase 1: Foundation (`accounts`, `shops`, `core`)
+Phone-number login, JWT, owner registration with first shop, assistants added by the owner (they get a PIN).
+Roles live on `Membership` (owner / assistant). Every shop-level endpoint is scoped to one shop via the
+`X-Shop-ID` header (optional when the user has a single shop, which is always true for assistants).
+`core/shop_scope.py` enforces this and the role rules in one place.
+- `POST /api/auth/register/` `POST /api/auth/login/` `POST /api/auth/refresh/` `GET /api/auth/me/`
+- `GET/POST /api/shops/`, `GET/POST /api/shops/{id}/assistants/`
+- Shop `mode`: **lite** (sales and money only) or **full** (adds stock, the complete three-way match).
+
+### Phase 2: Core three-way match (`inventory`, `sales`, `reconciliation`), the heart of the product
+- **Stock register:** `/api/items/` (+ `lookup/?code=`, `bulk/`, `{id}/receive/`, `{id}/adjust/`, `{id}/label/`, `{id}/movements/`).
+  Quantity only changes through `StockMovement` rows (append-only), so stock-taking can audit every change.
+  Bulk entry takes `"sizes": "40-44"`. Each item gets a `label_code` for QR/barcode labels (photo-to-label); factory barcodes are supported too.
+- **Supplier invoice photo (the MVP AI feature):** `POST /api/invoice-scans/` (image) returns suggested lines;
+  `POST /api/invoice-scans/{id}/confirm/` adds them to stock. Nothing touches stock until a person confirms.
+  Uses a mock reader by default; set `AI_INVOICE_READER=apps.integrations.ai.AnthropicInvoiceReader` and `ANTHROPIC_API_KEY` for real reading.
+- **Quick sale entry:** `POST /api/sales/` with items (Full) or an `amount` (Lite). Send a phone-generated `client_id`
+  so retries and offline syncing never double-record; `POST /api/sales/sync/` takes a batch. Only the owner can void.
+- **Money matching:** `POST /api/payments/simulate/` pretends Zamtel notified a payment. A mobile-money sale and a payment
+  match on shop + amount + time window (payer phone breaks ties), in either order. `POST /api/webhooks/zamtel/` is the placeholder real endpoint.
+- **Daily close:** `GET /api/daily-closes/preview/` then `POST /api/daily-closes/` with `declared_cash`. Gap beyond the
+  shop's tolerance flags the day and SMS-alerts the owner. A closed day is locked; only the owner can reopen it.
+- **Stock-taking:** `POST /api/stock-takes/`, `POST .../{id}/count/` (scan a code or set a number), `GET .../{id}/report/`
+  (exactly which items are missing and what they are worth), `POST .../{id}/close/`.
+
+### Phase 3: Ledger and tax estimation (`ledger`, `tax`)
+- Sales write ledger entries automatically. Owners add other income/expenses (`/api/ledger/`, always *trader-reported*).
+- `GET /api/ledger/summary/?period=daily|weekly|monthly`, `GET /api/ledger/monthly-statement/?month=2026-11[&export=csv]`.
+- **Verified vs trader-reported:** a sale entry becomes *verified* only when the money side is confirmed:
+  mobile money matched to a payment, or cash confirmed by a balanced daily close.
+- **Tax rules are data, not code:** `TaxRuleSet` (versioned, effective dates, `is_validated`, source) is edited in the admin.
+  `POST /api/tax/estimates/ {"month": "2026-11"}` stores an estimate with its assumptions, period, rule version and warnings.
+  Unvalidated rules produce a loud warning. **`seed_tax_rules` creates a placeholder rate; replace it with ZRA-confirmed figures.**
+
+### Phase 4: TaxPot (`taxpot`), simulated wallet
+Target (can be the estimate: `POST /api/taxpot/targets/from-estimate/`), suggested contribution for the chosen approach
+(`GET .../{id}/suggestion/`), accept/change/voluntary (`POST .../{id}/contribute/`), skip, history (`/api/taxpot/transactions/`),
+payment preparation checklist and a simulated payment. No real money moves; every response says so.
+
+### Phase 5: TaxMate (`taxmate`)
+Answers come only from `ReviewedAnswer` rows that a person has marked reviewed in the admin; there is no free-text generation,
+so it cannot invent a tax rule. `POST /api/taxmate/ask/`, `GET /api/taxmate/topics/`, `GET /api/taxmate/explain-estimate/{id}/`.
+Every answer carries "general guidance, not official tax advice" and the ZRA pointer. Unanswered questions are logged so the team
+knows what to write next. Nyanja is served only once `answer_ny` is filled in and reviewed. `seed_taxmate` loads starter text (unreviewed).
+
+### Phase 6: Reminders, USSD, dashboards (`notifications`, `ussd`, `analytics`)
+- SMS log doubles as the SMS preview (`/api/notifications/`). `python manage.py send_reminders` (run daily) sends missing-close, savings and due-date reminders.
+- `POST /api/ussd/` (Africa's Talking style `phoneNumber` + `text`, replies `CON`/`END`): register, record a sale, today's summary, tax estimate, save to TaxPot (PIN required).
+- `GET /api/dashboard/` (owner: sales, gaps, stock, best sellers, tax position; assistant: own day only).
+- `GET /api/admin-overview/` (staff only): aggregates only; towns with fewer than 3 shops are folded into "Other".
+
+### Phase 7: Before real users
+Replace mocks (SMS, Zamtel, USSD gateway), set `DJANGO_DEBUG=False`, `ALLOW_PAYMENT_SIMULATION=False`, `USSD_SHARED_SECRET`, real secret key,
+HTTPS, object storage for photos, and validate tax rules and TaxMate content with ZRA.
+
+---
+
+## Decisions worth knowing (change any of them)
+1. **Lite vs Full:** Lite accepts amount-only sales; Full requires stock items (amount-only only via USSD, flagged in the note).
+2. **Negative stock is allowed with a warning** rather than blocking the till; the warning tells the owner the register is missing a delivery.
+3. **Assistants can't set prices, void sales, reopen days, adjust stock or see cost prices, tax, ledger or TaxPot.**
+4. **A closed day is locked** (409 on new or voided sales for that date). Offline sales for a closed day come back as errors from `/sales/sync/` for the owner to resolve.
+5. **Expected cash = recorded cash sales.** Cash expenses taken from the till are not modelled; add an owner "cash out" entry later if shops need it.
+6. **Stock-take assumes the shop is quiet while counting;** lines flag `activity_during_count` if stock moved.
+7. **Soft delete** for shops, items, targets (history must survive).
+8. **JSON clients:** send JSON bodies (boolean defaults behave differently with form posts).
+
+## Not built (Phase 2 slides in the proposal)
+Live Zamtel/ZRA/Smart Invoice integration, real USSD/SMS gateways, reorder suggestions, unusual-gap alerts, real savings custody, offline queue (that is the mobile app: it uses `client_id` + `/sales/sync/`), Nyanja content.
+
+## Layout
 ```
-
-## Email
-
-Magic-link sign-in sends one email. With no configuration, Django prints the
-message and link to the server console, which is enough for local work. To
-deliver real email, fill in the SMTP block in `.env`.
-
-This project uses Gmail with an App Password. Brevo is the fallback if the
-Google account is a Workspace account that blocks App Passwords, or if the demo
-outgrows Gmail's daily sending limit.
-
-### Gmail (project choice)
-
-1. Turn on 2-Step Verification for the Google account.
-2. Open **Google Account → Security → App passwords**.
-3. Create an app password for Mail and copy the 16-character value (remove the
-   spaces Google shows).
-4. Put these values in `.env`:
-
-```dotenv
-EMAIL_HOST=smtp.gmail.com
-EMAIL_PORT=587
-EMAIL_USE_TLS=1
-EMAIL_USE_SSL=0
-EMAIL_HOST_USER=your.address@gmail.com
-EMAIL_HOST_PASSWORD=the16characterapppassword
-DJANGO_DEFAULT_FROM_EMAIL="StockSure <your.address@gmail.com>"
+config/            settings, urls
+apps/core          shop scoping, role permission, helpers, seed_demo
+apps/accounts      phone-login user, JWT views
+apps/shops         shop, membership (owner/assistant)
+apps/inventory     items, movements, invoice scans, stock-takes
+apps/sales         sales, mobile payments, matching engine, Zamtel webhook
+apps/reconciliation daily close
+apps/ledger        ledger, summaries, CSV
+apps/tax           versioned tax rules, estimates
+apps/taxpot        simulated wallet, targets, suggestions
+apps/taxmate       reviewed Q&A, estimate explainer
+apps/notifications SMS log + reminders
+apps/ussd          menu logic + endpoint
+apps/analytics     owner dashboard, admin overview
+apps/integrations  SMS + AI interfaces (mocks)
+tests/             end-to-end API tests
 ```
-
-Gmail rewrites the From header to the signed-in account, so keep
-`DJANGO_DEFAULT_FROM_EMAIL` on the same address. If **App passwords** is
-missing, 2-Step Verification is off or a Workspace administrator disabled it.
-
-### Brevo (alternative)
-
-1. Create a free account at [brevo.com](https://www.brevo.com).
-2. Verify the sender address under **Senders**.
-3. Create an SMTP key under **SMTP & API**.
-4. Put these values in `.env`:
-
-```dotenv
-EMAIL_HOST=smtp-relay.brevo.com
-EMAIL_PORT=587
-EMAIL_USE_TLS=1
-EMAIL_USE_SSL=0
-EMAIL_HOST_USER=your-brevo-login@example.com
-EMAIL_HOST_PASSWORD=your-smtp-key
-DJANGO_DEFAULT_FROM_EMAIL="StockSure <the-verified-sender@example.com>"
-```
-
-`EMAIL_USE_SSL=1` means implicit TLS on port 465. Use TLS or SSL, never both.
-Check the credentials before touching the app:
-
-```bash
-python manage.py sendtestemail you@example.com
-```
-
-Once real delivery works, set `EXPOSE_EMAIL_TOKEN=0` so the API stops returning
-the demo token in its response. Keep it at `1` only when demonstrating without
-an inbox.
-
-## Database
-
-SQLite at `backend/db.sqlite3` is the default and is all the prototype needs.
-The deployed backend uses Supabase Postgres through `DATABASE_URL`; no code
-change is needed:
-
-```dotenv
-DATABASE_URL=postgresql://postgres.<project-ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres?sslmode=require
-```
-
-### Supabase
-
-1. Create a free project at [supabase.com](https://supabase.com) and wait for
-   the database to finish provisioning.
-2. Click **Connect → Session pooler (IPv4)** and copy the URI.
-3. Replace `[YOUR-PASSWORD]` with the database password and keep
-   `?sslmode=require`. URL-encode characters such as `@`, `#` or `/`.
-4. Put the URI in `.env` as `DATABASE_URL`.
-5. Run `python manage.py migrate` once.
-6. Use the same value in the host's environment settings.
-
-The hosted StockSure project uses a dedicated `stocksure` schema, not the
-exposed `public` schema, so the owner, staff and token tables are not reachable
-through Supabase's public PostgREST API. Use the `stocksure_app` role; its
-default `search_path` is `stocksure, public`, so migrations and queries land in
-the right place. Ask the project owner for that role's connection string. If you
-connect as `postgres` instead, set `search_path=stocksure` for the session
-before running migrations, or the tables will be created in `public`.
-
-Use the **session pooler on port 5432** for a long-running Django process. It
-is IPv4 and supports the session features migrations need. The direct
-connection is IPv6-only on the free plan unless the IPv4 add-on is purchased.
-The transaction pooler on port 6543 is for serverless functions: if you use it,
-set `DB_DISABLE_SERVER_SIDE_CURSORS=1` and still run migrations through the
-session pooler.
-
-A free Supabase project pauses after a period of inactivity. Open the dashboard
-before the demo to wake it. `DB_CONN_MAX_AGE` defaults to `0`; leave it there
-for pooled or serverless Postgres.
-
-Other managed options include Neon, Railway and Render, which use the same
-`DATABASE_URL` pattern. To try the Postgres path locally before deploying,
-Docker can provide a database:
-
-```bash
-# from the repository root
-docker compose -f backend/docker-compose.yml up -d
-# then in backend/.env
-DATABASE_URL=postgresql://stocksure:stocksure-dev@127.0.0.1:5432/stocksure
-python manage.py migrate
-```
-
-Tests run on SQLite by default even when `.env` points at Postgres, because
-`manage.py test` skips the file. Export `DATABASE_URL` in the shell if you
-deliberately want to run the suite against Postgres.
-
-## Endpoints
-
-`POST /api/v1/auth/register`
-
-```json
-{
-  "id": "owner_m...",
-  "name": "Elton Chiwala",
-  "phone": "0971234567",
-  "email": "elton@example.com",
-  "password": "at least 8 characters",
-  "pinHash": "sha256$<32 hex salt>$<64 hex digest>"
-}
-```
-
-- `201` owner created. Response: `{"owner": {...}, "deviceToken": "..."}`.
-  A verification magic link is emailed immediately. Delivery failure is logged
-  but does not fail registration; the owner can request another link later.
-- `200` idempotent retry of the same `id` and phone, within 10 minutes of
-  creation and only with the same password and PIN hash. After that window the
-  account must sign in normally, so this endpoint cannot mint device tokens
-  forever.
-- `409` `{"code": "phone_taken"}` or `{"code": "email_taken"}`. Only a verified
-  email is reserved. An unverified claim is provisional: a later registration
-  for that address replaces it, so an inbox address cannot be squatted forever.
-  The real owner can then open a magic link to prove the address.
-- `409` `{"code": "id_conflict"}` when the same ID is used for another phone.
-- `400` field errors for a bad phone, email or password, empty name, or a value
-  that is not a PIN hash. The PIN itself is never sent or stored; the password
-  is hashed with Django's password hasher. The owner's `pinHash` is kept only
-  to check this idempotent retry, never for sign-in; staff rows do not keep a
-  copy at all.
-
-`POST /api/v1/auth/login`
-
-```json
-{ "email": "elton@example.com", "password": "at least 8 characters" }
-```
-
-- `200` `{"owner": {...}, "deviceToken": "..."}`.
-- `401` `{"code": "invalid_credentials"}`.
-- `403` `{"code": "email_unverified"}` when the password is correct but the
-  owner has not yet proved control of the inbox. Registration does not count as
-  proof: open a magic link once, then password sign-in works.
-- This is the online sign-in for a new phone or after a forgotten PIN. The
-  phone then calls `/auth/device-pin` to store its local PIN hash.
-
-`POST /api/v1/auth/magic-link/request`
-
-```json
-{ "email": "elton@example.com", "phone": "0971234567" }
-```
-
-- `200` with `expiresAt`; in DEBUG also `demoToken` and `demoUrl`.
-- The same generic response is returned for an unknown email, so the endpoint
-  cannot be used to discover accounts.
-- `phone` is required only while the email is unverified. The owner knows the
-  phone number on their own account; someone who merely received the email does
-  not. Without the matching phone, an unverified address gets the generic
-  response and no link, so an inbox owner cannot be signed in to a stranger's
-  account. Once the email is verified, email alone is enough.
-- The email names the account and phone it signs in to, so a person who did not
-  create that account can recognise it and ignore the message.
-- The link opens `stocksure://magic-link?token=...`, works once and expires in
-  15 minutes. Development prints the email to the console; fill in the SMTP
-  block (see [Email](#email)) for real delivery.
-
-`POST /api/v1/auth/magic-link/verify`
-
-```json
-{ "token": "<token from the email link>" }
-```
-
-- `200` `{"owner": {...}, "deviceToken": "..."}` and marks the email verified.
-- `400` `invalid_token`, `410` `expired_token`.
-
-`POST /api/v1/auth/device-pin`
-
-```json
-{ "pinHash": "sha256$<32 hex salt>$<64 hex digest>" }
-```
-
-- Requires `Authorization: Bearer <deviceToken>`.
-- Stores the salted PIN hash for offline sign-in on that phone.
-- `401` `unauthorized` when the device token is missing or no longer valid.
-
-`POST /api/v1/auth/logout`
-
-- Requires `Authorization: Bearer <deviceToken>`.
-- Revokes that device token. Device tokens expire after 30 days by default.
-
-`POST /api/v1/auth/pin-reset/request`
-
-```json
-{ "phone": "0971234567" }
-```
-
-- `200` with `expiresAt`, plus `demoCode` while `EXPOSE_RESET_CODE` is on.
-- `404` `{"code": "phone_not_found"}` when the number is not registered.
-
-The code is six digits, hashed with Django's password hasher, expires after ten
-minutes, and is replaced whenever a new code is requested.
-
-`POST /api/v1/auth/pin-reset/confirm`
-
-```json
-{
-  "phone": "0971234567",
-  "code": "482913",
-  "pinHash": "sha256$<32 hex salt>$<64 hex digest>"
-}
-```
-
-- `200` owner details after the PIN hash is replaced.
-- `400` `invalid_code`, `400` field errors, `410` `expired_code`, or `429`
-  `too_many_attempts` (five tries).
-- The phone stores the same new hash locally, so the next sign-in works offline.
-
-`POST /api/v1/staff`
-
-Requires `Authorization: Bearer <owner deviceToken>`.
-
-```json
-{
-  "id": "staff_m...",
-  "ownerId": "owner_m...",
-  "name": "Given Phiri",
-  "phone": "0965551122",
-  "pin": "7315"
-}
-```
-
-- `201` staff member created under the owner.
-- `200` idempotent retry of the same `id` and phone. The existing PIN is never
-  replaced by a retry.
-- `401` `unauthorized` without a valid owner device token; `403` `forbidden`
-  when the token belongs to another owner.
-- `409` `{"code": "phone_taken"}` when the number is already an owner or staff
-  account; `409` `{"code": "id_conflict"}` when the ID belongs to someone else.
-- `pin` is used once to build a Django password hash for online first sign-in.
-  The server does not store the phone's salted offline hash; the phone keeps
-  that locally. Never log the PIN. Production must use HTTPS.
-
-`POST /api/v1/staff/<staffId>/pin-reset`
-
-Requires `Authorization: Bearer <owner deviceToken>`. Only the owner that the
-staff member belongs to can call this.
-
-```json
-{
-  "pin": "9042"
-}
-```
-
-- `200` public staff details after the PIN verifier is replaced.
-- `401` `unauthorized` without a valid owner device token.
-- `404` `{"code": "staff_not_found"}` when the ID does not belong to this
-  owner, so other shops' staff IDs stay private.
-- `400` field errors for a bad PIN or a value that is not a PIN hash.
-- A reset also clears failed sign-in attempts and any lock, so a locked-out
-  staff member can start again with the new PIN.
-- The owner's phone stores the same new hash locally, so the new PIN works
-  offline there immediately. A phone that already cached the old hash keeps it
-  until that person signs in online again; offline-first cannot revoke a hash
-  from a disconnected phone.
-
-`POST /api/v1/auth/staff-sign-in/confirm`
-
-```json
-{ "phone": "0965551122", "pin": "7315" }
-```
-
-- `200` staff and owner public details. The first success stamps
-  `first_signed_in_at`.
-- `401` `{"code": "invalid_credentials"}` for a wrong phone/PIN.
-- `429` `{"code": "too_many_attempts"}` after five wrong tries; the account is
-  locked for 15 minutes.
-- After the first sign-in, the phone stores its own salted PIN hash, and later
-  sign-ins are checked locally with no connection.
-
-Both `EXPOSE_RESET_CODE` and `EXPOSE_EMAIL_TOKEN` are off by default. Set them
-to `1` in `.env` for the demo so the app can show the reset code and open the
-magic link without an inbox. They must be `0` in a real deployment: the reset
-code goes out by SMS and the magic link goes to the owner's email.
-
-`MAGIC_LINK_BASE_URL` controls the deep link in that email. The default,
-`stocksure://magic-link`, matches the scheme in `mobile/app.json`; change it if
-the scheme changes.
-
-The app derives the backend host from the Expo development server. If that
-does not work on your setup (an emulator, a tunnel, or a deployed server), set:
-
-```bash
-# macOS/Linux
-EXPO_PUBLIC_API_URL=http://192.168.1.10:8000 npx expo start
-```
-
-```powershell
-# Windows PowerShell
-$env:EXPO_PUBLIC_API_URL="http://192.168.1.10:8000"; npx expo start
-```
-
-Restart Expo after changing it. Use HTTPS for a real deployment; the local HTTP
-address is for development.
-
-## Tests
-
-```bash
-cd backend
-python manage.py test accounts
-```
-
-## Known limits
-
-These are accepted for the MVP. They are listed so a reviewer can see the trade
-off rather than discovering it later.
-
-- An unverified email claim is last-come-wins. Registration now emails a
-  verification link immediately, so a real owner normally verifies within
-  minutes and their claim becomes protected. A later registration can still
-  replace an unverified claim; that blocks email sign-in for the earlier owner,
-  but the later claimant cannot verify without the earlier account's phone and
-  the earlier owner can keep using the local phone account.
-- A person who deliberately opens a magic link for an account they did not
-  create can still verify it. The email names the account and phone and tells
-  them to ignore it, and the unverified-email phone gate blocks the realistic
-  path. Removing this fully needs double opt-in at registration plus duplicate
-  unverified email rows.
-- A phone that already cached a staff PIN keeps accepting it offline until that
-  person signs in online again. The owner's phone picks up a reset immediately.
-- Registration is idempotent for 10 minutes. A phone that lost the response and
-  retries later must sign in normally instead.
-
-## Deployment note
-
-For anything beyond local development set:
-
-- `DJANGO_DEBUG=0`
-- `DJANGO_SECRET_KEY` to a long random value. Placeholder values such as
-  `change-me` are rejected at startup.
-- `DJANGO_ALLOWED_HOSTS` to the public host name. Startup fails when debug is
-  off and this is empty.
-- `EXPOSE_RESET_CODE=0` and `EXPOSE_EMAIL_TOKEN=0`
-- `DATABASE_URL` from the Supabase session pooler, or keep SQLite on a
-  persistent disk
-- the Gmail SMTP values from [Email](#email), including
-  `DJANGO_DEFAULT_FROM_EMAIL`
-- HTTPS at the proxy, and an `https://` backend URL in the app
-
-SQLite is sufficient for the prototype when the host keeps its disk; use a
-managed Postgres when the host does not or when more than one process writes.
-The PIN reset code still needs a real SMS provider in production; the demo flag
-only exposes it in the API response.
-
-## Not in this service yet
-
-Owner email/password, magic links, staff identity and device PIN setup are
-here. A staff member's shop data on a new phone still waits for sync and restore
-(#4 and #6). The sync push/pull endpoints and USSD live in separate backend
-issues.

@@ -56,6 +56,7 @@ const rules: TaxRules = {
   version: 1,
   rate: 0.04,
   threshold: 80_000_000,
+  thresholdBasis: 'period',
   periodDays: 30,
   dueDaysAfterPeriod: 14,
   reminderDaysBefore: [7, 3, 0],
@@ -224,6 +225,14 @@ describe('IT-ONB onboarding and account', () => {
     expect(await count(db, 'tax_period')).toBe(1);
     await ensureTaxPeriod(db, rules, '2026-12-01');
     expect(await count(db, 'tax_period')).toBe(2);
+  });
+
+  it('IT-ONB-06b names the period tax_<shopId>_<YYYY-MM>, the id the backend and USSD use', async () => {
+    await shop();
+    const shopRow = await db.getFirstAsync<{ id: string }>('SELECT id FROM shop');
+    await ensureTaxPeriod(db, rules, DAY);
+    const row = await db.getFirstAsync<{ id: string }>('SELECT id FROM tax_period');
+    expect(row?.id).toBe(`tax_${shopRow?.id}_${DAY.slice(0, 7)}`);
   });
 
   it('IT-ONB-07 tracks onboarding progress through to completion', async () => {
@@ -808,7 +817,7 @@ describe('IT-TAX tax and TaxPot', () => {
 
   it('IT-TAX-05 shows an empty view before any tax period exists', async () => {
     const fresh = await openTestDb();
-    expect(await getTaxPotView(fresh, DAY)).toEqual({ turnover: 0, potBalance: 0, period: null, unresolvedSales: 0, entries: [] });
+    expect(await getTaxPotView(fresh, DAY)).toEqual({ turnover: 0, yearToDate: 0, potBalance: 0, period: null, unresolvedSales: 0, entries: [] });
     fresh.close();
   });
 });

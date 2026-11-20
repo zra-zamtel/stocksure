@@ -3,7 +3,8 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '@/auth/session';
-import { Button, Card, Choice, Field, Row, Screen } from '@/components/ui';
+import { Button, Card, Choice, Field, Row } from '@/components/ui';
+import { SETUP_STEPS, SetupStep } from '@/components/onboarding';
 import { isValidTpin } from '@/core';
 import { useShop } from '@/db/hooks';
 import { saveMoneySettings } from '@/db/repos';
@@ -64,8 +65,12 @@ export default function MoneyScreen() {
   }
 
   return (
-    <Screen
+    <SetupStep
+      step={SETUP_STEPS.money}
       title={t('onboarding.money.title')}
+      subtitle={t('onboarding.money.subtitle')}
+      onBack={() => router.back()}
+      backLabel={t('common.back')}
       footer={<Button label={t('common.next')} disabled={saving} onPress={handleNext} />}
     >
       <Card>
@@ -107,7 +112,7 @@ export default function MoneyScreen() {
       </Card>
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
-    </Screen>
+    </SetupStep>
   );
 }
 

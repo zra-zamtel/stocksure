@@ -7,6 +7,8 @@ export interface TaxEstimate {
   estimatedTax: Ngwee;
   eligible: boolean;
   threshold: Ngwee;
+  /** Turnover at or above the threshold: income tax applies, not turnover tax. */
+  incomeTax: boolean;
 }
 
 /**
@@ -14,17 +16,29 @@ export interface TaxEstimate {
  * date come from the rules file, never from code, so they can be corrected
  * without shipping a new build.
  *
- * Above the threshold the business is not on turnover tax at all, so this
- * returns a zero estimate and `eligible: false` rather than inventing a figure.
+ * ZRA: turnover tax applies below the threshold (K5 million); at or above it
+ * the business pays income tax instead, which has no fixed rate. So this
+ * returns a zero estimate with `incomeTax: true` rather than inventing a figure.
+ *
+ * `turnover` is the period being estimated. `basisTurnover` is what the
+ * threshold is measured against: sales so far this year when the rules say
+ * `thresholdBasis: 'year'`. It defaults to the period turnover.
  */
-export function estimateTurnoverTax(turnover: Ngwee, rules: TaxRules): TaxEstimate {
-  const eligible = turnover > 0 && turnover <= rules.threshold;
+export function estimateTurnoverTax(
+  turnover: Ngwee,
+  rules: TaxRules,
+  basisTurnover: Ngwee = turnover
+): TaxEstimate {
+  const measured = rules.thresholdBasis === 'year' ? Math.max(basisTurnover, turnover) : turnover;
+  const incomeTax = measured >= rules.threshold;
+  const eligible = turnover > 0 && !incomeTax;
   return {
     turnover,
     rate: rules.rate,
     estimatedTax: eligible ? roundNgwee(turnover * rules.rate) : 0,
     eligible,
     threshold: rules.threshold,
+    incomeTax,
   };
 }
 
@@ -59,9 +73,9 @@ export interface TaxPeriodRange {
 }
 
 /**
- * Placeholder cadence until open question 3 is settled: one calendar month,
- * with the due date from the rules file. A fresh shop gets the same shape of
- * period the demo seed used to provide.
+ * ZRA: one calendar month per period. The return for a month is filed from the
+ * 1st to the 14th of the next month, so the due date is the period end plus
+ * `dueDaysAfterPeriod` (14), which always lands on the 14th.
  */
 export function taxPeriodForMonth(today: string, rules: TaxRules): TaxPeriodRange {
   const [year, month] = today.split('-').map(Number);

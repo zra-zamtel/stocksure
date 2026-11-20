@@ -5,7 +5,7 @@ Four levels. Each one catches mistakes the level below it cannot.
 | Level | What it tests | Where | Runs |
 | --- | --- | --- | --- |
 | Unit | One function on its own: money, pricing, stock, matching, tax, barcodes, PIN hashing, the API client. No database. | `mobile/src/**/*.test.ts` | `npm run test:unit` |
-| Integration | The data layer (`db/repos.ts`) against a real SQLite database with the real migrations. Checks the tables and the sync outbox, not just return values. Also the backend API against its test database. | `mobile/src/**/*.integration.test.ts`, `backend/accounts/tests.py` | `npm run test:integration`, `python manage.py test` |
+| Integration | The data layer (`db/repos.ts`) against a real SQLite database with the real migrations. Checks the tables and the sync outbox, not just return values. Also the backend API against its test database. | `mobile/src/**/*.integration.test.ts`, `backend/tests/` | `npm run test:integration`, `python manage.py test` |
 | System | Whole journeys end to end: first run to ready-to-sell, a full trading day, stock history, offline outbox, upgrading an old install, the demo shop. | `mobile/src/system/*.system.test.ts` | `npm run test:system` |
 | UAT | People using the real app on a real phone against written scripts. | [uat.md](uat.md) | By hand, before each release |
 

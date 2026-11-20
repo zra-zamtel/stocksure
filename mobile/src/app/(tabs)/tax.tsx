@@ -12,7 +12,7 @@ export default function TaxScreen() {
   const { t } = useI18n();
   const router = useRouter();
   const { data: snapshot } = useTaxSnapshot();
-  const estimate = estimateTurnoverTax(snapshot.turnover, taxRules);
+  const estimate = estimateTurnoverTax(snapshot.turnover, taxRules, snapshot.yearToDate);
   const pot = potStatus(estimate.estimatedTax, snapshot.potBalance);
   const period = snapshot.period;
 
@@ -26,9 +26,9 @@ export default function TaxScreen() {
         <Row label={t('tax.rate')} value={`${(estimate.rate * 100).toFixed(1)}%`} />
         <Row label={t('tax.estimate')} value={formatKwacha(estimate.estimatedTax)} emphasis />
         <Row label={t('tax.due')} value={period?.dueOn ?? t('common.notYet')} />
-        {!estimate.eligible && estimate.turnover > 0 ? (
+        {estimate.incomeTax ? (
           <Text style={styles.disclaimer}>
-            Turnover is above the turnover tax threshold in the rules file.
+            {t('tax.incomeTax', { amount: formatKwacha(estimate.threshold) })}
           </Text>
         ) : null}
         <Text style={styles.disclaimer}>{t('tax.warning')}</Text>
