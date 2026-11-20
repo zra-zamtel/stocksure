@@ -1,7 +1,7 @@
 import { useRouter } from 'expo-router';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '@/auth/session';
-import { Button, Card, IconButton, Pill, Screen, SectionTitle } from '@/components/ui';
+import { Button, Card, Icon, IconButton, Pill, Screen, SectionTitle } from '@/components/ui';
 import { useDayTotals, useLowStock, useShop } from '@/db/hooks';
 import { useI18n } from '@/i18n';
 import { formatKwacha } from '@/lib/format';
@@ -40,6 +40,24 @@ export default function HomeScreen() {
           })}
         </Text>
       </Card>
+
+      {can('money.insights') ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`${t('home.insights.title')}. ${t('home.insights.body')}`}
+          onPress={() => router.push('/insights')}
+          style={({ pressed }) => [styles.insights, pressed && styles.pressed]}
+        >
+          <View style={styles.insightsIcon}>
+            <Icon name="bar_chart" color={colors.primaryText} />
+          </View>
+          <View style={styles.insightsText}>
+            <Text style={styles.itemName}>{t('home.insights.title')}</Text>
+            <Text style={styles.muted}>{t('home.insights.body')}</Text>
+          </View>
+          <Icon name="chevron_right" color={colors.textMuted} />
+        </Pressable>
+      ) : null}
 
       <SectionTitle>{t('home.alerts.title')}</SectionTitle>
       <Card>
@@ -86,5 +104,25 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xs,
   },
   alertText: { flexShrink: 1, gap: 2 },
+  insights: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    padding: spacing.lg,
+    borderRadius: 16,
+    backgroundColor: colors.primarySoft,
+    borderWidth: 1,
+    borderColor: colors.primary,
+  },
+  pressed: { opacity: 0.7 },
+  insightsIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  insightsText: { flex: 1, gap: 2 },
   itemName: { fontSize: typeScale.body, color: colors.text, fontWeight: '600' },
 });

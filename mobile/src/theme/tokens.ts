@@ -24,6 +24,19 @@ export const colors = {
   infoSoft: '#E7F0FB',
 } as const;
 
+// Chart colours, checked with the dataviz palette validator against the card
+// surface. Categorical slots are handed out in this fixed order, never cycled;
+// the lighter blue is the "everything else" step beside the highlighted bar.
+export const chart = {
+  accent: '#2F6BFF',
+  muted: '#6DA7EC',
+  grid: '#E6DFD1',
+  axis: '#C9BCA4',
+  series: ['#2F6BFF', '#EB6834', '#1BAF7A', '#EDA100', '#E87BA4'],
+  /** Ink for a label printed inside a series fill, by slot. */
+  seriesInk: ['#FFFFFF', '#FFFFFF', '#FFFFFF', '#1E1E1C', '#FFFFFF'],
+} as const;
+
 export const spacing = {
   xxs: 2,
   xs: 4,

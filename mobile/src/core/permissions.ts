@@ -64,6 +64,7 @@ export const SCREEN_PERMISSIONS = {
   staff: 'staff.manage',
   tax: 'tax.view',
   taxPot: 'tax.view',
+  insights: 'money.insights',
   productNew: 'products.manage',
   productDetail: 'products.manage',
   scan: 'products.manage',

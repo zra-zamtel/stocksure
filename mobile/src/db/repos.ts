@@ -17,6 +17,7 @@ import {
   todayLocal,
   validatePayments,
   validateRestock,
+  type InsightRows,
   type LineInput,
   type Ngwee,
   type PaymentInput,
@@ -2176,4 +2177,45 @@ export async function injectDemoMessages(
   }
 
   return { matched, orphan: orphanCreated };
+}
+
+/**
+ * Raw rows for the Insights screen: active sales, their lines and payments
+ * from `since` onwards (covering the period and the one before it), plus
+ * what is on the shelf now. The sums happen in core/insights.ts.
+ */
+export async function insightRows(db: SQLiteDatabase, since: string): Promise<InsightRows> {
+  const sales = await db.getAllAsync<InsightRows['sales'][number]>(
+    `SELECT id, created_at AS createdAt, total
+       FROM sale
+      WHERE status = 'active' AND julianday(created_at) >= julianday(?)`,
+    since
+  );
+  const lines = await db.getAllAsync<InsightRows['lines'][number]>(
+    `SELECT l.sale_id AS saleId, s.created_at AS createdAt, p.id AS productId, p.name AS productName,
+            l.quantity, l.buy_price AS buyPrice, l.final_price AS finalPrice
+       FROM sale_line l
+       JOIN sale s ON s.id = l.sale_id
+       JOIN product_variant v ON v.id = l.variant_id
+       JOIN product p ON p.id = v.product_id
+      WHERE s.status = 'active' AND julianday(s.created_at) >= julianday(?)`,
+    since
+  );
+  const payments = await db.getAllAsync<InsightRows['payments'][number]>(
+    `SELECT s.created_at AS createdAt, pay.method, pay.provider, pay.amount
+       FROM payment pay
+       JOIN sale s ON s.id = pay.sale_id
+      WHERE s.status = 'active' AND julianday(s.created_at) >= julianday(?)`,
+    since
+  );
+  const stock = await db.getAllAsync<InsightRows['stock'][number]>(
+    `SELECT p.id AS productId, p.name AS productName,
+            SUM(MAX(COALESCE(st.quantity, 0), 0)) AS units,
+            SUM(MAX(COALESCE(st.quantity, 0), 0) * v.buy_price) AS value
+       FROM product p
+       JOIN product_variant v ON v.product_id = p.id
+       LEFT JOIN variant_stock st ON st.variant_id = v.id
+      GROUP BY p.id, p.name`
+  );
+  return { sales, lines, payments, stock };
 }

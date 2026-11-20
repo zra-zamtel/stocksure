@@ -9,3 +9,4 @@ export * from './ids';
 export * from './identity';
 export * from './permissions';
 export * from './plan';
+export * from './insights';

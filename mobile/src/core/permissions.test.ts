@@ -29,6 +29,7 @@ describe('role permission matrix', () => {
     expect(canAccessScreen('owner', 'staff')).toBe(true);
     expect(canAccessScreen('owner', 'tax')).toBe(true);
     expect(canAccessScreen('owner', 'taxPot')).toBe(true);
+    expect(canAccessScreen('owner', 'insights')).toBe(true);
     expect(canAccessScreen('owner', 'productNew')).toBe(true);
     expect(canAccessScreen('owner', 'productDetail')).toBe(true);
     expect(canAccessScreen('owner', 'scan')).toBe(true);
@@ -48,6 +49,7 @@ describe('role permission matrix', () => {
     expect(canAccessScreen('staff', 'staff')).toBe(false);
     expect(canAccessScreen('staff', 'tax')).toBe(false);
     expect(canAccessScreen('staff', 'taxPot')).toBe(false);
+    expect(canAccessScreen('staff', 'insights')).toBe(false);
     expect(canAccessScreen('staff', 'productNew')).toBe(false);
     expect(canAccessScreen('staff', 'productDetail')).toBe(false);
     expect(canAccessScreen('staff', 'scan')).toBe(false);

@@ -1,11 +1,13 @@
 import { useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useState } from 'react';
+import { buildInsights, localDayBounds, previousPeriodDays, type InsightPeriod, type Insights } from '@/core';
 import { todayLocal } from '@/core';
 import {
   getSaleDetail,
   getShop,
   getTaxPotView,
+  insightRows,
   listMovements,
   listProductsWithStock,
   listSales,
@@ -130,4 +132,17 @@ export function useTaxPot() {
  */
 export function useReconciliation() {
   return useQuery<ReconcileDayResult | null>(null, (db) => reconcileDay(db));
+}
+
+/** Owner insights for the last 7 or 30 days, compared with the period before. */
+export function useInsights(period: InsightPeriod) {
+  return useQuery<Insights | null>(
+    null,
+    async (db) => {
+      const now = new Date();
+      const [since] = localDayBounds(previousPeriodDays(period, now)[0]);
+      return buildInsights(await insightRows(db, since), period, now);
+    },
+    [period]
+  );
 }
