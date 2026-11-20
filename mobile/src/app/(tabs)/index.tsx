@@ -1,67 +1,44 @@
-import { Link, useRouter } from 'expo-router';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useRouter } from 'expo-router';
+import { StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '@/auth/session';
-import { Button, Card, Pill, Row, Screen, SectionTitle } from '@/components/ui';
-import { estimateTurnoverTax } from '@/core';
-import { taxRules } from '@/data/fake';
-import { useDayTotals, useLowStock, useReconciliation, useShop, useTaxSnapshot } from '@/db/hooks';
+import { Button, Card, IconButton, Pill, Screen, SectionTitle } from '@/components/ui';
+import { useDayTotals, useLowStock, useShop } from '@/db/hooks';
 import { useI18n } from '@/i18n';
-import { formatCount, formatKwacha } from '@/lib/format';
+import { formatKwacha } from '@/lib/format';
 import { colors, spacing, typeScale } from '@/theme/tokens';
 
+// Home answers two questions only: "how is today going?" and "what do I need
+// to restock?". Profit, reconciliation and tax live on their own tabs so the
+// first screen stays readable at a glance.
 export default function HomeScreen() {
   const { t } = useI18n();
   const router = useRouter();
   const { user, can, signOut } = useAuth();
   const { data: totals } = useDayTotals();
   const { data: alerts } = useLowStock();
-  const { data: tax } = useTaxSnapshot();
   const { data: shopRecord } = useShop();
-  const { data: reconciliation } = useReconciliation();
-  const estimate = estimateTurnoverTax(tax.turnover, taxRules, tax.yearToDate);
-  const matched = reconciliation?.matched.length ?? 0;
-  const unmatchedSales = reconciliation?.salesWithoutPayment.length ?? 0;
-  const unmatchedPayments = reconciliation?.paymentsWithoutSale.length ?? 0;
-  const cashVariance = reconciliation?.cash.variance;
 
-  const seesMoney = can('money.insights');
-  const managesProducts = can('products.manage');
-  const seesTax = can('tax.view');
-  const opensSettings = can('settings.view');
+  const headerAction = can('settings.view') ? (
+    <IconButton name="settings" label={t('nav.settings')} onPress={() => router.push('/settings')} />
+  ) : (
+    <IconButton name="logout" label={t('settings.signOut')} onPress={signOut} />
+  );
 
   return (
     <Screen
       title={shopRecord?.name ?? t('app.name')}
       subtitle={user ? `${t('common.today')} · ${user.name}` : t('common.today')}
-      footer={
-        <View style={styles.footerRow}>
-          <View style={styles.footerButton}>
-            <Button label={t('home.actions.recordSale')} onPress={() => router.push('/sale/new')} />
-          </View>
-          {opensSettings ? (
-            <Link href="/settings" asChild>
-              <Pressable accessibilityRole="button" style={styles.iconButton}>
-                <Text style={styles.settingsLink}>{t('nav.settings')}</Text>
-              </Pressable>
-            </Link>
-          ) : (
-            <Pressable accessibilityRole="button" style={styles.iconButton} onPress={signOut}>
-              <Text style={styles.settingsLink}>{t('settings.signOut')}</Text>
-            </Pressable>
-          )}
-        </View>
-      }
+      action={headerAction}
+      footer={<Button label={t('home.actions.recordSale')} onPress={() => router.push('/sale/new')} />}
     >
       <Card>
-        <Text style={styles.cardTitle}>{t('home.today.title')}</Text>
-        <Row label={t('home.today.sales')} value={formatKwacha(totals.salesTotal)} emphasis />
-        <Row label={t('home.today.count')} value={formatCount(totals.saleCount)} />
-        {seesMoney ? (
-          <>
-            <Row label={t('home.today.profit')} value={formatKwacha(totals.grossProfit)} />
-            <Row label={t('home.today.discounts')} value={formatKwacha(totals.discounts)} />
-          </>
-        ) : null}
+        <Text style={styles.heroLabel}>{t('home.today.sales')}</Text>
+        <Text style={styles.heroValue}>{formatKwacha(totals.salesTotal)}</Text>
+        <Text style={styles.muted}>
+          {t(totals.saleCount === 1 ? 'home.today.countOne' : 'home.today.countMany', {
+            count: totals.saleCount,
+          })}
+        </Text>
       </Card>
 
       <SectionTitle>{t('home.alerts.title')}</SectionTitle>
@@ -69,93 +46,45 @@ export default function HomeScreen() {
         {alerts.length === 0 ? (
           <Text style={styles.muted}>{t('home.alerts.empty')}</Text>
         ) : (
-          alerts.map((item) => (
-            <View key={item.variantId} style={styles.alertRow}>
-              <View style={styles.alertText}>
-                <Text style={styles.itemName}>{item.label}</Text>
-                <Text style={styles.muted}>
-                  {item.quantity} · {t('products.inStock')}
-                </Text>
-              </View>
-              <Pill
-                label={item.quantity === 0 ? t('home.alerts.out') : t('home.alerts.low')}
-                tone={item.quantity === 0 ? 'danger' : 'warning'}
-              />
-            </View>
-          ))
-        )}
-      </Card>
-
-      {managesProducts ? (
-        <>
-          <SectionTitle>{t('home.actions.title')}</SectionTitle>
-          <View style={styles.actionRow}>
-            <View style={styles.actionButton}>
-              <Button
-                label={t('home.actions.addProduct')}
-                variant="secondary"
-                onPress={() => router.push('/product/new')}
-              />
-            </View>
-            {shopRecord?.usesBarcodes ? (
-              <View style={styles.actionButton}>
-                <Button
-                  label={t('home.actions.scanBarcode')}
-                  variant="secondary"
-                  onPress={() => router.push('/scan')}
+          alerts.map((item) => {
+            const out = item.quantity <= 0;
+            return (
+              <View key={item.variantId} style={styles.alertRow}>
+                <View style={styles.alertText}>
+                  <Text style={styles.itemName}>{item.label.replace(/\s+/g, ' ')}</Text>
+                  <Text style={styles.muted}>
+                    {out ? t('home.alerts.none') : t('home.alerts.left', { count: item.quantity })}
+                  </Text>
+                </View>
+                <Pill
+                  label={out ? t('home.alerts.out') : t('home.alerts.low')}
+                  tone={out ? 'danger' : 'warning'}
                 />
               </View>
-            ) : null}
-          </View>
-        </>
-      ) : null}
-
-      <SectionTitle>{t('home.reconcile.title')}</SectionTitle>
-      <Card>
-        <Row label={t('home.reconcile.matched')} value={formatCount(matched)} />
-        <Row label={t('home.reconcile.unmatchedSales')} value={formatCount(unmatchedSales)} />
-        <Row label={t('home.reconcile.unmatchedPayments')} value={formatCount(unmatchedPayments)} />
-        <Row
-          label={t('home.reconcile.cashVariance')}
-          value={cashVariance === undefined ? t('common.notYet') : formatKwacha(cashVariance)}
-        />
-      </Card>
-
-      {seesTax ? (
-        <>
-          <SectionTitle>{t('home.tax.title')}</SectionTitle>
-          <Card>
-            <Row label={t('home.tax.estimate')} value={formatKwacha(estimate.estimatedTax)} emphasis />
-            <Row label={t('home.tax.pot')} value={formatKwacha(tax.potBalance)} />
-            <Row label={t('home.tax.due')} value={tax.period?.dueOn ?? t('common.notYet')} />
-          </Card>
-        </>
-      ) : null}
-
-      <SectionTitle>{t('home.sync.title')}</SectionTitle>
-      <Card>
-        <View style={styles.syncRow}>
-          <Pill label={t('common.offline')} tone="warning" />
-          <Text style={styles.muted}>
-            {t('sync.lastSync')}: {t('sync.never')}
-          </Text>
-        </View>
+            );
+          })
+        )}
       </Card>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  cardTitle: { fontSize: typeScale.body, fontWeight: '700', color: colors.text },
-  muted: { fontSize: typeScale.label, color: colors.textMuted },
-  alertRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md },
+  heroLabel: { fontSize: typeScale.body, color: colors.textMuted, fontWeight: '600' },
+  heroValue: {
+    fontSize: typeScale.display,
+    fontWeight: '700',
+    color: colors.text,
+    fontVariant: ['tabular-nums'],
+  },
+  muted: { fontSize: typeScale.body, color: colors.textMuted },
+  alertRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+    paddingVertical: spacing.xs,
+  },
   alertText: { flexShrink: 1, gap: 2 },
-  itemName: { fontSize: typeScale.body, color: colors.text, fontWeight: '500' },
-  actionRow: { flexDirection: 'row', gap: spacing.md },
-  actionButton: { flex: 1 },
-  footerRow: { flexDirection: 'row', gap: spacing.md, alignItems: 'center' },
-  footerButton: { flex: 1 },
-  iconButton: { alignItems: 'center', justifyContent: 'center', padding: spacing.sm },
-  settingsLink: { fontSize: typeScale.label, color: colors.primary, fontWeight: '700' },
-  syncRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  itemName: { fontSize: typeScale.body, color: colors.text, fontWeight: '600' },
 });

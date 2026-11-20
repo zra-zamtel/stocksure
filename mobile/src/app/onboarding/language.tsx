@@ -1,19 +1,26 @@
 import { useRouter } from 'expo-router';
-import { StyleSheet, View } from 'react-native';
-import { Button, Choice, Screen } from '@/components/ui';
+import { StyleSheet, Text, View } from 'react-native';
+import { Logo, SETUP_STEPS, SetupStep } from '@/components/onboarding';
+import { Button, Choice } from '@/components/ui';
 import { LANGUAGE_LABELS, useI18n, type Language } from '@/i18n';
-import { spacing } from '@/theme/tokens';
+import { colors, spacing, typeScale } from '@/theme/tokens';
 
 export default function LanguageScreen() {
   const { t, language, setLanguage } = useI18n();
   const router = useRouter();
 
   return (
-    <Screen
+    <SetupStep
+      step={SETUP_STEPS.language}
       title={t('onboarding.language.title')}
       subtitle={t('onboarding.language.subtitle')}
-      footer={
-        <Button label={t('common.next')} onPress={() => router.push('/onboarding/account')} />
+      footer={<Button label={t('common.next')} onPress={() => router.push('/onboarding/account')} />}
+      hero={
+        <View style={styles.hero}>
+          <Logo />
+          <Text style={styles.brand}>{t('app.name')}</Text>
+          <Text style={styles.tagline}>{t('onboarding.welcome.tagline')}</Text>
+        </View>
       }
     >
       <View style={styles.choices}>
@@ -26,10 +33,13 @@ export default function LanguageScreen() {
           />
         ))}
       </View>
-    </Screen>
+    </SetupStep>
   );
 }
 
 const styles = StyleSheet.create({
-  choices: { gap: spacing.md, marginTop: spacing.xl },
+  hero: { alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.xl },
+  brand: { fontSize: typeScale.title, fontWeight: '700', color: colors.text },
+  tagline: { fontSize: typeScale.body, color: colors.textMuted, textAlign: 'center' },
+  choices: { gap: spacing.md },
 });

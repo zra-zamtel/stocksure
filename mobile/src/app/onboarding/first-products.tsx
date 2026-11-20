@@ -3,7 +3,8 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '@/auth/session';
-import { Button, Card, Screen } from '@/components/ui';
+import { SETUP_STEPS, SetupStep } from '@/components/onboarding';
+import { Button, Card } from '@/components/ui';
 import { taxRules } from '@/data/fake';
 import { useProducts, useShop } from '@/db/hooks';
 import { completeOnboarding, ensureTaxPeriod } from '@/db/repos';
@@ -40,28 +41,37 @@ export default function FirstProductsScreen() {
     }
   }
 
+  const addProduct = () =>
+    router.push({ pathname: '/product/new', params: { from: 'onboarding' } });
+
   return (
-    <Screen title={t('onboarding.products.title')}>
-      <Card>
-        {count > 0 ? (
+    <SetupStep
+      step={SETUP_STEPS.products}
+      title={t('onboarding.products.title')}
+      subtitle={t('onboarding.products.subtitle')}
+      onBack={() => router.back()}
+      backLabel={t('common.back')}
+      footer={
+        count > 0 ? (
+          <Button label={t('onboarding.products.finish')} disabled={saving} onPress={finish} />
+        ) : (
+          <Button label={t('onboarding.products.addNow')} onPress={addProduct} />
+        )
+      }
+    >
+      {count > 0 ? (
+        <Card>
           <Text style={styles.count}>
             {t(count === 1 ? 'onboarding.products.addedOne' : 'onboarding.products.added', { count })}
           </Text>
-        ) : (
-          <Text style={styles.hint}>{t('products.empty')}</Text>
-        )}
-        {loading ? <Text style={styles.hint}>{t('common.syncing')}</Text> : null}
-      </Card>
+        </Card>
+      ) : null}
+      {loading ? <Text style={styles.hint}>{t('common.syncing')}</Text> : null}
 
       <View style={styles.actions}>
         {count > 0 ? (
-          <Button label={t('onboarding.products.finish')} disabled={saving} onPress={finish} />
+          <Button label={t('onboarding.products.addAnother')} variant="secondary" onPress={addProduct} />
         ) : null}
-        <Button
-          label={count > 0 ? t('onboarding.products.addAnother') : t('onboarding.products.addNow')}
-          variant={count > 0 ? 'secondary' : 'primary'}
-          onPress={() => router.push({ pathname: '/product/new', params: { from: 'onboarding' } })}
-        />
         {usesBarcodes ? (
           <Button
             label={t('onboarding.products.scan')}
@@ -70,17 +80,12 @@ export default function FirstProductsScreen() {
           />
         ) : null}
         {count === 0 ? (
-          <Button
-            label={t('common.skip')}
-            variant="secondary"
-            disabled={saving}
-            onPress={finish}
-          />
+          <Button label={t('onboarding.products.later')} variant="secondary" disabled={saving} onPress={finish} />
         ) : null}
       </View>
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
-    </Screen>
+    </SetupStep>
   );
 }
 

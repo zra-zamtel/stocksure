@@ -1,89 +1,279 @@
 import { useRouter } from 'expo-router';
-import { StyleSheet, Text, View } from 'react-native';
+import { useSQLiteContext } from 'expo-sqlite';
+import { useState } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '@/auth/session';
-import { Button, Card, Pill, Row, Screen, SectionTitle } from '@/components/ui';
+import {
+  Button,
+  Card,
+  Choice,
+  Field,
+  Icon,
+  IconButton,
+  Pill,
+  Row,
+  Screen,
+  SectionTitle,
+} from '@/components/ui';
+import { isValidTpin, type ShopType } from '@/core';
 import { taxRules } from '@/data/fake';
 import { useShop } from '@/db/hooks';
+import { saveMoneySettings, saveShopDetails } from '@/db/repos';
 import { useSync } from '@/db/use-sync';
-import { LANGUAGE_LABELS, useI18n } from '@/i18n';
+import { LANGUAGE_LABELS, useI18n, type Language } from '@/i18n';
 import { colors, spacing, typeScale } from '@/theme/tokens';
 
+const SHOP_TYPES: ShopType[] = ['clothes', 'shoes', 'general', 'other'];
+const PROVIDERS = ['MTN', 'Airtel', 'Zamtel'] as const;
+
 export default function SettingsScreen() {
-  const { t, language } = useI18n();
+  const { t, language, setLanguage } = useI18n();
   const router = useRouter();
-  const { ownerPreview, signOut } = useAuth();
-  const { data: shop } = useShop();
+  const db = useSQLiteContext();
+  const { ownerPreview, signOut, refresh } = useAuth();
+  const { data: shop, reload } = useShop();
   const sync = useSync();
 
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState('');
+  const [town, setTown] = useState('');
+  const [shopType, setShopType] = useState<ShopType>('clothes');
+  const [usesBarcodes, setUsesBarcodes] = useState(false);
+  const [providers, setProviders] = useState<string[]>([]);
+  const [tpin, setTpin] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  async function changeLanguage(next: Language) {
+    setLanguage(next);
+    // Keep the shop record in step so the choice syncs and survives a reinstall.
+    if (!shop) return;
+    try {
+      await saveShopDetails(db, {
+        name: shop.name,
+        town: shop.town,
+        type: shop.type,
+        usesBarcodes: shop.usesBarcodes,
+        language: next,
+      });
+      reload();
+    } catch {
+      // The on-screen switch already happened; the shop row catches up next save.
+    }
+  }
+
+  function startEditing() {
+    if (!shop) return;
+    setName(shop.name);
+    setTown(shop.town);
+    setShopType(shop.type);
+    setUsesBarcodes(shop.usesBarcodes);
+    setProviders(shop.providers);
+    setTpin(shop.tpin ?? '');
+    setError(null);
+    setEditing(true);
+  }
+
+  async function saveEdits() {
+    if (!shop || saving) return;
+    setError(null);
+    if (!name.trim()) return setError(t('onboarding.shop.error.nameRequired'));
+    if (!town.trim()) return setError(t('onboarding.shop.error.townRequired'));
+    if (tpin.trim() && !isValidTpin(tpin)) return setError(t('onboarding.money.tpinInvalid'));
+
+    setSaving(true);
+    try {
+      await saveShopDetails(db, { name, town, type: shopType, usesBarcodes, language });
+      await saveMoneySettings(db, {
+        providers,
+        turnoverTaxRegistered: shop.turnoverTaxRegistered,
+        tpin: tpin.trim() || undefined,
+      });
+      await refresh();
+      reload();
+      setEditing(false);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : t('onboarding.account.error.generic'));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const toggleProvider = (provider: string) =>
+    setProviders((current) =>
+      current.includes(provider) ? current.filter((item) => item !== provider) : [...current, provider]
+    );
+
   return (
-    <Screen title={t('settings.title')} subtitle={shop?.name ?? t('app.name')}>
+    <Screen
+      title={t('settings.title')}
+      subtitle={shop?.name ?? t('app.name')}
+      action={<IconButton name="close" label={t('common.back')} onPress={() => router.back()} />}
+    >
       <SectionTitle>{t('settings.language')}</SectionTitle>
-      <Card>
-        <Row label={t('settings.language')} value={LANGUAGE_LABELS[language]} />
-      </Card>
+      <View style={styles.pair}>
+        {(Object.keys(LANGUAGE_LABELS) as Language[]).map((code) => (
+          <View key={code} style={styles.pairItem}>
+            <Choice
+              label={LANGUAGE_LABELS[code]}
+              selected={language === code}
+              onPress={() => void changeLanguage(code)}
+            />
+          </View>
+        ))}
+      </View>
 
       <SectionTitle>{t('settings.shop')}</SectionTitle>
-      <Card>
-        <Row label={t('onboarding.shop.town')} value={shop?.town ?? t('common.notYet')} />
-        <Row
-          label={t('onboarding.shop.type')}
-          value={shop ? t(`onboarding.shop.type.${shop.type}`) : t('common.notYet')}
-        />
-        <Row label={t('onboarding.money.tpin')} value={shop?.tpin ?? t('common.notYet')} />
-        <Row
-          label={t('onboarding.shop.barcodes')}
-          value={shop ? (shop.usesBarcodes ? t('common.yes') : t('common.no')) : t('common.notYet')}
-        />
-      </Card>
+      {editing ? (
+        <Card>
+          <Field label={t('onboarding.shop.name')} value={name} onChangeText={setName} required />
+          <Field label={t('onboarding.shop.town')} value={town} onChangeText={setTown} required />
+
+          <Text style={styles.label}>{t('onboarding.shop.type')}</Text>
+          <View style={styles.wrap}>
+            {SHOP_TYPES.map((type) => (
+              <View key={type} style={styles.pairItem}>
+                <Choice
+                  label={t(`onboarding.shop.type.${type}`)}
+                  selected={shopType === type}
+                  onPress={() => setShopType(type)}
+                />
+              </View>
+            ))}
+          </View>
+
+          <Text style={styles.label}>{t('onboarding.money.providers')}</Text>
+          <View style={styles.wrap}>
+            {PROVIDERS.map((provider) => (
+              <View key={provider} style={styles.pairItem}>
+                <Choice
+                  label={provider}
+                  selected={providers.includes(provider)}
+                  onPress={() => toggleProvider(provider)}
+                />
+              </View>
+            ))}
+          </View>
+
+          <Field
+            label={t('onboarding.money.tpin')}
+            value={tpin}
+            onChangeText={setTpin}
+            placeholder={t('onboarding.money.tpinHint')}
+            keyboardType="numeric"
+            maxLength={10}
+          />
+
+          <Text style={styles.label}>{t('onboarding.shop.barcodes')}</Text>
+          <View style={styles.pair}>
+            <View style={styles.pairItem}>
+              <Choice label={t('common.yes')} selected={usesBarcodes} onPress={() => setUsesBarcodes(true)} />
+            </View>
+            <View style={styles.pairItem}>
+              <Choice label={t('common.no')} selected={!usesBarcodes} onPress={() => setUsesBarcodes(false)} />
+            </View>
+          </View>
+
+          {error ? (
+            <Text style={styles.error} accessibilityLiveRegion="polite">
+              {error}
+            </Text>
+          ) : null}
+          <View style={styles.pair}>
+            <View style={styles.pairItem}>
+              <Button label={t('common.cancel')} variant="secondary" onPress={() => setEditing(false)} />
+            </View>
+            <View style={styles.pairItem}>
+              <Button
+                label={saving ? t('common.saving') : t('common.save')}
+                disabled={saving}
+                onPress={() => void saveEdits()}
+              />
+            </View>
+          </View>
+        </Card>
+      ) : (
+        <Card>
+          <Row label={t('onboarding.shop.town')} value={shop?.town ?? t('common.notYet')} />
+          <Row
+            label={t('onboarding.shop.type')}
+            value={shop ? t(`onboarding.shop.type.${shop.type}`) : t('common.notYet')}
+          />
+          <Row
+            label={t('onboarding.money.providers')}
+            value={shop && shop.providers.length > 0 ? shop.providers.join(', ') : t('common.notYet')}
+          />
+          <Row label={t('onboarding.money.tpin')} value={shop?.tpin ?? t('common.notYet')} />
+          <Row
+            label={t('settings.barcodes')}
+            value={shop ? (shop.usesBarcodes ? t('common.yes') : t('common.no')) : t('common.notYet')}
+          />
+          {shop ? <Button label={t('settings.editShop')} variant="secondary" onPress={startEditing} /> : null}
+        </Card>
+      )}
 
       <SectionTitle>{t('settings.staff')}</SectionTitle>
       <Card>
-        <Pill label={t('staff.role.owner')} tone="info" />
-        <Text style={styles.muted}>{ownerPreview?.name ?? t('common.notYet')}</Text>
-        <Text style={styles.muted} onPress={() => router.push('/staff')}>
-          {t('staff.title')} →
-        </Text>
-      </Card>
-
-      <SectionTitle>{t('settings.taxRules')}</SectionTitle>
-      <Card>
-        <Row label={t('tax.rate')} value={`${(taxRules.rate * 100).toFixed(1)}%`} />
-        <Row label="Version" value={String(taxRules.version)} />
+        <View style={styles.ownerRow}>
+          <Text style={styles.ownerName}>{ownerPreview?.name ?? t('common.notYet')}</Text>
+          <Pill label={t('staff.role.owner')} tone="info" />
+        </View>
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => router.push('/staff')}
+          style={({ pressed }) => [styles.linkRow, pressed && styles.pressed]}
+        >
+          <Text style={styles.link}>{t('settings.manageStaff')}</Text>
+          <Icon name="chevron_right" color={colors.primaryInk} />
+        </Pressable>
       </Card>
 
       <SectionTitle>{t('settings.sync')}</SectionTitle>
       <Card>
         <Row
           label={t('sync.lastSync')}
-          value={
-            sync.lastSyncAt
-              ? new Date(sync.lastSyncAt).toLocaleString()
-              : t('sync.never')
-          }
+          value={sync.lastSyncAt ? new Date(sync.lastSyncAt).toLocaleString() : t('sync.never')}
         />
         <Row label={t('sync.pending')} value={String(sync.pending)} />
         {sync.error ? <Text style={styles.error}>{sync.error}</Text> : null}
         <Button
           label={sync.busy ? t('sync.syncing') : t('sync.now')}
+          variant="secondary"
           disabled={sync.busy}
           onPress={() => void sync.syncNow()}
         />
       </Card>
 
-      <SectionTitle>{t('settings.account')}</SectionTitle>
-      <Card>
+      <View style={styles.signOut}>
         <Button label={t('settings.signOut')} variant="secondary" onPress={signOut} />
-      </Card>
+      </View>
 
       <View style={styles.footer}>
-        <Text style={styles.muted}>{t('settings.version')} 0.1.0</Text>
+        <Text style={styles.muted}>
+          {t('settings.version')} 0.1.0 · {t('tax.rate')} {(taxRules.rate * 100).toFixed(0)}% (v{taxRules.version})
+        </Text>
       </View>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  muted: { fontSize: typeScale.label, color: colors.textMuted },
-  error: { fontSize: typeScale.label, color: colors.danger, fontWeight: '600' },
-  footer: { alignItems: 'center', marginTop: spacing.lg },
+  pair: { flexDirection: 'row', gap: spacing.md },
+  wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  pairItem: { flexGrow: 1, flexBasis: '40%' },
+  label: { fontSize: typeScale.label, fontWeight: '600', color: colors.textMuted, marginTop: spacing.sm },
+  ownerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md },
+  ownerName: { fontSize: typeScale.body, fontWeight: '600', color: colors.text },
+  linkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    minHeight: 48,
+  },
+  link: { fontSize: typeScale.body, color: colors.primaryInk, fontWeight: '600' },
+  pressed: { opacity: 0.6 },
+  muted: { fontSize: typeScale.label, color: colors.textMuted, textAlign: 'center' },
+  error: { fontSize: typeScale.body, color: colors.danger, fontWeight: '600' },
+  signOut: { marginTop: spacing.lg },
+  footer: { alignItems: 'center', marginTop: spacing.md },
 });

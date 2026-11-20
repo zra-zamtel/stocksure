@@ -1,15 +1,18 @@
 import type { ReactNode } from 'react';
 import {
+  ImageBackground,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
+  type ColorValue,
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { SymbolView, type AndroidSymbol } from 'expo-symbols';
 import { colors, radii, spacing, touch, typeScale } from '../theme/tokens';
 
 type ScreenProps = {
@@ -18,28 +21,76 @@ type ScreenProps = {
   children: ReactNode;
   scroll?: boolean;
   footer?: ReactNode;
+  /** One small action beside the title, such as the settings gear. */
+  action?: ReactNode;
 };
 
-export function Screen({ title, subtitle, children, scroll = true, footer }: ScreenProps) {
+// A faint paper grain tiled under every screen, so the warm background reads as
+// a material rather than a flat fill. It is a 128px tile, a few KB.
+const PAPER = require('../../assets/images/paper.png');
+
+export function Screen({ title, subtitle, children, scroll = true, footer, action }: ScreenProps) {
   const body = (
     <View style={styles.body}>
-      {title ? <Text style={styles.screenTitle}>{title}</Text> : null}
+      {title || action ? (
+        <View style={styles.titleRow}>
+          {title ? <Text style={styles.screenTitle}>{title}</Text> : <View />}
+          {action}
+        </View>
+      ) : null}
       {subtitle ? <Text style={styles.screenSubtitle}>{subtitle}</Text> : null}
       {children}
     </View>
   );
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
-      {scroll ? (
-        <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
-          {body}
-        </ScrollView>
-      ) : (
-        body
-      )}
-      {footer ? <View style={styles.footer}>{footer}</View> : null}
-    </SafeAreaView>
+    <ImageBackground source={PAPER} resizeMode="repeat" style={styles.paper}>
+      <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
+        {scroll ? (
+          <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+            {body}
+          </ScrollView>
+        ) : (
+          body
+        )}
+        {footer ? <View style={styles.footer}>{footer}</View> : null}
+      </SafeAreaView>
+    </ImageBackground>
+  );
+}
+
+/** Material symbol on Android and web. */
+export function Icon({
+  name,
+  size = 24,
+  color = colors.text,
+}: {
+  name: AndroidSymbol;
+  size?: number;
+  color?: ColorValue;
+}) {
+  return <SymbolView name={{ android: name, web: name }} size={size} tintColor={color} />;
+}
+
+/** Icon-only control with a 48dp hit area and a spoken label. */
+export function IconButton({
+  name,
+  label,
+  onPress,
+}: {
+  name: AndroidSymbol;
+  label: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      onPress={onPress}
+      style={({ pressed }) => [styles.iconButton, pressed && styles.buttonPressed]}
+    >
+      <Icon name={name} color={colors.textMuted} />
+    </Pressable>
   );
 }
 
@@ -202,7 +253,8 @@ export function Stub({ note }: { note: string }) {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.bg },
+  paper: { flex: 1, backgroundColor: colors.bg },
+  safe: { flex: 1 },
   scroll: { paddingBottom: spacing.xxl },
   body: { flex: 1, paddingHorizontal: spacing.lg, paddingTop: spacing.lg, gap: spacing.md },
   footer: {
@@ -210,9 +262,17 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.border,
-    backgroundColor: colors.bg,
+    backgroundColor: colors.surface,
   },
-  screenTitle: { fontSize: typeScale.title, fontWeight: '700', color: colors.text },
+  titleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md },
+  iconButton: {
+    minWidth: touch.minWidth,
+    minHeight: touch.minHeight,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radii.pill,
+  },
+  screenTitle: { fontSize: typeScale.title, fontWeight: '700', color: colors.text, flexShrink: 1 },
   screenSubtitle: { fontSize: typeScale.body, color: colors.textMuted, marginTop: -spacing.sm },
   sectionTitle: {
     fontSize: typeScale.label,
@@ -276,9 +336,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  choiceSelected: { borderColor: colors.primary, backgroundColor: colors.successSoft },
+  choiceSelected: { borderColor: colors.primary, borderWidth: 2, backgroundColor: colors.primarySoft },
   choiceLabel: { fontSize: typeScale.body, color: colors.text },
-  choiceLabelSelected: { color: colors.primary, fontWeight: '700' },
+  choiceLabelSelected: { color: colors.primaryInk, fontWeight: '700' },
   divider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.border, marginVertical: spacing.xs },
   stub: {
     borderWidth: 1,

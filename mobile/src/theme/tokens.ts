@@ -1,14 +1,19 @@
 // Design tokens. Screens must reference these, never raw hex or pixel values.
 // When the visual design lands, this file is the only thing that changes.
 export const colors = {
-  bg: '#FFFFFF',
-  surface: '#F5F5F7',
-  surfaceAlt: '#EBEBEF',
-  border: '#DDDDE3',
-  text: '#111114',
-  textMuted: '#6B6B73',
-  primary: '#0B6B3A',
+  // Brand: Charcoal, Sand and Electric Blue on warm paper.
+  bg: '#F5F0E6', // paper
+  surface: '#FBF8F2', // cards sit a shade lighter than the paper
+  surfaceAlt: '#EDE5D6',
+  border: '#D8CBB3', // sand
+  text: '#1E1E1C', // charcoal
+  textMuted: '#6B655B',
+  primary: '#2F6BFF', // electric blue, for fills (white text on it is 4.5:1)
+  primaryInk: '#2559D9', // blue for text and icons on paper (5.3:1)
+  primarySoft: '#E4ECFF',
   primaryText: '#FFFFFF',
+  charcoal: '#1E1E1C',
+  sand: '#D8CBB3',
   danger: '#B3261E',
   dangerSoft: '#FBEAE8',
   warning: '#8A5A00',

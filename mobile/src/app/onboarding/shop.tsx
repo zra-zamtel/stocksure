@@ -3,7 +3,8 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '@/auth/session';
-import { Button, Card, Choice, Field, Screen } from '@/components/ui';
+import { Button, Card, Choice, Field } from '@/components/ui';
+import { SETUP_STEPS, SetupStep } from '@/components/onboarding';
 import type { ShopType } from '@/core';
 import { useShop } from '@/db/hooks';
 import { saveShopDetails } from '@/db/repos';
@@ -57,8 +58,10 @@ export default function ShopScreen() {
   }
 
   return (
-    <Screen
+    <SetupStep
+      step={SETUP_STEPS.shop}
       title={t('onboarding.shop.title')}
+      subtitle={t('onboarding.shop.subtitle')}
       footer={<Button label={t('common.next')} disabled={saving} onPress={handleNext} />}
     >
       <Card>
@@ -102,7 +105,7 @@ export default function ShopScreen() {
       <Text style={styles.hint}>{t('onboarding.shop.barcodesHint')}</Text>
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
-    </Screen>
+    </SetupStep>
   );
 }
 
