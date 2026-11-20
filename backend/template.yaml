@@ -1,0 +1,241 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: StockSure Django API on AWS Lambda (HTTP API, S3 media and scheduled reminders).
+
+Parameters:
+  DjangoSecretKey:
+    Type: String
+    NoEcho: true
+    MinLength: 32
+    Description: Django SECRET_KEY. Generate with python -c "import secrets; print(secrets.token_urlsafe(50))".
+  DatabaseUrl:
+    Type: String
+    NoEcho: true
+    MinLength: 10
+    Description: PostgreSQL URL. Use the pooled connection string for Neon or Supabase, with sslmode=require.
+  ZamtelWebhookSecret:
+    Type: String
+    NoEcho: true
+    MinLength: 16
+    Description: Shared secret for the Zamtel payment webhook.
+  UssdSharedSecret:
+    Type: String
+    NoEcho: true
+    Default: ""
+    Description: Shared secret for the USSD gateway.
+  AllowedHostsExtra:
+    Type: String
+    Default: ""
+    Description: Optional comma-separated extra hosts for a custom domain.
+  CsrfTrustedOriginsExtra:
+    Type: String
+    Default: ""
+    Description: Optional comma-separated extra origins for a custom domain, including https://.
+  EmailHost:
+    Type: String
+    Default: ""
+    Description: SMTP host. Leave empty to print magic links to CloudWatch Logs.
+  EmailPort:
+    Type: String
+    Default: "587"
+    AllowedValues:
+      - "465"
+      - "587"
+    Description: SMTP port. Lambda allows 465 and 587; only port 25 is blocked.
+  EmailUseSsl:
+    Type: String
+    Default: "0"
+    AllowedValues:
+      - "0"
+      - "1"
+    Description: Set to 1 for port 465 (implicit TLS); 0 for port 587 (STARTTLS).
+  EmailHostUser:
+    Type: String
+    Default: ""
+  EmailHostPassword:
+    Type: String
+    NoEcho: true
+    Default: ""
+  DefaultFromEmail:
+    Type: String
+    Default: "StockSure <no-reply@example.com>"
+  MagicLinkBaseUrl:
+    Type: String
+    Default: "stocksure://magic-link"
+  CorsAllowedOrigins:
+    Type: String
+    Default: ""
+  SmsBackend:
+    Type: String
+    Default: "apps.integrations.sms.ConsoleSMSBackend"
+  AiInvoiceReader:
+    Type: String
+    Default: "apps.integrations.ai.MockInvoiceReader"
+  AnthropicApiKey:
+    Type: String
+    NoEcho: true
+    Default: ""
+  DbConnMaxAge:
+    Type: String
+    Default: "0"
+    Description: 0 is safest with a serverless Postgres pooler.
+  DbDisableServerSideCursors:
+    Type: String
+    Default: "0"
+    AllowedValues:
+      - "0"
+      - "1"
+    Description: Set to 1 when using Supabase's transaction pooler on port 6543.
+  ReminderSchedule:
+    Type: String
+    Default: "cron(0 6 * * ? *)"
+    Description: EventBridge schedule in UTC. 06:00 UTC is 08:00 in Lusaka.
+
+Globals:
+  Function:
+    Architectures:
+      - x86_64
+    Runtime: python3.12
+    MemorySize: 512
+    Tags:
+      Application: StockSure
+    Environment:
+      Variables:
+        DJANGO_DEBUG: "0"
+        DJANGO_SECRET_KEY: !Ref DjangoSecretKey
+        DJANGO_ALLOWED_HOSTS: !Sub ".execute-api.${AWS::Region}.amazonaws.com,${AllowedHostsExtra}"
+        DATABASE_URL: !Ref DatabaseUrl
+        DB_CONN_MAX_AGE: !Ref DbConnMaxAge
+        DB_DISABLE_SERVER_SIDE_CURSORS: !Ref DbDisableServerSideCursors
+        TRUST_PROXY_HEADERS: "1"
+        CSRF_TRUSTED_ORIGINS: !Sub "https://*.execute-api.${AWS::Region}.amazonaws.com,${CsrfTrustedOriginsExtra}"
+        CORS_ALLOWED_ORIGINS: !Ref CorsAllowedOrigins
+        MEDIA_BUCKET: !Ref MediaBucket
+        AWS_S3_REGION_NAME: !Ref AWS::Region
+        EMAIL_HOST: !Ref EmailHost
+        EMAIL_PORT: !Ref EmailPort
+        EMAIL_USE_SSL: !Ref EmailUseSsl
+        EMAIL_HOST_USER: !Ref EmailHostUser
+        EMAIL_HOST_PASSWORD: !Ref EmailHostPassword
+        DJANGO_DEFAULT_FROM_EMAIL: !Ref DefaultFromEmail
+        MAGIC_LINK_BASE_URL: !Ref MagicLinkBaseUrl
+        ZAMTEL_WEBHOOK_SECRET: !Ref ZamtelWebhookSecret
+        USSD_SHARED_SECRET: !Ref UssdSharedSecret
+        SMS_BACKEND: !Ref SmsBackend
+        AI_INVOICE_READER: !Ref AiInvoiceReader
+        ANTHROPIC_API_KEY: !Ref AnthropicApiKey
+        ALLOW_PAYMENT_SIMULATION: "0"
+        EXPOSE_EMAIL_TOKEN: "0"
+        EXPOSE_RESET_CODE: "0"
+        PAYMENT_MATCH_WINDOW_MINUTES: "30"
+
+Resources:
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: "$default"
+      Tags:
+        Application: StockSure
+
+  MediaBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  MediaBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref MediaBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:*"
+            Resource:
+              - !GetAtt MediaBucket.Arn
+              - !Sub "${MediaBucket.Arn}/*"
+            Condition:
+              Bool:
+                aws:SecureTransport: "false"
+
+  ApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: build/lambda.zip
+      Handler: config.lambda_handler.handler
+      Timeout: 29
+      MemorySize: 512
+      Policies:
+        - S3CrudPolicy:
+            BucketName: !Ref MediaBucket
+      Events:
+        Api:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /{proxy+}
+            Method: ANY
+
+  JobFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: build/lambda.zip
+      Handler: config.lambda_jobs.handler
+      Timeout: 300
+      MemorySize: 512
+      Events:
+        DailyReminders:
+          Type: Schedule
+          Properties:
+            Schedule: !Ref ReminderSchedule
+            Input: '{"job": "reminder"}'
+            Description: Daily StockSure reminders
+
+  WarmFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: build/lambda.zip
+      Handler: config.lambda_warm.handler
+      MemorySize: 128
+      Timeout: 30
+      Environment:
+        Variables:
+          WARM_URL: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/api/health/"
+      Events:
+        WarmSchedule:
+          Type: Schedule
+          Properties:
+            Schedule: rate(2 minutes)
+            Description: Keep the API Lambda warm for the demo
+
+Outputs:
+  ApiUrl:
+    Description: Base URL for the mobile app (EXPO_PUBLIC_API_URL).
+    Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com"
+  HealthUrl:
+    Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/api/health/"
+  DocsUrl:
+    Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/api/docs/"
+  MediaBucketName:
+    Value: !Ref MediaBucket
+  ApiFunctionName:
+    Value: !Ref ApiFunction
+  JobFunctionName:
+    Value: !Ref JobFunction
+  WarmFunctionName:
+    Value: !Ref WarmFunction

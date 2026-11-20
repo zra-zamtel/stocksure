@@ -25,6 +25,129 @@ python manage.py runserver
 - Demo logins are printed by `seed_demo` (owner `0970000001` / `demo1234`, assistant `0970000002` / `1234`).
 - PostgreSQL: `docker compose up -d db`, then `DATABASE_URL=postgres://stocksure:stocksure-dev@localhost:5432/stocksure` in `.env`.
 
+## Deploy to AWS Lambda
+
+The Lambda deployment runs behind an API Gateway HTTP API. The stack is
+[`template.yaml`](./template.yaml): Django is wrapped with Mangum, uploads go to
+a private S3 bucket, an EventBridge schedule runs `send_reminders` daily, and a
+second schedule pings the health endpoint every two minutes to keep the API warm.
+Lambda allows SMTP on ports 465 and 587 (only port 25 is blocked), so the Gmail
+setup above works unchanged.
+
+**Prerequisites:** AWS CLI v2, AWS SAM CLI, Python 3.12+ (the backend `.venv`
+is fine), and a Postgres URL. Docker and Hyper-V are not required: the build
+script downloads Linux wheels for Lambda with pip and writes
+`backend/build/lambda.zip`. Authenticate the AWS CLI first (`aws login` or your
+usual credential setup). The Neon or Supabase free tier is enough; use the
+pooled connection string with `sslmode=require`.
+
+```powershell
+winget install --id Amazon.SAM-CLI -e
+
+# From the repository root. The first run builds the Lambda zip and is guided;
+# it saves samconfig.toml.
+.\scripts\deploy-lambda.ps1
+```
+
+The guided deploy asks for a stack name (`stocksure-api`), a region, and these
+parameters. This AWS account's organization SCP allows Lambda and CloudFormation
+only in **`eu-north-1` (Stockholm)**; other regions fail with an explicit
+`AccessDenied ... service control policy`. The script defaults to `eu-north-1`
+and to the existing artifact bucket
+`stocksure-lambda-artifacts-866874944490`, so it does not try to create SAM's
+managed artifact stack. The Supabase database is in `eu-west-1`, so expect a
+small cross-region hop on each query. The main parameters are:
+
+| Parameter | What to enter |
+| --- | --- |
+| `DjangoSecretKey` | 32+ random characters |
+| `DatabaseUrl` | Pooled Postgres URL with `sslmode=require` |
+| `ZamtelWebhookSecret` | 16+ random characters |
+| `UssdSharedSecret` | Shared secret, or leave empty for the demo |
+| `EmailHost` | `smtp.gmail.com` |
+| `EmailPort` | `587` |
+| `EmailUseSsl` | `0` for 587; `1` for 465 |
+| `EmailHostUser` | Full Gmail address |
+| `EmailHostPassword` | Gmail App Password |
+| `DefaultFromEmail` | The same Gmail address |
+| `AllowedHostsExtra` | Only for a custom domain |
+| `CsrfTrustedOriginsExtra` | Only for a custom domain, with `https://` |
+
+Set `EmailHost`, `EmailHostUser`, `EmailHostPassword` and `DefaultFromEmail`
+together, or leave `EmailHost` empty to use the console backend. A half-filled
+Gmail block makes every magic-link request fail. `samconfig.toml` is
+git-ignored and stores the values you enter during the guided deploy, including
+secrets; do not commit or share it.
+
+Leave `DbConnMaxAge` at `0`. Set `DbDisableServerSideCursors=1` only when using
+Supabase's transaction pooler on port 6543. `ReminderSchedule` defaults to
+06:00 UTC, which is 08:00 in Lusaka.
+
+After the deploy the script prints `ApiUrl`, `HealthUrl` and `DocsUrl`.
+
+```powershell
+# Apply database migrations (run after every deploy that adds one)
+.\scripts\deploy-lambda.ps1 -Migrate -SkipBuild
+
+# Prove SMTP delivery from inside Lambda
+.\scripts\deploy-lambda.ps1 -SmtpCheckTo you@example.com -SkipBuild
+```
+
+Both invoke the JobFunction directly; they do not redeploy. The same function
+also runs the daily reminder schedule, so there is only one background Lambda.
+
+### Current demo deployment
+
+- Stack: `stocksure-api` in `eu-north-1`
+- API: `https://xrj6hnz51i.execute-api.eu-north-1.amazonaws.com`
+- Health: `https://xrj6hnz51i.execute-api.eu-north-1.amazonaws.com/api/health/`
+- Docs: `https://xrj6hnz51i.execute-api.eu-north-1.amazonaws.com/api/docs/`
+- Media bucket: `stocksure-api-mediabucket-kzeqjuceutco`
+- Artifact bucket: `stocksure-lambda-artifacts-866874944490`
+
+Migrations and the SMTP check have been run against this stack. Redeploying
+updates the code behind the same URL.
+
+Point the app at the API:
+
+```powershell
+$env:EXPO_PUBLIC_API_URL="https://xrj6hnz51i.execute-api.eu-north-1.amazonaws.com"
+cd mobile; npx expo start
+```
+
+The same URL is already in `mobile/.env.local`.
+
+If the magic-link email opens in a browser instead of the app (for example in
+Expo Go), copy the link and use **Already have the link?** on the email sign-in
+screen to open it inside the app.
+
+Create an admin user against the same database from your machine:
+
+```powershell
+$env:DATABASE_URL="postgresql://...?sslmode=require"
+cd backend
+.\.venv\Scripts\python manage.py createsuperuser
+```
+
+Useful details:
+
+- `DJANGO_ALLOWED_HOSTS` and `CSRF_TRUSTED_ORIGINS` include the API Gateway
+  host automatically; the extra parameters are only for a custom domain.
+- `MEDIA_BUCKET` is created by the stack. Files are private, and Django hands
+  the app presigned URLs valid for `AWS_QUERYSTRING_EXPIRE` seconds (one hour
+  by default).
+- There is no VPC. The function reaches Postgres over TLS through its public
+  pooler, so keep `DB_CONN_MAX_AGE=0`.
+- The HTTP API timeout is 29 seconds and the request body limit is 6 MB. Large
+  invoice photos should use presigned S3 uploads rather than a Lambda request.
+- `WarmFunction` calls `/api/health/` every two minutes. It keeps the API Lambda
+  warm without waking the database, so the demo should not see a cold start.
+- `sam logs --stack-name stocksure-api --name ApiFunction --tail --region eu-north-1`
+  follows the API logs. Reminder and migration logs are under `JobFunction`.
+- At demo traffic this sits in Lambda's always-free tier; S3 and API Gateway
+  come to pennies. `sam delete` removes the stack; the media bucket is
+  deliberately retained, and the artifact bucket is outside the stack.
+
 ## Phone sync (canonical phone store)
 
 `apps/sync` is the store for the data the phone owns. It follows
@@ -49,6 +172,17 @@ The new store is the source of truth for the app, using `apps.sync` for USSD and
 owner dashboard. The older domain write API (`/api/shops`, `/api/items`,
 `/api/sales`, …) remains for the server-side demo and is not the phone's store;
 its remaining tax/TaxPot endpoints have not yet been repointed.
+
+## USSD (Africa's Talking)
+
+`POST /api/ussd/` is the Module F gateway endpoint. It accepts the standard
+Africa's Talking form POST (`sessionId`, `serviceCode`, `phoneNumber`, `text`)
+and replies with `CON …` or `END …` in plain text. Because the gateway cannot
+send custom headers, `USSD_SHARED_SECRET` is accepted from `X-USSD-Secret` or
+from the callback URL's `?token=` parameter. USSD reads and writes `apps.sync`,
+so a USSD sale shows up on the phone at the next pull. Setup, the sandbox
+callback URL, the demo walk-through and troubleshooting are in
+[`docs/ussd-africas-talking.md`](../docs/ussd-africas-talking.md).
 
 ## Auth (mobile app and domain clients)
 

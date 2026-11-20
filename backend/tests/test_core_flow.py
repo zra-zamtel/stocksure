@@ -225,9 +225,11 @@ class TaxMateAndUssdTests(TestCase):
 
     def test_ussd_menu_sale_and_summary(self):
         self.assertTrue(self.ussd("0977000001", "").startswith("CON"))
+        self.assertTrue(self.ussd("0977000001", "2").startswith("CON Check stock"))
         self.assertTrue(self.ussd("0977000001", "1*150*1").startswith("END Sale of K150.00"))
-        self.assertIn("K150.00", self.ussd("0977000001", "2"))
+        self.assertIn("K150.00", self.ussd("0977000001", "3"))
         self.assertTrue(self.ussd("0977000002", "4").startswith("END This option is for the shop owner"))
+        self.assertTrue(self.ussd("0977000002", "2").startswith("CON Check stock"))
 
     def test_ussd_registration(self):
         self.assertTrue(self.ussd("0977999999", "").startswith("CON Welcome"))

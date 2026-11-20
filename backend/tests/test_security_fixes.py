@@ -10,9 +10,9 @@ from .helpers import client_for, make_shop
 
 
 class UssdSecurityTests(TestCase):
-    def post(self, **headers):
+    def post(self, path="/api/ussd/", **headers):
         return APIClient().post(
-            "/api/ussd/", {"phoneNumber": "0977000001", "text": ""}, format="json", **headers
+            path, {"phoneNumber": "0977000001", "text": ""}, format="json", **headers
         )
 
     @override_settings(USSD_SHARED_SECRET="", DEBUG=False)
@@ -27,10 +27,29 @@ class UssdSecurityTests(TestCase):
     def test_missing_or_wrong_secret_is_refused(self):
         self.assertEqual(self.post().status_code, 403)
         self.assertEqual(self.post(HTTP_X_USSD_SECRET="wrong").status_code, 403)
+        self.assertEqual(self.post("/api/ussd/?token=wrong").status_code, 403)
 
     @override_settings(USSD_SHARED_SECRET="gateway-secret", DEBUG=False)
     def test_correct_secret_is_allowed(self):
         self.assertEqual(self.post(HTTP_X_USSD_SECRET="gateway-secret").status_code, 200)
+
+    @override_settings(USSD_SHARED_SECRET="gateway-secret", DEBUG=False)
+    def test_callback_url_token_is_allowed_for_africas_talking(self):
+        # Africa's Talking POSTs form data and cannot add a header, so the
+        # secret rides on the callback URL it is configured with.
+        self.assertEqual(self.post("/api/ussd/?token=gateway-secret").status_code, 200)
+
+    @override_settings(USSD_SHARED_SECRET="gateway-secret", DEBUG=False)
+    def test_africas_talking_form_post_gets_a_plain_text_menu(self):
+        response = APIClient().post(
+            "/api/ussd/?token=gateway-secret",
+            "sessionId=ATUid_1&serviceCode=*384*1%23"
+            "&phoneNumber=%2B260970000001&text=",
+            content_type="application/x-www-form-urlencoded",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.content.startswith(b"CON "))
+        self.assertTrue(response["Content-Type"].startswith("text/plain"))
 
 
 class WebhookSecurityTests(TestCase):

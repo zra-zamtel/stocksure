@@ -409,7 +409,7 @@ class SyncTestCase(SyncBase):
         self.assertTrue(handle("0971234567", "").startswith("CON StockSure"))
         recorded = handle("0971234567", "1*150*1")
         self.assertTrue(recorded.startswith("END Sale of K150.00"), recorded)
-        summary = handle("0971234567", "2")
+        summary = handle("0971234567", "3")
         self.assertIn("K150.00", summary)
         self.assertEqual(Sale.objects.filter(shop_id="shop_1").count(), 1)
 
@@ -432,9 +432,48 @@ class SyncTestCase(SyncBase):
         self.push_schema()
         self.push([self.change("q_sale", "sale", "sale_1", sale_payload())])
 
-        answer = handle("0971234567", "3")
+        answer = handle("0971234567", "4")
 
         self.assertIn("Estimated tax this month: K22.50", answer)
+
+    def test_ussd_check_stock_lists_low_items(self):
+        from apps.ussd.services import handle
+
+        self.push_schema()
+        self.assertEqual(
+            handle("0971234567", "2"), "CON Check stock\n1. Low stock\n2. Find by barcode"
+        )
+        self.assertIn("Stock OK", handle("0971234567", "2*1"))
+
+        self.push(
+            [
+                self.change(
+                    "q_mv2",
+                    "stock_movement",
+                    "mv_2",
+                    movement_payload(id="mv_2", quantityChange=-10, reason="correction"),
+                )
+            ]
+        )
+
+        answer = handle("0971234567", "2*1")
+        self.assertTrue(answer.startswith("END Low stock 1/1, 1 out"), answer)
+        self.assertIn("Sneaker 41 Black: 0", answer)
+
+    def test_ussd_check_stock_by_barcode(self):
+        from apps.ussd.services import handle
+
+        self.push_schema()
+        ProductVariant.objects.filter(id="var_1").update(barcode="6001234567890")
+
+        self.assertEqual(handle("0971234567", "2*2"), "CON Enter the item barcode")
+        self.assertEqual(
+            handle("0971234567", "2*2*6001234567890"),
+            "END Sneaker 41 Black: 10 left at K450.00.",
+        )
+        self.assertEqual(
+            handle("0971234567", "2*2*0000000000000"), "END No item with that barcode."
+        )
 
     def test_push_requires_auth(self):
         response = self.client.post(

@@ -6,3 +6,6 @@ media/
 staticfiles/
 .venv/
 venv/
+.aws-sam/
+build/
+samconfig.toml

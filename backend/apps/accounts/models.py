@@ -6,11 +6,16 @@ from django.contrib.auth.models import (
 from django.db import models
 from django.db.models import Q
 
-from apps.core.utils import validate_zm_phone
+from apps.core.utils import normalize_phone, validate_zm_phone
 
 
 class UserManager(BaseUserManager):
     use_in_migrations = True
+
+    def get_by_natural_key(self, username):
+        # Normalise here as well so createsuperuser's duplicate check (and
+        # ModelBackend.authenticate) matches "0765..." to the stored "260765...".
+        return self.get(phone=normalize_phone(username))
 
     def _create(self, phone, password, **extra):
         if not phone:

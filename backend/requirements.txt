@@ -1,4 +1,5 @@
 Django>=5.2,<6.0
+gunicorn>=23.0,<24.0
 djangorestframework>=3.16,<4.0
 djangorestframework-simplejwt>=5.3
 django-cors-headers>=4.4
@@ -10,3 +11,7 @@ python-dotenv>=1.1,<2.0
 whitenoise>=6.7
 # Optional: only needed if AI_INVOICE_READER=apps.integrations.ai.AnthropicInvoiceReader
 anthropic>=0.40
+# AWS Lambda deployment
+mangum>=0.17,<1.0
+django-storages[s3]>=1.14,<2.0
+boto3>=1.35,<2.0

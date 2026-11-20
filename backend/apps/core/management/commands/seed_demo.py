@@ -17,6 +17,8 @@ from apps.reconciliation import services as recon
 from apps.sales import services as sales
 from apps.sales.models import MobilePayment
 from apps.shops.models import Membership, Shop
+from apps.sync.models import Sale as SyncSale
+from apps.sync.models import Shop as SyncShop
 from apps.tax import services as tax
 from apps.tax.models import TaxEstimate
 from apps.taxpot import services as pot
@@ -73,6 +75,8 @@ class Command(BaseCommand):
                 return max(start_today, now - timedelta(minutes=(10 - hour) * 20 + minute + 5))
             return timezone.make_aware(datetime.combine(today - timedelta(days=days_ago), time(hour, minute)))
 
+        seeded_sales = []
+
         def sell(when, method, *lines, payer="260971111111"):
             sale, _, _ = sales.record_sale(
                 shop=shop, user=assistant, role="assistant", payment_method=method,
@@ -80,9 +84,15 @@ class Command(BaseCommand):
                 payer_phone=payer if method == "mobile_money" else "",
             )
             if method == "mobile_money":  # the Zamtel payment arrives a few minutes later
-                sales.register_payment(shop=shop, reference=f"SIM-{sale.id:05d}", amount=sale.total,
+                # The sale and the payment must carry the SAME reference, otherwise the
+                # matcher refuses to pair them (a one-sided reference is never enough).
+                reference = f"SIM-{sale.id:05d}"
+                sale.payment_reference = reference
+                sale.save(update_fields=["payment_reference", "updated_at"])
+                sales.register_payment(shop=shop, reference=reference, amount=sale.total,
                                        payer_phone=payer, received_at=when + timedelta(minutes=3),
                                        source=MobilePayment.Source.SIMULATED)
+            seeded_sales.append(sale)
             return sale
 
         # --- two earlier days: all recorded, cash counted exactly --------------------
@@ -113,6 +123,36 @@ class Command(BaseCommand):
             missing = 1 if (line.item.name == "Men's sneaker" and line.item.size == "40") else 0
             line.counted_qty = line.expected_qty - missing
             line.save(update_fields=["counted_qty"])
+
+        # --- mirror the demo sales into the phone store --------------------------------
+        # apps.tax.compute_estimate reads apps.sync (the phone's store), not the legacy
+        # sales tables, so the same sales have to exist there for the tax figure to work.
+        # Only the fields the tax estimate and demo screens read are mirrored; stock and
+        # payment rows stay on the legacy side for this server-side demo seed.
+        def ngwee(amount):
+            return int((amount * 100).to_integral_value())
+
+        sync_shop = SyncShop.objects.create(
+            id=f"demo-shop-{shop.pk}", created_at=now, updated_at=now, owner=owner,
+            name=shop.name, town=shop.town, onboarding_completed=True,
+        )
+        for sale in seeded_sales:
+            # register_payment() matched (or didn't) after this object was loaded, so
+            # read the stored status instead of the in-memory copy.
+            sale.refresh_from_db(fields=["match_status"])
+            # Cash is "verified" once the day is closed and balanced; mobile money once
+            # its payment matched. Today's cash sales stay unresolved, which is what the
+            # tax screen should warn about.
+            verified = sale.sale_date < today or (
+                sale.payment_method == "mobile_money" and sale.match_status == "matched"
+            )
+            SyncSale.objects.create(
+                id=f"demo-sale-{sale.pk}", created_at=sale.sold_at, updated_at=sale.sold_at,
+                shop=sync_shop, recorded_by=sale.recorded_by,
+                subtotal=ngwee(sale.total), discount_total=0, total=ngwee(sale.total),
+                status=SyncSale.Status.ACTIVE,
+                reconcile_status=SyncSale.Reconcile.MATCHED if verified else SyncSale.Reconcile.UNRESOLVED,
+            )
 
         # --- tax estimate + TaxPot target --------------------------------------------
         month_start = today.replace(day=1)

@@ -121,8 +121,16 @@ TEMPLATES = [
 _db_url = (
     os.environ.get("TEST_DATABASE_URL", "") if RUNNING_TESTS else os.environ.get("DATABASE_URL", "")
 ).strip()
+_db_conn_max_age = int(os.environ.get("DB_CONN_MAX_AGE", "0"))
+_db_disable_server_side_cursors = env_bool("DB_DISABLE_SERVER_SIDE_CURSORS", False)
 if _db_url:  # PostgreSQL (or anything else) when DATABASE_URL is filled in
-    DATABASES = {"default": dj_database_url.parse(_db_url, conn_max_age=600)}
+    DATABASES = {"default": dj_database_url.parse(_db_url, conn_max_age=_db_conn_max_age)}
+    if _db_disable_server_side_cursors:
+        DATABASES["default"]["DISABLE_SERVER_SIDE_CURSORS"] = True
+elif os.environ.get("AWS_LAMBDA_FUNCTION_NAME") and not RUNNING_TESTS:
+    # Lambda's filesystem is ephemeral: SQLite would lose every write when the
+    # execution environment is recycled or a second environment handles a call.
+    raise ImproperlyConfigured("Set DATABASE_URL when deploying to AWS Lambda.")
 else:  # local SQLite file
     DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": BASE_DIR / "db.sqlite3"}}
 
@@ -143,6 +151,30 @@ STORAGES = {
 }
 MEDIA_URL = "media/"
 MEDIA_ROOT = BASE_DIR / "media"
+
+# Lambda's filesystem is read-only at runtime, so invoice and item photos go to
+# S3. Leave MEDIA_BUCKET empty for local development.
+MEDIA_BUCKET = os.environ.get("MEDIA_BUCKET", "").strip()
+if MEDIA_BUCKET:
+    _s3_options = {
+        "bucket_name": MEDIA_BUCKET,
+        "default_acl": None,
+        "file_overwrite": False,
+        "querystring_auth": True,
+        "querystring_expire": int(os.environ.get("AWS_QUERYSTRING_EXPIRE", "3600")),
+    }
+    _s3_region = os.environ.get("AWS_S3_REGION_NAME") or os.environ.get("AWS_REGION", "")
+    if _s3_region:
+        _s3_options["region_name"] = _s3_region
+    if os.environ.get("AWS_S3_ENDPOINT_URL"):
+        _s3_options["endpoint_url"] = os.environ["AWS_S3_ENDPOINT_URL"]
+    if os.environ.get("AWS_S3_CUSTOM_DOMAIN"):
+        _s3_options["custom_domain"] = os.environ["AWS_S3_CUSTOM_DOMAIN"]
+    STORAGES["default"] = {
+        "BACKEND": "storages.backends.s3.S3Storage",
+        "OPTIONS": _s3_options,
+    }
+
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # --- CORS -------------------------------------------------------------------
@@ -151,6 +183,10 @@ CORS_ALLOWED_ORIGINS = env_list("CORS_ALLOWED_ORIGINS")
 CORS_ALLOW_HEADERS = [
     "accept", "authorization", "content-type", "origin", "user-agent", "x-shop-id",
 ]
+CSRF_TRUSTED_ORIGINS = env_list("CSRF_TRUSTED_ORIGINS")
+if env_bool("TRUST_PROXY_HEADERS", False):
+    # API Gateway terminates TLS and forwards X-Forwarded-Proto to Django.
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 # --- DRF --------------------------------------------------------------------
 REST_FRAMEWORK = {
@@ -245,5 +281,5 @@ LOGGING = {
     "handlers": {"console": {"class": "logging.StreamHandler"}},
     "root": {"handlers": ["console"], "level": "INFO"},
 }
-USSD_SHARED_SECRET = os.environ.get("USSD_SHARED_SECRET", "")  # set in production; the USSD gateway sends it in X-USSD-Secret
+USSD_SHARED_SECRET = os.environ.get("USSD_SHARED_SECRET", "")  # gateway secret; sent as X-USSD-Secret or ?token= on the callback URL
 ALLOW_PAYMENT_SIMULATION = env_bool("ALLOW_PAYMENT_SIMULATION", False)  # demo-only; off unless explicitly enabled

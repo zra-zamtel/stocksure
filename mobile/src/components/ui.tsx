@@ -182,6 +182,7 @@ export function Field({
   required,
   maxLength,
   autoFocus,
+  autoCapitalize,
 }: {
   label: string;
   value?: string;
@@ -192,6 +193,7 @@ export function Field({
   required?: boolean;
   maxLength?: number;
   autoFocus?: boolean;
+  autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
 }) {
   return (
     <View style={styles.field}>
@@ -208,6 +210,7 @@ export function Field({
         secureTextEntry={secureTextEntry}
         maxLength={maxLength}
         autoFocus={autoFocus}
+        autoCapitalize={autoCapitalize}
         style={styles.input}
         autoCorrect={false}
       />

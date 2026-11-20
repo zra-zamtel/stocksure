@@ -12,17 +12,30 @@ from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 
 from django.db import transaction
+from django.db.models import Sum, Value
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 from rest_framework.exceptions import APIException
 
 from apps.accounts.models import User
 from apps.core.utils import local_today, month_bounds, normalize_phone
-from apps.sync.models import Payment, Sale, Shop, SyncChange, TaxPeriod, TaxPotEntry
+from apps.sync.models import (
+    Payment,
+    ProductVariant,
+    Sale,
+    Shop,
+    SyncChange,
+    TaxPeriod,
+    TaxPotEntry,
+)
 from apps.sync.services import period_id_for, resolve_shop, tax_period_payload
 from apps.tax.services import compute_estimate
 
-MENU_OWNER = "CON StockSure\n1. Record a sale\n2. Today's summary\n3. Tax estimate\n4. Save to TaxPot"
-MENU_ASSISTANT = "CON StockSure\n1. Record a sale\n2. Today's summary"
+MENU_OWNER = (
+    "CON StockSure\n1. Record a sale\n2. Check stock\n3. Today's summary\n"
+    "4. Tax estimate\n5. Save to TaxPot"
+)
+MENU_ASSISTANT = "CON StockSure\n1. Record a sale\n2. Check stock\n3. Today's summary"
 
 
 def _msg(exc):
@@ -47,6 +60,56 @@ def _ngwee(raw):
 
 def _k(ngwee) -> str:
     return f"K{Decimal(ngwee) / 100:.2f}"
+
+
+def _with_stock(shop):
+    return (
+        ProductVariant.objects.filter(shop=shop)
+        .select_related("product")
+        .annotate(stock=Coalesce(Sum("movements__quantity_change"), Value(0)))
+    )
+
+
+def _stock_label(variant, width=22):
+    """One USSD line: product, size and colour, trimmed to fit the screen."""
+    text = " ".join(
+        part for part in (variant.product.name, variant.size, variant.colour) if part
+    )
+    return text if len(text) <= width else text[: width - 3].rstrip() + "..."
+
+
+def _low_stock(shop):
+    variants = list(_with_stock(shop).order_by("stock", "product__name", "size", "id"))
+    if not variants:
+        return "END No products have synced yet. Add products in the app first."
+    low = [variant for variant in variants if variant.stock <= variant.low_stock_level]
+    if not low:
+        return "END Stock OK: all items are above their low-stock level."
+    out = sum(1 for variant in low if variant.stock <= 0)
+    lines = [f"END Low stock {len(low)}/{len(variants)}, {out} out"]
+    lines.extend(f"{_stock_label(variant)}: {variant.stock}" for variant in low[:4])
+    if len(low) > 4:
+        lines.append(f"+{len(low) - 4} more in the app")
+    return "\n".join(lines)
+
+
+def _stock_by_barcode(shop, barcode):
+    code = (barcode or "").strip()
+    if not code:
+        return "END Enter a barcode."
+    variant = _with_stock(shop).filter(barcode=code).first()
+    if variant is None:
+        return "END No item with that barcode."
+    if variant.stock <= 0:
+        note = " Out of stock."
+    elif variant.stock <= variant.low_stock_level:
+        note = " Low stock."
+    else:
+        note = ""
+    return (
+        f"END {_stock_label(variant, 30)}: {variant.stock} left "
+        f"at {_k(variant.sell_price)}.{note}"
+    )
 
 
 def handle(phone, text):
@@ -216,7 +279,18 @@ def _registered(user, shop, role, parts):
         label = "Cash" if method == Payment.Method.CASH else "Mobile money"
         return f"END Sale of {_k(amount)} recorded ({label})."
 
-    if choice == "2":  # today's summary
+    if choice == "2":  # check stock
+        if len(parts) == 1:
+            return "CON Check stock\n1. Low stock\n2. Find by barcode"
+        if parts[1] == "1":
+            return _low_stock(shop)
+        if parts[1] == "2":
+            if len(parts) == 2:
+                return "CON Enter the item barcode"
+            return _stock_by_barcode(shop, parts[2])
+        return "END Invalid choice. Please dial again."
+
+    if choice == "3":  # today's summary
         today = local_today()
         sales = list(
             Sale.objects.filter(
@@ -238,10 +312,10 @@ def _registered(user, shop, role, parts):
             f"Cash {_k(cash)}, mobile money {_k(mobile)}."
         )
 
-    if choice in ("3", "4") and not is_owner:
+    if choice in ("4", "5") and not is_owner:
         return "END This option is for the shop owner."
 
-    if choice == "3":  # tax estimate for this month
+    if choice == "4":  # tax estimate for this month
         today = local_today()
         start, end = _month_start_end(today)
         result = compute_estimate(shop, start, end)
@@ -258,7 +332,7 @@ def _registered(user, shop, role, parts):
             f"(on {_k(basis)} sales). Estimate only, not a ZRA assessment.{extra}"
         )
 
-    if choice == "4":  # simulated TaxPot contribution
+    if choice == "5":  # simulated TaxPot contribution
         if len(parts) == 1:
             return "CON Amount to save in Kwacha (simulated)"
         amount = _ngwee(parts[1])

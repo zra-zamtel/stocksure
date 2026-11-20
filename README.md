@@ -201,7 +201,12 @@ EXPO_PUBLIC_API_URL=http://<host>:8000 npx expo start
 $env:EXPO_PUBLIC_API_URL="http://<host>:8000"; npx expo start
 ```
 
-See [`backend/README.md`](./backend/README.md).
+See [`backend/README.md`](./backend/README.md). For the USSD demo, the
+Africa's Talking sandbox setup and callback URL are in
+[`docs/ussd-africas-talking.md`](./docs/ussd-africas-talking.md).
+
+To host the backend on AWS Lambda for the demo, follow
+[the Lambda deployment section](./backend/README.md#deploy-to-aws-lambda).
 
 ## Status
 

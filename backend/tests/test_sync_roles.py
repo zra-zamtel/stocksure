@@ -246,7 +246,7 @@ class PlaceholderAndUssdTests(SyncBase):
     def test_ussd_taxpot_before_phone_sync_moves_to_the_phone_period(self):
         from apps.ussd.services import handle
 
-        answer = handle("0971234567", "4*50*correct horse battery")
+        answer = handle("0971234567", "5*50*correct horse battery")
         self.assertIn("Saved", answer)
         self.push_schema()
 
@@ -262,7 +262,7 @@ class PlaceholderAndUssdTests(SyncBase):
     def test_ussd_period_uses_the_shared_id_and_a_fractional_rate(self):
         from apps.ussd.services import handle
 
-        handle("0971234567", "4*50*correct horse battery")
+        handle("0971234567", "5*50*correct horse battery")
         period = TaxPeriod.objects.get()
 
         self.assertEqual(period.id, period_id_for(period.shop, period.starts_on))
@@ -273,4 +273,4 @@ class PlaceholderAndUssdTests(SyncBase):
     def test_ussd_taxpot_rejects_a_wrong_password(self):
         from apps.ussd.services import handle
 
-        self.assertEqual(handle("0971234567", "4*50*1234"), "END That password is not correct.")
+        self.assertEqual(handle("0971234567", "5*50*1234"), "END That password is not correct.")

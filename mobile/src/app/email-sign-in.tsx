@@ -30,6 +30,7 @@ export default function EmailSignInScreen() {
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [demoToken, setDemoToken] = useState<string | null>(null);
+  const [pastedLink, setPastedLink] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [magicSending, setMagicSending] = useState(false);
 
@@ -97,6 +98,30 @@ export default function EmailSignInScreen() {
     }
   }
 
+  function handlePastedLink() {
+    setError(null);
+    const trimmed = pastedLink.trim();
+    if (!trimmed) {
+      setError(t('auth.email.error.pasteInvalid'));
+      return;
+    }
+
+    const match = trimmed.match(/[?&]token=([^&\s]+)/);
+    let token = trimmed;
+    if (match) {
+      try {
+        token = decodeURIComponent(match[1]);
+      } catch {
+        token = match[1];
+      }
+    } else if (/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)) {
+      setError(t('auth.email.error.pasteInvalid'));
+      return;
+    }
+
+    router.push({ pathname: '/magic-link', params: { token } });
+  }
+
   return (
     <Screen
       title={t('auth.email.title')}
@@ -116,6 +141,7 @@ export default function EmailSignInScreen() {
           onChangeText={setEmail}
           placeholder="you@example.com"
           keyboardType="default"
+          autoCapitalize="none"
           autoFocus
           required
         />
@@ -145,6 +171,25 @@ export default function EmailSignInScreen() {
       />
 
       {info ? <Text style={styles.info}>{info}</Text> : null}
+
+      <Card style={styles.pasteCard}>
+        <Text style={styles.pasteTitle}>{t('auth.email.pasteTitle')}</Text>
+        <Text style={styles.muted}>{t('auth.email.pasteHint')}</Text>
+        <Field
+          label={t('auth.email.pasteLabel')}
+          value={pastedLink}
+          onChangeText={setPastedLink}
+          placeholder={t('auth.email.pastePlaceholder')}
+          autoCapitalize="none"
+        />
+        <Button
+          label={t('auth.email.pasteAction')}
+          variant="secondary"
+          disabled={pastedLink.trim() === ''}
+          onPress={handlePastedLink}
+        />
+      </Card>
+
       {demoToken ? (
         <Card style={styles.demoCard}>
           <Text style={styles.demoLabel}>{t('auth.email.demoLink')}</Text>
@@ -169,6 +214,8 @@ const styles = StyleSheet.create({
   info: { fontSize: typeScale.label, color: colors.success, fontWeight: '600' },
   error: { fontSize: typeScale.label, color: colors.danger, fontWeight: '600' },
   muted: { fontSize: typeScale.label, color: colors.textMuted },
+  pasteCard: { gap: spacing.xs },
+  pasteTitle: { fontSize: typeScale.body, color: colors.text, fontWeight: '700' },
   demoCard: { backgroundColor: colors.warningSoft, gap: spacing.xs },
   demoLabel: { fontSize: typeScale.body, color: colors.text, fontWeight: '700' },
 });

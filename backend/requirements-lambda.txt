@@ -1,0 +1,18 @@
+# Runtime dependencies for the AWS Lambda zip bundle.
+# Built by scripts/build-lambda.ps1 with Linux wheels; Docker is not required.
+# boto3/botocore are provided by the Lambda Python runtime.
+# gunicorn is only used by the local Dockerfile, not by Lambda.
+Django>=5.2,<6.0
+djangorestframework>=3.16,<4.0
+djangorestframework-simplejwt>=5.3
+django-cors-headers>=4.4
+drf-spectacular>=0.27
+dj-database-url>=2.3,<4.0
+psycopg[binary]>=3.2,<4.0
+Pillow>=10.4
+python-dotenv>=1.1,<2.0
+whitenoise>=6.7
+mangum>=0.17,<1.0
+django-storages>=1.14,<2.0
+# Optional: only needed when AI_INVOICE_READER=apps.integrations.ai.AnthropicInvoiceReader
+anthropic>=0.40
