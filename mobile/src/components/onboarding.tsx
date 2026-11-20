@@ -24,10 +24,11 @@ import { colors, radii, spacing, touch, typeScale } from '../theme/tokens';
 export const SETUP_STEPS = {
   account: 1,
   shop: 2,
-  money: 3,
-  products: 4,
+  plan: 3,
+  money: 4,
+  products: 5,
 } as const;
-export const SETUP_TOTAL = 4;
+export const SETUP_TOTAL = 5;
 
 type Props = {
   step: number;

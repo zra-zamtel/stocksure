@@ -15,11 +15,12 @@ import {
   Screen,
   SectionTitle,
 } from '@/components/ui';
-import { isValidTpin, type ShopType } from '@/core';
+import { isValidTpin, trialDaysLeft, type ShopType } from '@/core';
 import { taxRules } from '@/data/fake';
 import { useShop } from '@/db/hooks';
 import { saveMoneySettings, saveShopDetails } from '@/db/repos';
 import { useSync } from '@/db/use-sync';
+import { readPlanChoice } from '@/lib/plan-store';
 import { LANGUAGE_LABELS, useI18n, type Language } from '@/i18n';
 import { colors, spacing, typeScale } from '@/theme/tokens';
 
@@ -28,6 +29,16 @@ const PROVIDERS = ['MTN', 'Airtel', 'Zamtel'] as const;
 
 export default function SettingsScreen() {
   const { t, language, setLanguage } = useI18n();
+  const [plan] = useState(readPlanChoice);
+  const planLabel =
+    plan.kind === 'free'
+      ? t('settings.plan.free')
+      : trialDaysLeft(plan.startedAt) > 0
+        ? t('settings.plan.trial', {
+            plan: t(`onboarding.plan.${plan.plan}.name`),
+            days: trialDaysLeft(plan.startedAt),
+          })
+        : t('settings.plan.trialEnded', { plan: t(`onboarding.plan.${plan.plan}.name`) });
   const router = useRouter();
   const db = useSQLiteContext();
   const { ownerPreview, signOut, refresh } = useAuth();
@@ -208,6 +219,7 @@ export default function SettingsScreen() {
             label={t('settings.barcodes')}
             value={shop ? (shop.usesBarcodes ? t('common.yes') : t('common.no')) : t('common.notYet')}
           />
+          <Row label={t('settings.plan')} value={planLabel} />
           {shop ? <Button label={t('settings.editShop')} variant="secondary" onPress={startEditing} /> : null}
         </Card>
       )}
