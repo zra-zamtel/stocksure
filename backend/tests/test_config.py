@@ -78,13 +78,22 @@ class ConfigTests(BaseTestCase):
         self.assertEqual(APIClient().get("/api/v1/config/lang_ny").data["version"], ok.version)
         self.assertEqual(ConfigVersion.objects.filter(kind="lang_ny", is_published=True).count(), 2)
 
-    def test_seed_command_publishes_placeholder_rules_that_are_not_validated(self):
+    def test_seed_command_publishes_the_zra_rules(self):
         with tempfile.TemporaryDirectory() as d:
             Path(d, "en.json").write_text(json.dumps({"app.name": "StockSure"}), encoding="utf-8")
             Path(d, "ny.json").write_text(json.dumps({"app.name": "StockSure"}), encoding="utf-8")
             call_command("seed_config", lang_dir=d, verbosity=0)
             call_command("seed_config", lang_dir=d, verbosity=0)  # running twice is harmless
         rules = ConfigVersion.latest_published("tax_rules")
-        self.assertFalse(rules.validated_with_zra)
+        self.assertTrue(rules.validated_with_zra)
+        self.assertEqual(rules.payload["rate"], 0.05)
+        self.assertEqual(rules.payload["threshold"], 500_000_000)  # K5 million a year, in ngwee
+        self.assertEqual(rules.payload["thresholdBasis"], "year")
+        self.assertEqual(rules.payload["dueDaysAfterPeriod"], 14)
         self.assertEqual(ConfigVersion.objects.count(), 3)
-        self.assertFalse(APIClient().get("/api/v1/config/tax_rules").data["validatedWithZra"])
+        self.assertTrue(APIClient().get("/api/v1/config/tax_rules").data["validatedWithZra"])
+
+    def test_rules_accept_threshold_basis_but_only_year_or_period(self):
+        publish("tax_rules", 1, {**RULES, "thresholdBasis": "year"})
+        with self.assertRaises(ValidationError):
+            publish("tax_rules", 2, {**RULES, "version": 2, "thresholdBasis": "month"})

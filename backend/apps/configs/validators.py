@@ -28,7 +28,12 @@ def validate_tax_rules(payload, version):
     if not isinstance(payload, dict):
         raise ValidationError("Tax rules must be a JSON object.")
     expected = {"version", "rate", "threshold", "periodDays", "dueDaysAfterPeriod", "reminderDaysBefore"}
-    missing, extra = expected - set(payload), set(payload) - expected
+    # thresholdBasis was added with the ZRA rules (rules version 2). Older rules
+    # files without it mean "period", which is how the app reads a missing value.
+    optional = {"thresholdBasis"}
+    missing, extra = expected - set(payload), set(payload) - expected - optional
+    if "thresholdBasis" in payload and payload["thresholdBasis"] not in ("year", "period"):
+        raise ValidationError("thresholdBasis must be 'year' or 'period'.")
     if missing:
         raise ValidationError(f"Missing field(s): {', '.join(sorted(missing))}.")
     if extra:

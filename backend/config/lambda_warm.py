@@ -18,5 +18,5 @@ def handler(event, context):
         with urllib.request.urlopen(url, timeout=10) as response:
             body = response.read(200).decode("utf-8", "replace")
             return {"ok": response.status == 200, "status": response.status, "body": body}
-    except Exception as exc:
+    except OSError as exc:  # URLError, HTTPError and timeouts are all OSError
         return {"ok": False, "error": str(exc)}
