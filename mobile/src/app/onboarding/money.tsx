@@ -67,6 +67,7 @@ export default function MoneyScreen() {
   return (
     <SetupStep
       step={SETUP_STEPS.money}
+      eyebrow={t('onboarding.money.eyebrow')}
       title={t('onboarding.money.title')}
       subtitle={t('onboarding.money.subtitle')}
       onBack={() => router.back()}

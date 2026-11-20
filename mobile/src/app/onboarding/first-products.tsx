@@ -47,6 +47,7 @@ export default function FirstProductsScreen() {
   return (
     <SetupStep
       step={SETUP_STEPS.products}
+      eyebrow={t('onboarding.products.eyebrow')}
       title={t('onboarding.products.title')}
       subtitle={t('onboarding.products.subtitle')}
       onBack={() => router.back()}

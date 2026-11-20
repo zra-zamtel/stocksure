@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
   ImageBackground,
   Pressable,
@@ -183,38 +183,90 @@ export function Field({
   maxLength,
   autoFocus,
   autoCapitalize,
+  icon,
+  prefix,
+  revealLabels,
 }: {
   label: string;
   value?: string;
   onChangeText?: (text: string) => void;
   placeholder?: string;
-  keyboardType?: 'default' | 'phone-pad' | 'numeric' | 'decimal-pad';
+  keyboardType?: 'default' | 'phone-pad' | 'numeric' | 'decimal-pad' | 'email-address';
   secureTextEntry?: boolean;
   required?: boolean;
   maxLength?: number;
   autoFocus?: boolean;
   autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
+  /** A symbol inside the box, before the text. */
+  icon?: AndroidSymbol;
+  /** Fixed text in a tinted segment before the input, e.g. a dialling code. */
+  prefix?: string;
+  /** With secureTextEntry: adds an eye button that shows the typed value. */
+  revealLabels?: { show: string; hide: string };
 }) {
+  const [revealed, setRevealed] = useState(false);
+  const canReveal = Boolean(secureTextEntry && revealLabels);
+
   return (
     <View style={styles.field}>
       <Text style={styles.fieldLabel}>
         {label}
         {required ? ' *' : ''}
       </Text>
-      <TextInput
-        value={value}
-        onChangeText={onChangeText}
-        placeholder={placeholder}
-        placeholderTextColor={colors.textMuted}
-        keyboardType={keyboardType}
-        secureTextEntry={secureTextEntry}
-        maxLength={maxLength}
-        autoFocus={autoFocus}
-        autoCapitalize={autoCapitalize}
-        style={styles.input}
-        autoCorrect={false}
-      />
+      <View style={styles.inputBox}>
+        {prefix ? (
+          <View style={styles.inputPrefix}>
+            <Text style={styles.inputPrefixText}>{prefix}</Text>
+          </View>
+        ) : null}
+        {icon ? (
+          <View style={styles.inputIcon}>
+            <Icon name={icon} size={20} color={colors.textMuted} />
+          </View>
+        ) : null}
+        <TextInput
+          value={value}
+          onChangeText={onChangeText}
+          placeholder={placeholder}
+          placeholderTextColor={colors.textMuted}
+          keyboardType={keyboardType}
+          secureTextEntry={secureTextEntry && !revealed}
+          maxLength={maxLength}
+          autoFocus={autoFocus}
+          autoCapitalize={autoCapitalize ?? (keyboardType === 'email-address' ? 'none' : undefined)}
+          accessibilityLabel={label}
+          style={[styles.input, (icon || prefix) && styles.inputAfterLead]}
+          autoCorrect={false}
+        />
+        {canReveal && revealLabels ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={revealed ? revealLabels.hide : revealLabels.show}
+            onPress={() => setRevealed((current) => !current)}
+            style={({ pressed }) => [styles.inputReveal, pressed && styles.buttonPressed]}
+          >
+            <Icon name={revealed ? 'visibility' : 'visibility_off'} size={20} color={colors.textMuted} />
+          </Pressable>
+        ) : null}
+      </View>
     </View>
+  );
+}
+
+/** An inline text action, e.g. "Already have an account? Sign in". */
+export function TextLink({ lead, label, onPress }: { lead?: string; label: string; onPress: () => void }) {
+  return (
+    <Pressable
+      accessibilityRole="link"
+      accessibilityLabel={lead ? `${lead} ${label}` : label}
+      onPress={onPress}
+      style={({ pressed }) => [styles.textLink, pressed && styles.buttonPressed]}
+    >
+      <Text style={styles.textLinkLead}>
+        {lead ? `${lead} ` : ''}
+        <Text style={styles.textLinkLabel}>{label}</Text>
+      </Text>
+    </Pressable>
   );
 }
 
@@ -235,6 +287,11 @@ export function Choice({
       style={({ pressed }) => [styles.choice, selected && styles.choiceSelected, pressed && styles.buttonPressed]}
     >
       <Text style={[styles.choiceLabel, selected && styles.choiceLabelSelected]}>{label}</Text>
+      {selected ? (
+        <View style={styles.choiceCheck}>
+          <Icon name="check" size={20} color={colors.primaryInk} />
+        </View>
+      ) : null}
     </Pressable>
   );
 }
@@ -302,7 +359,7 @@ const styles = StyleSheet.create({
   amountSm: { fontSize: typeScale.body },
   button: {
     minHeight: touch.minHeight,
-    borderRadius: radii.md,
+    borderRadius: radii.pill,
     backgroundColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
@@ -319,19 +376,41 @@ const styles = StyleSheet.create({
   empty: { fontSize: typeScale.body, color: colors.textMuted, paddingVertical: spacing.sm },
   field: { gap: spacing.xs },
   fieldLabel: { fontSize: typeScale.label, color: colors.textMuted, fontWeight: '600' },
-  input: {
+  inputBox: {
     minHeight: touch.minHeight,
+    flexDirection: 'row',
+    alignItems: 'stretch',
     borderRadius: radii.md,
     borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: colors.bg,
+    backgroundColor: colors.surface,
+    overflow: 'hidden',
+  },
+  input: {
+    flex: 1,
+    minHeight: touch.minHeight,
     paddingHorizontal: spacing.md,
     fontSize: typeScale.body,
     color: colors.text,
   },
+  inputAfterLead: { paddingLeft: spacing.sm },
+  inputIcon: { justifyContent: 'center', paddingLeft: spacing.md },
+  inputPrefix: {
+    justifyContent: 'center',
+    paddingHorizontal: spacing.md,
+    backgroundColor: colors.surfaceAlt,
+    borderRightWidth: 1,
+    borderRightColor: colors.border,
+  },
+  inputPrefixText: { fontSize: typeScale.body, fontWeight: '700', color: colors.text },
+  inputReveal: { width: touch.minWidth, alignItems: 'center', justifyContent: 'center' },
+  textLink: { minHeight: touch.minHeight, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.sm },
+  textLinkLead: { fontSize: typeScale.body, color: colors.textMuted, textAlign: 'center' },
+  textLinkLabel: { color: colors.text, fontWeight: '700' },
+  choiceCheck: { position: 'absolute', right: spacing.lg, top: 0, bottom: 0, justifyContent: 'center' },
   choice: {
     minHeight: touch.minHeight,
-    borderRadius: radii.md,
+    borderRadius: radii.pill,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.bg,

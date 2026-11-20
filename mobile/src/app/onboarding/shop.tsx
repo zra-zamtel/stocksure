@@ -3,15 +3,21 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '@/auth/session';
-import { Button, Card, Choice, Field } from '@/components/ui';
-import { SETUP_STEPS, SetupStep } from '@/components/onboarding';
+import type { AndroidSymbol } from 'expo-symbols';
+import { Button, Field } from '@/components/ui';
+import { OptionCard, OptionGrid, SETUP_STEPS, SetupStep, StepSection } from '@/components/onboarding';
 import type { ShopType } from '@/core';
 import { useShop } from '@/db/hooks';
 import { saveShopDetails } from '@/db/repos';
 import { useI18n } from '@/i18n';
 import { colors, spacing, typeScale } from '@/theme/tokens';
 
-const SHOP_TYPES: ShopType[] = ['clothes', 'shoes', 'general', 'other'];
+const SHOP_TYPES: { type: ShopType; icon: AndroidSymbol }[] = [
+  { type: 'clothes', icon: 'checkroom' },
+  { type: 'shoes', icon: 'steps' },
+  { type: 'general', icon: 'shopping_basket' },
+  { type: 'other', icon: 'category' },
+];
 
 export default function ShopScreen() {
   const { t, language } = useI18n();
@@ -60,16 +66,19 @@ export default function ShopScreen() {
   return (
     <SetupStep
       step={SETUP_STEPS.shop}
+      eyebrow={t('onboarding.shop.eyebrow')}
       title={t('onboarding.shop.title')}
       subtitle={t('onboarding.shop.subtitle')}
       footer={<Button label={t('common.next')} disabled={saving} onPress={handleNext} />}
     >
-      <Card>
+      <View style={styles.fields}>
         <Field
           label={t('onboarding.shop.name')}
           value={name}
           onChangeText={setName}
           placeholder="Chiwala Fashions"
+          icon="storefront"
+          autoCapitalize="words"
           required
         />
         <Field
@@ -77,32 +86,43 @@ export default function ShopScreen() {
           value={town}
           onChangeText={setTown}
           placeholder="Lusaka"
+          icon="location_on"
+          autoCapitalize="words"
           required
         />
-      </Card>
+      </View>
 
-      <Text style={styles.sectionLabel}>{t('onboarding.shop.type')}</Text>
-      <View style={styles.group}>
-        {SHOP_TYPES.map((type) => (
-          <Choice
+      <StepSection>{t('onboarding.shop.type')}</StepSection>
+      <OptionGrid>
+        {SHOP_TYPES.map(({ type, icon }) => (
+          <OptionCard
             key={type}
-            label={t(`onboarding.shop.type.${type}`)}
+            icon={icon}
+            title={t(`onboarding.shop.type.${type}`)}
+            caption={t(`onboarding.shop.type.${type}.caption`)}
             selected={shopType === type}
             onPress={() => setShopType(type)}
           />
         ))}
-      </View>
+      </OptionGrid>
 
-      <Text style={styles.sectionLabel}>{t('onboarding.shop.barcodes')}</Text>
-      <View style={styles.row}>
-        <View style={styles.rowChoice}>
-          <Choice label={t('common.yes')} selected={usesBarcodes} onPress={() => setUsesBarcodes(true)} />
-        </View>
-        <View style={styles.rowChoice}>
-          <Choice label={t('common.no')} selected={!usesBarcodes} onPress={() => setUsesBarcodes(false)} />
-        </View>
-      </View>
-      <Text style={styles.hint}>{t('onboarding.shop.barcodesHint')}</Text>
+      <StepSection>{t('onboarding.shop.howYouSell')}</StepSection>
+      <OptionGrid>
+        <OptionCard
+          icon="barcode_scanner"
+          title={t('onboarding.shop.barcodes.yes')}
+          caption={t('onboarding.shop.barcodes.yesCaption')}
+          selected={usesBarcodes}
+          onPress={() => setUsesBarcodes(true)}
+        />
+        <OptionCard
+          icon="list"
+          title={t('onboarding.shop.barcodes.no')}
+          caption={t('onboarding.shop.barcodes.noCaption')}
+          selected={!usesBarcodes}
+          onPress={() => setUsesBarcodes(false)}
+        />
+      </OptionGrid>
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
     </SetupStep>
@@ -110,10 +130,6 @@ export default function ShopScreen() {
 }
 
 const styles = StyleSheet.create({
-  sectionLabel: { fontSize: typeScale.label, fontWeight: '600', color: colors.textMuted },
-  group: { gap: spacing.sm },
-  row: { flexDirection: 'row', gap: spacing.md },
-  rowChoice: { flex: 1 },
-  hint: { fontSize: typeScale.label, color: colors.textMuted },
+  fields: { gap: spacing.md },
   error: { fontSize: typeScale.label, color: colors.danger, fontWeight: '600' },
 });
