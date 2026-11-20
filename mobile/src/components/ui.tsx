@@ -254,7 +254,18 @@ export function Field({
 }
 
 /** An inline text action, e.g. "Already have an account? Sign in". */
-export function TextLink({ lead, label, onPress }: { lead?: string; label: string; onPress: () => void }) {
+export function TextLink({
+  lead,
+  label,
+  onPress,
+  accent,
+}: {
+  lead?: string;
+  label: string;
+  onPress: () => void;
+  /** Blue link text, for small actions such as "Forgot your PIN?". */
+  accent?: boolean;
+}) {
   return (
     <Pressable
       accessibilityRole="link"
@@ -264,7 +275,7 @@ export function TextLink({ lead, label, onPress }: { lead?: string; label: strin
     >
       <Text style={styles.textLinkLead}>
         {lead ? `${lead} ` : ''}
-        <Text style={styles.textLinkLabel}>{label}</Text>
+        <Text style={[styles.textLinkLabel, accent && styles.textLinkAccent]}>{label}</Text>
       </Text>
     </Pressable>
   );
@@ -407,6 +418,7 @@ const styles = StyleSheet.create({
   textLink: { minHeight: touch.minHeight, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.sm },
   textLinkLead: { fontSize: typeScale.body, color: colors.textMuted, textAlign: 'center' },
   textLinkLabel: { color: colors.text, fontWeight: '700' },
+  textLinkAccent: { color: colors.primaryInk },
   choiceCheck: { position: 'absolute', right: spacing.lg, top: 0, bottom: 0, justifyContent: 'center' },
   choice: {
     minHeight: touch.minHeight,

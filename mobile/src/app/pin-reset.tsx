@@ -1,18 +1,18 @@
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { StyleSheet, Text } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { useAuth } from '@/auth/session';
-import { Button, Card, Field, Screen } from '@/components/ui';
+import { Hint, Notice, PinBoxes } from '@/components/auth';
+import { SetupStep } from '@/components/onboarding';
+import { Button, Field, TextLink } from '@/components/ui';
 import {
-  MAX_PIN_LENGTH,
   formatPhone,
-  normalisePin,
   validatePinReset,
   type PinResetErrorCode,
 } from '@/core';
 import { useI18n } from '@/i18n';
 import { ApiError, type ApiErrorCode } from '@/lib/api';
-import { colors, typeScale } from '@/theme/tokens';
+import { spacing } from '@/theme/tokens';
 
 const RESET_ERROR_KEYS: Record<PinResetErrorCode, string> = {
   'code-invalid': 'auth.reset.error.codeInvalid',
@@ -94,104 +94,81 @@ export default function PinResetScreen() {
   }
 
   return (
-    <Screen
+    <SetupStep
+      eyebrow={t('auth.reset.eyebrow')}
       title={t('auth.reset.title')}
-      subtitle={phone || undefined}
+      subtitle={phone ? t('auth.reset.subtitle', { phone }) : undefined}
+      onBack={() => router.replace('/sign-in')}
+      backLabel={t('auth.reset.backToSignIn')}
       footer={
         stage === 'confirm' ? (
           <Button
             label={submitting ? t('auth.reset.submitting') : t('auth.reset.submit')}
-            disabled={submitting || requesting}
+            disabled={submitting || requesting || code.length < 6 || pin.length < 4 || confirmPin.length < 4}
             onPress={handleReset}
           />
-        ) : undefined
-      }
-    >
-      {stage === 'request' ? (
-        <>
-          <Card>
-            <Text style={styles.body}>{t('auth.reset.requestBody', { phone })}</Text>
-          </Card>
+        ) : (
           <Button
             label={requesting ? t('auth.reset.sending') : t('auth.reset.request')}
             disabled={requesting}
             onPress={handleRequest}
           />
-          <Text style={styles.muted}>{t('auth.reset.offlineNote')}</Text>
-          <Button
-            label={t('auth.reset.backToSignIn')}
-            variant="secondary"
-            onPress={() => router.replace('/sign-in')}
-          />
+        )
+      }
+    >
+      {stage === 'request' ? (
+        <>
+          <Notice tone="info">{t('auth.reset.requestBody', { phone })}</Notice>
+          <Hint icon="wifi">{t('auth.reset.offlineNote')}</Hint>
         </>
       ) : (
         <>
-          {info ? <Text style={styles.info}>{info}</Text> : null}
+          {info ? <Notice tone="success">{info}</Notice> : null}
 
           {demoCode ? (
-            <Card style={styles.demoCard}>
-              <Text style={styles.demoLabel}>{t('auth.reset.demoCode', { code: demoCode })}</Text>
-              <Text style={styles.muted}>{t('auth.reset.demoNote')}</Text>
-            </Card>
+            <Notice tone="warning">
+              {`${t('auth.reset.demoCode', { code: demoCode })}\n${t('auth.reset.demoNote')}`}
+            </Notice>
           ) : null}
 
-          <Card>
+          <View style={styles.fields}>
             <Field
               label={t('auth.reset.code')}
               value={code}
               onChangeText={(value) => setCode(value.replace(/\D/g, ''))}
               placeholder="123456"
               keyboardType="numeric"
+              icon="sms"
               maxLength={6}
               autoFocus
               required
             />
-            <Field
-              label={t('auth.reset.newPin')}
-              value={pin}
-              onChangeText={(value) => setPin(normalisePin(value))}
-              placeholder="••••"
-              keyboardType="numeric"
-              secureTextEntry
-              maxLength={MAX_PIN_LENGTH}
-              required
-            />
-            <Field
+            <PinBoxes label={t('auth.reset.newPin')} value={pin} onChange={setPin} />
+            <PinBoxes
               label={t('auth.reset.confirmPin')}
               value={confirmPin}
-              onChangeText={(value) => setConfirmPin(normalisePin(value))}
-              placeholder="••••"
-              keyboardType="numeric"
-              secureTextEntry
-              maxLength={MAX_PIN_LENGTH}
-              required
+              onChange={setConfirmPin}
+              onSubmit={handleReset}
             />
-          </Card>
+          </View>
 
-          <Button
-            label={t('auth.reset.resend')}
-            variant="secondary"
-            disabled={requesting || submitting}
-            onPress={handleRequest}
-          />
-          <Button
-            label={t('auth.reset.backToSignIn')}
-            variant="secondary"
-            onPress={() => router.replace('/sign-in')}
-          />
+          <View style={styles.resend}>
+            <TextLink
+              accent
+              lead={t('auth.reset.noCode')}
+              label={t('auth.reset.resend')}
+              onPress={handleRequest}
+            />
+          </View>
         </>
       )}
 
-      {error ? <Text style={styles.error}>{error}</Text> : null}
-    </Screen>
+      {error ? <Notice tone="error">{error}</Notice> : null}
+    </SetupStep>
   );
 }
 
 const styles = StyleSheet.create({
-  body: { fontSize: typeScale.body, color: colors.text },
-  muted: { fontSize: typeScale.label, color: colors.textMuted },
-  info: { fontSize: typeScale.label, color: colors.success, fontWeight: '600' },
-  error: { fontSize: typeScale.label, color: colors.danger, fontWeight: '600' },
-  demoCard: { backgroundColor: colors.warningSoft },
-  demoLabel: { fontSize: typeScale.body, color: colors.text, fontWeight: '700' },
+  fields: { gap: spacing.lg },
+  resend: { alignItems: 'center' },
 });

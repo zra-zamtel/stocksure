@@ -1,18 +1,14 @@
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { StyleSheet, Text } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { useAuth } from '@/auth/session';
-import { Button, Card, Field, Screen } from '@/components/ui';
-import {
-  MAX_PIN_LENGTH,
-  isValidPhone,
-  isValidPin,
-  normalisePin,
-  normalisePhone,
-} from '@/core';
+import { Hint, Notice, PinBoxes } from '@/components/auth';
+import { SetupStep } from '@/components/onboarding';
+import { Button, Field } from '@/components/ui';
+import { isValidPhone, isValidPin, normalisePhone } from '@/core';
 import { useI18n } from '@/i18n';
 import { ApiError, type ApiErrorCode } from '@/lib/api';
-import { colors, typeScale } from '@/theme/tokens';
+import { spacing } from '@/theme/tokens';
 
 const ERROR_KEYS: Partial<Record<ApiErrorCode, string>> = {
   offline: 'staff.signIn.error.offline',
@@ -30,6 +26,7 @@ export default function StaffSignInScreen() {
   const [phone, setPhone] = useState('');
   const [pin, setPin] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [shakeKey, setShakeKey] = useState(0);
   const [submitting, setSubmitting] = useState(false);
 
   async function handleSignIn() {
@@ -52,6 +49,10 @@ export default function StaffSignInScreen() {
     } catch (cause) {
       if (cause instanceof ApiError) {
         setError(t(ERROR_KEYS[cause.code] ?? 'staff.signIn.error.server'));
+        if (cause.code === 'unauthorized') {
+          setShakeKey((key) => key + 1);
+          setPin('');
+        }
       } else {
         setError(cause instanceof Error ? cause.message : t('staff.signIn.error.server'));
       }
@@ -61,46 +62,50 @@ export default function StaffSignInScreen() {
   }
 
   return (
-    <Screen
+    <SetupStep
+      eyebrow={t('staff.signIn.eyebrow')}
       title={t('staff.signIn.title')}
       subtitle={t('staff.signIn.subtitle')}
+      onBack={() => router.back()}
+      backLabel={t('common.back')}
       footer={
         <Button
           label={submitting ? t('staff.signIn.submitting') : t('staff.signIn.action')}
           disabled={submitting || phone.trim() === '' || pin.length < 4}
-          onPress={handleSignIn}
+          onPress={() => void handleSignIn()}
         />
       }
     >
-      <Card>
+      <View style={styles.fields}>
         <Field
           label={t('staff.phone')}
           value={phone}
           onChangeText={setPhone}
-          placeholder="096 555 1122"
+          placeholder="96 555 1122"
           keyboardType="phone-pad"
+          prefix="🇿🇲 +260"
+          autoFocus
           required
         />
-        <Field
+        <PinBoxes
           label={t('auth.signIn.pin')}
           value={pin}
-          onChangeText={(value) => setPin(normalisePin(value))}
-          placeholder="••••"
-          keyboardType="numeric"
-          secureTextEntry
-          maxLength={MAX_PIN_LENGTH}
-          required
+          onChange={(value) => {
+            setPin(value);
+            if (error) setError(null);
+          }}
+          invalid={Boolean(error) && pin.length === 0}
+          shakeKey={shakeKey}
+          onSubmit={() => void handleSignIn()}
         />
-      </Card>
+      </View>
 
-      {error ? <Text style={styles.error}>{error}</Text> : null}
-      <Text style={styles.muted}>{t('staff.signIn.offlineNote')}</Text>
-      <Button label={t('common.back')} variant="secondary" onPress={() => router.back()} />
-    </Screen>
+      {error ? <Notice tone="error">{error}</Notice> : null}
+      <Hint icon="wifi">{t('staff.signIn.offlineNote')}</Hint>
+    </SetupStep>
   );
 }
 
 const styles = StyleSheet.create({
-  error: { fontSize: typeScale.label, color: colors.danger, fontWeight: '600' },
-  muted: { fontSize: typeScale.label, color: colors.textMuted },
+  fields: { gap: spacing.lg },
 });

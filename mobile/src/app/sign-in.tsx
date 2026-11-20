@@ -1,27 +1,31 @@
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { StyleSheet, Text } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { useAuth } from '@/auth/session';
-import { Button, Card, Field, Screen } from '@/components/ui';
-import { MAX_PIN_LENGTH, normalisePin } from '@/core';
+import { Avatar, displayName, Hint, Notice, OptionRow, PinBoxes, SectionDivider } from '@/components/auth';
+import { SetupStep } from '@/components/onboarding';
+import { Button, TextLink } from '@/components/ui';
 import { useI18n } from '@/i18n';
-import { colors, typeScale } from '@/theme/tokens';
+import { spacing } from '@/theme/tokens';
 
 export default function SignInScreen() {
   const { t } = useI18n();
   const router = useRouter();
-  const { ownerPreview, signIn, onboardingComplete, hasOwner, shopRestorePending } = useAuth();  const [pin, setPin] = useState('');
+  const { ownerPreview, signIn, onboardingComplete, hasOwner, shopRestorePending } = useAuth();
+  const [pin, setPin] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [shakeKey, setShakeKey] = useState(0);
   const [submitting, setSubmitting] = useState(false);
 
   async function handleSignIn() {
-    if (submitting) return;
+    if (submitting || pin.length < 4) return;
     setError(null);
     setSubmitting(true);
     try {
       const result = await signIn(pin);
       if (result === 'wrong-pin') {
         setError(t('auth.signIn.wrongPin'));
+        setShakeKey((key) => key + 1);
         setPin('');
         return;
       }
@@ -51,53 +55,69 @@ export default function SignInScreen() {
     }
   }
 
+  const name = ownerPreview ? displayName(ownerPreview.name) : null;
+
   return (
-    <Screen
-      title={ownerPreview ? `${t('auth.signIn.title')}, ${ownerPreview.name}` : t('auth.signIn.title')}
+    <SetupStep
+      eyebrow={t('auth.signIn.title')}
+      title={name ?? t('auth.signIn.title')}
       subtitle={t('auth.signIn.subtitle')}
+      hero={name ? <Avatar name={name} /> : undefined}
       footer={
         <Button
           label={t('auth.signIn.action')}
           disabled={pin.length < 4 || submitting}
-          onPress={handleSignIn}
+          onPress={() => void handleSignIn()}
         />
       }
     >
-      <Card>
-        <Field
+      <View style={styles.pinBlock}>
+        <PinBoxes
           label={t('auth.signIn.pin')}
           value={pin}
-          onChangeText={(value) => setPin(normalisePin(value))}
-          placeholder="••••"
-          keyboardType="numeric"
-          secureTextEntry
-          maxLength={MAX_PIN_LENGTH}
+          onChange={(value) => {
+            setPin(value);
+            if (error) setError(null);
+          }}
+          invalid={Boolean(error) && pin.length === 0}
+          shakeKey={shakeKey}
+          onSubmit={() => void handleSignIn()}
           autoFocus
         />
-      </Card>
+        {hasOwner ? (
+          <View style={styles.forgot}>
+            <TextLink accent label={t('auth.signIn.forgotPin')} onPress={() => router.push('/pin-reset')} />
+          </View>
+        ) : null}
+      </View>
 
-      <Button
-        label={t('auth.signIn.emailSignIn')}
-        variant="secondary"
-        onPress={() => router.push('/email-sign-in')}
-      />
-
-      <Button
-        label={t('auth.signIn.staffNewPhone')}
-        variant="secondary"
-        onPress={() => router.push('/staff-sign-in')}
-      />
-
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {error ? <Notice tone="error">{error}</Notice> : null}
       {hasOwner && !onboardingComplete && !shopRestorePending ? (
-        <Text style={styles.muted}>{t('auth.signIn.setupContinues')}</Text>
+        <Notice tone="info">{t('auth.signIn.setupContinues')}</Notice>
       ) : null}
-      <Text style={styles.muted}>{t('auth.signIn.offlineNote')}</Text>
-    </Screen>
+      <Hint icon="wifi_off">{t('auth.signIn.offlineNote')}</Hint>
+
+      <SectionDivider label={t('auth.signIn.otherWays')} />
+      <View style={styles.options}>
+        <OptionRow
+          icon="mail"
+          title={t('auth.signIn.emailOption')}
+          caption={t('auth.signIn.emailOptionHint')}
+          onPress={() => router.push('/email-sign-in')}
+        />
+        <OptionRow
+          icon="badge"
+          title={t('auth.signIn.staffOption')}
+          caption={t('auth.signIn.staffOptionHint')}
+          onPress={() => router.push('/staff-sign-in')}
+        />
+      </View>
+    </SetupStep>
   );
 }
 
 const styles = StyleSheet.create({
-  error: { fontSize: typeScale.label, color: colors.danger, fontWeight: '600' },
-  muted: { fontSize: typeScale.label, color: colors.textMuted },
+  pinBlock: { gap: spacing.xs },
+  forgot: { alignItems: 'flex-start', marginLeft: -spacing.sm },
+  options: { gap: spacing.sm },
 });

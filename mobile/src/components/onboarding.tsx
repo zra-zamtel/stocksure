@@ -31,7 +31,8 @@ export const SETUP_STEPS = {
 export const SETUP_TOTAL = 5;
 
 type Props = {
-  step: number;
+  /** Omit outside setup (e.g. sign-in): no progress bar or step count. */
+  step?: number;
   /** Small blue label above the title, e.g. "SHOP SETUP". */
   eyebrow?: string;
   title: string;
@@ -59,9 +60,10 @@ export function SetupStep({
   children,
 }: Props) {
   const { t } = useI18n();
-  const stepLabel = t('common.stepOf', { step, total: SETUP_TOTAL });
+  const stepLabel = step === undefined ? null : t('common.stepOf', { step, total: SETUP_TOTAL });
   return (
     <Screen footer={footer}>
+      {onBack || step !== undefined ? (
       <View style={styles.top}>
         {onBack ? (
           <Pressable
@@ -75,9 +77,10 @@ export function SetupStep({
         ) : (
           <View style={styles.backSpacer} />
         )}
-        <Progress step={step} />
-        <Text style={styles.stepLabel}>{stepLabel}</Text>
+        {step !== undefined ? <Progress step={step} /> : null}
+        {stepLabel ? <Text style={styles.stepLabel}>{stepLabel}</Text> : null}
       </View>
+      ) : null}
 
       <Animated.View key={contentKey ?? title} entering={FadeInRight.duration(260)} style={styles.content}>
         {hero}

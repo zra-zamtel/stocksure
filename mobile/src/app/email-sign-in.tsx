@@ -1,12 +1,15 @@
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { StyleSheet, Text } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { useAuth } from '@/auth/session';
-import { Button, Card, Field, Screen } from '@/components/ui';
-import { isValidEmail, isValidPhone } from '@/core';
+import { Hint, Notice } from '@/components/auth';
+import { Toggle } from '@/components/charts';
+import { SetupStep } from '@/components/onboarding';
+import { Button, Field, SectionTitle } from '@/components/ui';
+import { isValidEmail, isValidPhone, normalisePhone } from '@/core';
 import { useI18n } from '@/i18n';
 import { ApiError, type ApiErrorCode } from '@/lib/api';
-import { colors, spacing, typeScale } from '@/theme/tokens';
+import { spacing } from '@/theme/tokens';
 
 const API_ERROR_KEYS: Partial<Record<ApiErrorCode, string>> = {
   offline: 'auth.email.error.offline',
@@ -16,23 +19,41 @@ const API_ERROR_KEYS: Partial<Record<ApiErrorCode, string>> = {
   server: 'auth.email.error.server',
 };
 
+type Mode = 'password' | 'link';
+
+/** The phone field shows +260 in front, so it holds the nine local digits. */
+function localDigits(phone: string | undefined): string {
+  if (!phone) return '';
+  const normalised = normalisePhone(phone);
+  return /^0\d{9}$/.test(normalised) ? normalised.slice(1) : phone;
+}
+
 export default function EmailSignInScreen() {
   const { t } = useI18n();
   const router = useRouter();
   const { beginOwnerLogin, ownerPreview, requestOwnerMagicLink } = useAuth();
 
-  const [email, setEmail] = useState('');
+  const [mode, setMode] = useState<Mode>('password');
+  const [email, setEmail] = useState(ownerPreview?.email ?? '');
   const [password, setPassword] = useState('');
   // The phone is only required while the email is unverified. Prefill it when
   // this phone already has the owner, which covers the normal verification
   // flow; on a brand-new phone the owner types it once.
-  const [phone, setPhone] = useState(ownerPreview?.phone ?? '');
+  const [phone, setPhone] = useState(localDigits(ownerPreview?.phone));
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [demoToken, setDemoToken] = useState<string | null>(null);
   const [pastedLink, setPastedLink] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [magicSending, setMagicSending] = useState(false);
+
+  const busy = submitting || magicSending;
+  const reveal = { show: t('common.showTyped'), hide: t('common.hideTyped') };
+
+  function switchMode(next: Mode) {
+    setMode(next);
+    setError(null);
+  }
 
   function describe(cause: unknown): string {
     if (cause instanceof ApiError) {
@@ -50,7 +71,7 @@ export default function EmailSignInScreen() {
   }
 
   async function handlePasswordSignIn() {
-    if (submitting || magicSending) return;
+    if (busy) return;
     setError(null);
     setInfo(null);
     if (!checkEmail()) return;
@@ -71,7 +92,7 @@ export default function EmailSignInScreen() {
   }
 
   async function handleMagicLink() {
-    if (submitting || magicSending) return;
+    if (busy) return;
     setError(null);
     setInfo(null);
     setDemoToken(null);
@@ -88,7 +109,7 @@ export default function EmailSignInScreen() {
 
     setMagicSending(true);
     try {
-      const result = await requestOwnerMagicLink(email, accountPhone || undefined);
+      const result = await requestOwnerMagicLink(email, normalisePhone(accountPhone));
       setInfo(t('auth.email.magicSent'));
       setDemoToken(result.demoToken ?? null);
     } catch (cause) {
@@ -122,100 +143,121 @@ export default function EmailSignInScreen() {
     router.push({ pathname: '/magic-link', params: { token } });
   }
 
+  const footer =
+    mode === 'password' ? (
+      <Button
+        label={submitting ? t('auth.email.signingIn') : t('auth.email.action')}
+        disabled={busy || email.trim() === '' || password === ''}
+        onPress={() => void handlePasswordSignIn()}
+      />
+    ) : (
+      <Button
+        label={magicSending ? t('auth.email.sendingLink') : t('auth.email.magicAction')}
+        disabled={busy || email.trim() === ''}
+        onPress={() => void handleMagicLink()}
+      />
+    );
+
   return (
-    <Screen
+    <SetupStep
+      eyebrow={t('auth.email.eyebrow')}
       title={t('auth.email.title')}
       subtitle={t('auth.email.subtitle')}
-      footer={
-        <Button
-          label={submitting ? t('auth.email.signingIn') : t('auth.email.action')}
-          disabled={submitting || magicSending || email.trim() === '' || password === ''}
-          onPress={() => void handlePasswordSignIn()}
-        />
-      }
+      onBack={() => router.back()}
+      backLabel={t('common.back')}
+      footer={footer}
     >
-      <Card>
+      <Toggle
+        options={[
+          { value: 'password' as Mode, label: t('auth.email.modePassword') },
+          { value: 'link' as Mode, label: t('auth.email.modeLink') },
+        ]}
+        value={mode}
+        onChange={switchMode}
+      />
+
+      <View style={styles.fields}>
         <Field
           label={t('auth.email.email')}
           value={email}
           onChangeText={setEmail}
           placeholder="you@example.com"
-          keyboardType="default"
-          autoCapitalize="none"
-          autoFocus
+          keyboardType="email-address"
+          icon="mail"
           required
         />
-        <Field
-          label={t('auth.email.password')}
-          value={password}
-          onChangeText={setPassword}
-          placeholder="••••••••"
-          secureTextEntry
-          required
-        />
-        <Field
-          label={t('auth.email.phone')}
-          value={phone}
-          onChangeText={setPhone}
-          placeholder="097 123 4567"
-          keyboardType="phone-pad"
-        />
-        <Text style={styles.muted}>{t('auth.email.phoneHint')}</Text>
-      </Card>
-
-      <Button
-        label={magicSending ? t('auth.email.sendingLink') : t('auth.email.magicAction')}
-        variant="secondary"
-        disabled={submitting || magicSending || email.trim() === ''}
-        onPress={() => void handleMagicLink()}
-      />
-
-      {info ? <Text style={styles.info}>{info}</Text> : null}
-
-      <Card style={styles.pasteCard}>
-        <Text style={styles.pasteTitle}>{t('auth.email.pasteTitle')}</Text>
-        <Text style={styles.muted}>{t('auth.email.pasteHint')}</Text>
-        <Field
-          label={t('auth.email.pasteLabel')}
-          value={pastedLink}
-          onChangeText={setPastedLink}
-          placeholder={t('auth.email.pastePlaceholder')}
-          autoCapitalize="none"
-        />
-        <Button
-          label={t('auth.email.pasteAction')}
-          variant="secondary"
-          disabled={pastedLink.trim() === ''}
-          onPress={handlePastedLink}
-        />
-      </Card>
-
-      {demoToken ? (
-        <Card style={styles.demoCard}>
-          <Text style={styles.demoLabel}>{t('auth.email.demoLink')}</Text>
-          <Button
-            label={t('auth.email.openDemoLink')}
-            onPress={() =>
-              router.push({ pathname: '/magic-link', params: { token: demoToken } })
-            }
+        {mode === 'password' ? (
+          <Field
+            label={t('auth.email.password')}
+            value={password}
+            onChangeText={setPassword}
+            placeholder="••••••••"
+            icon="lock"
+            secureTextEntry
+            revealLabels={reveal}
+            required
           />
-          <Text style={styles.muted}>{t('auth.email.demoNote')}</Text>
-        </Card>
-      ) : null}
+        ) : (
+          <>
+            <Field
+              label={t('auth.email.phone')}
+              value={phone}
+              onChangeText={setPhone}
+              placeholder="97 123 4567"
+              keyboardType="phone-pad"
+              prefix="🇿🇲 +260"
+            />
+            <Hint icon="info">{t('auth.email.phoneHint')}</Hint>
+          </>
+        )}
+      </View>
 
-      {error ? <Text style={styles.error}>{error}</Text> : null}
-      <Text style={styles.muted}>{t('auth.email.pinNote')}</Text>
-      <Button label={t('common.back')} variant="secondary" onPress={() => router.back()} />
-    </Screen>
+      {error ? <Notice tone="error">{error}</Notice> : null}
+
+      {mode === 'password' ? (
+        <Hint icon="key">{t('auth.email.pinNote')}</Hint>
+      ) : (
+        <>
+          {info ? <Notice tone="success">{info}</Notice> : <Hint icon="link">{t('auth.email.linkHint')}</Hint>}
+
+          {demoToken ? (
+            <Notice
+              tone="warning"
+              action={
+                <Button
+                  label={t('auth.email.openDemoLink')}
+                  onPress={() => router.push({ pathname: '/magic-link', params: { token: demoToken } })}
+                />
+              }
+            >
+              {t('auth.email.demoNote')}
+            </Notice>
+          ) : null}
+
+          <SectionTitle>{t('auth.email.pasteTitle')}</SectionTitle>
+          <View style={styles.fields}>
+            <Field
+              label={t('auth.email.pasteLabel')}
+              value={pastedLink}
+              onChangeText={setPastedLink}
+              placeholder={t('auth.email.pastePlaceholder')}
+              autoCapitalize="none"
+              icon="link"
+            />
+            <Hint icon="info">{t('auth.email.pasteHint')}</Hint>
+            <Button
+              label={t('auth.email.pasteAction')}
+              variant="secondary"
+              disabled={pastedLink.trim() === ''}
+              onPress={handlePastedLink}
+            />
+          </View>
+        </>
+      )}
+    </SetupStep>
   );
 }
 
 const styles = StyleSheet.create({
-  info: { fontSize: typeScale.label, color: colors.success, fontWeight: '600' },
-  error: { fontSize: typeScale.label, color: colors.danger, fontWeight: '600' },
-  muted: { fontSize: typeScale.label, color: colors.textMuted },
-  pasteCard: { gap: spacing.xs },
-  pasteTitle: { fontSize: typeScale.body, color: colors.text, fontWeight: '700' },
-  demoCard: { backgroundColor: colors.warningSoft, gap: spacing.xs },
-  demoLabel: { fontSize: typeScale.body, color: colors.text, fontWeight: '700' },
+  fields: { gap: spacing.md },
 });

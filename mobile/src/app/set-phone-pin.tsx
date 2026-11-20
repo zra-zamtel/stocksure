@@ -1,12 +1,14 @@
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { StyleSheet, Text } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { useAuth } from '@/auth/session';
-import { Button, Card, EmptyState, Field, Screen } from '@/components/ui';
-import { MAX_PIN_LENGTH, isValidPin, normalisePin } from '@/core';
+import { Hint, Notice, PinBoxes } from '@/components/auth';
+import { SetupStep } from '@/components/onboarding';
+import { Button, TextLink } from '@/components/ui';
+import { isValidPin } from '@/core';
 import { useI18n } from '@/i18n';
 import { ApiError, type ApiErrorCode } from '@/lib/api';
-import { colors, typeScale } from '@/theme/tokens';
+import { spacing } from '@/theme/tokens';
 
 const ERROR_KEYS: Partial<Record<ApiErrorCode, string>> = {
   offline: 'auth.devicePin.error.offline',
@@ -23,7 +25,13 @@ export default function SetPhonePinScreen() {
   const [pin, setPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [shakeKey, setShakeKey] = useState(0);
   const [submitting, setSubmitting] = useState(false);
+
+  function backToEmail() {
+    cancelOwnerLogin();
+    router.replace('/email-sign-in');
+  }
 
   async function handleSave() {
     if (submitting) return;
@@ -35,6 +43,8 @@ export default function SetPhonePinScreen() {
     }
     if (pin !== confirmPin) {
       setError(t('auth.devicePin.error.pinMismatch'));
+      setShakeKey((key) => key + 1);
+      setConfirmPin('');
       return;
     }
 
@@ -55,72 +65,65 @@ export default function SetPhonePinScreen() {
 
   if (!pendingOwner) {
     return (
-      <Screen title={t('auth.devicePin.title')}>
-        <EmptyState message={t('auth.devicePin.noLogin')} />
-        <Button
-          label={t('auth.email.title')}
-          onPress={() => {
-            cancelOwnerLogin();
-            router.replace('/email-sign-in');
-          }}
-        />
-      </Screen>
+      <SetupStep
+        eyebrow={t('auth.devicePin.eyebrow')}
+        title={t('auth.devicePin.title')}
+        footer={<Button label={t('auth.email.title')} onPress={backToEmail} />}
+      >
+        <Notice tone="info">{t('auth.devicePin.noLogin')}</Notice>
+      </SetupStep>
     );
   }
 
   return (
-    <Screen
+    <SetupStep
+      eyebrow={t('auth.devicePin.eyebrow')}
       title={t('auth.devicePin.title')}
-      subtitle={pendingOwner.owner.email ?? pendingOwner.owner.name}
+      subtitle={t('auth.devicePin.body')}
+      onBack={backToEmail}
+      backLabel={t('common.cancel')}
       footer={
         <Button
           label={submitting ? t('auth.devicePin.saving') : t('auth.devicePin.action')}
-          disabled={submitting || pin.length < 4}
+          disabled={submitting || pin.length < 4 || confirmPin.length < 4}
           onPress={() => void handleSave()}
         />
       }
     >
-      <Card>
-        <Text style={styles.body}>{t('auth.devicePin.body')}</Text>
-        <Field
+      <View style={styles.fields}>
+        <PinBoxes
           label={t('auth.devicePin.pin')}
           value={pin}
-          onChangeText={(value) => setPin(normalisePin(value))}
-          placeholder="••••"
-          keyboardType="numeric"
-          secureTextEntry
-          maxLength={MAX_PIN_LENGTH}
+          onChange={(value) => {
+            setPin(value);
+            if (error) setError(null);
+          }}
           autoFocus
-          required
         />
-        <Field
+        <PinBoxes
           label={t('auth.devicePin.confirmPin')}
           value={confirmPin}
-          onChangeText={(value) => setConfirmPin(normalisePin(value))}
-          placeholder="••••"
-          keyboardType="numeric"
-          secureTextEntry
-          maxLength={MAX_PIN_LENGTH}
-          required
+          onChange={(value) => {
+            setConfirmPin(value);
+            if (error) setError(null);
+          }}
+          invalid={Boolean(error) && confirmPin.length === 0}
+          shakeKey={shakeKey}
+          onSubmit={() => void handleSave()}
         />
-      </Card>
+      </View>
 
-      {error ? <Text style={styles.error}>{error}</Text> : null}
-      <Text style={styles.muted}>{t('auth.devicePin.note')}</Text>
-      <Button
-        label={t('common.cancel')}
-        variant="secondary"
-        onPress={() => {
-          cancelOwnerLogin();
-          router.replace('/email-sign-in');
-        }}
-      />
-    </Screen>
+      {error ? <Notice tone="error">{error}</Notice> : null}
+      <Hint icon="lock">{t('auth.devicePin.note')}</Hint>
+      {pendingOwner.owner.email ? <Hint icon="mail">{pendingOwner.owner.email}</Hint> : null}
+      <View style={styles.cancel}>
+        <TextLink label={t('common.cancel')} onPress={backToEmail} />
+      </View>
+    </SetupStep>
   );
 }
 
 const styles = StyleSheet.create({
-  body: { fontSize: typeScale.body, color: colors.text },
-  muted: { fontSize: typeScale.label, color: colors.textMuted },
-  error: { fontSize: typeScale.label, color: colors.danger, fontWeight: '600' },
+  fields: { gap: spacing.lg },
+  cancel: { alignItems: 'center' },
 });
