@@ -339,7 +339,7 @@ class OwnerLoginTests(AuthTestCase):
         self.assertEqual(self.login().status_code, 401)
 
     def test_device_pin_accepts_the_jwt_and_does_not_store_the_hash(self):
-        token = self.login().json()["deviceToken"]
+        self.login().json()["deviceToken"]
 
         response = self.post(
             self.device_pin_url, {"pinHash": PIN_HASH}, auth(self.owner)

@@ -4,7 +4,8 @@ from decimal import Decimal
 from django.db.models import Sum
 from rest_framework.exceptions import ValidationError
 
-from apps.sync.models import Sale, Shop as SyncShop
+from apps.sync.models import Sale
+from apps.sync.models import Shop as SyncShop
 
 from .models import DISCLAIMER, TaxRuleSet
 
@@ -78,7 +79,7 @@ def compute_estimate(shop, start: date, end: date, include_unverified=True):
     )
     income_tax = bool(threshold_ngwee and ytd >= threshold_ngwee)
     estimated_ngwee = (
-        0 if income_tax else int(Decimal(basis) * rules.rate_percent / Decimal("100"))
+        0 if income_tax else int(Decimal(basis) * rules.rate_percent / Decimal(100))
     )
 
     warnings = []

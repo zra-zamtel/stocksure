@@ -130,5 +130,5 @@ class Command(BaseCommand):
         self.stdout.write(f"  Admin      {ADMIN_PHONE} / {OWNER_PASSWORD}  (also /admin/)")
         self.stdout.write(f"  Today's expected cash: K{preview['expected_cash']:.2f}. For the demo flag, declare "
                           f"K{max(preview['expected_cash'] - 200, 0):.2f} (K200 short) at daily close.")
-        self.stdout.write("  Stock-take #%d is open with exactly one pair missing (Men's sneaker, size 40): close it to see the report." % take.id)
+        self.stdout.write(f"  Stock-take #{take.id} is open with exactly one pair missing (Men's sneaker, size 40): close it to see the report.")
         self.stdout.write(self.style.WARNING("  Tax rules are a PLACEHOLDER (unvalidated). Do not quote the numbers."))

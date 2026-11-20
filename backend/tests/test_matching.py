@@ -1,20 +1,20 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime
 
 from django.test import TestCase
 
+from apps.sales import services
 from apps.sales.matching import (
     MatchCandidate,
     match_candidates,
     normalise_reference,
 )
+from apps.sales.models import MobilePayment, Sale
 
 from .helpers import client_for, make_shop
-from apps.sales.models import MobilePayment, Sale
-from apps.sales import services
 
 
 def at(hour, minute=0):
-    return datetime(2026, 11, 17, hour, minute, tzinfo=timezone.utc)
+    return datetime(2026, 11, 17, hour, minute, tzinfo=UTC)
 
 
 def candidate(id, amount=45000, reference="", provider="Zamtel", when=None):

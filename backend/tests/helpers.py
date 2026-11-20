@@ -1,3 +1,5 @@
+from django.core.cache import cache
+from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
 
@@ -32,3 +34,10 @@ def client_for(user):
     c = APIClient()
     c.force_authenticate(user)
     return c
+
+
+class BaseTestCase(TestCase):
+    """Clears the cache so throttle counters start fresh in each test."""
+
+    def setUp(self):
+        cache.clear()

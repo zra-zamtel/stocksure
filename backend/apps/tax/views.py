@@ -8,7 +8,11 @@ from apps.core.utils import parse_month
 
 from . import services
 from .models import DISCLAIMER, TaxEstimate, TaxRuleSet
-from .serializers import EstimateRequestSerializer, TaxEstimateSerializer, TaxRuleSetSerializer
+from .serializers import (
+    EstimateRequestSerializer,
+    TaxEstimateSerializer,
+    TaxRuleSetSerializer,
+)
 
 
 def _period(data):

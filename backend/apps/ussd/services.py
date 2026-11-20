@@ -29,7 +29,7 @@ def _msg(exc):
     detail = exc.detail
     if isinstance(detail, dict):
         detail = next(iter(detail.values()))
-    if isinstance(detail, (list, tuple)):
+    if isinstance(detail, list | tuple):
         detail = detail[0]
     return str(detail)
 
@@ -40,9 +40,9 @@ def _ngwee(raw):
         value = Decimal(raw)
     except (InvalidOperation, TypeError):
         return None
-    if not (0 < value < Decimal("1000000")):
+    if not (0 < value < Decimal(1000000)):
         return None
-    return int((value * 100).quantize(Decimal("1")))
+    return int((value * 100).quantize(Decimal(1)))
 
 
 def _k(ngwee) -> str:
@@ -123,7 +123,7 @@ def _period(shop, today):
         starts_on=start,
         ends_on=end,
         turnover=int(result["basis_income"] * 100),
-        rate_used=result["rate_percent"] / Decimal("100"),
+        rate_used=result["rate_percent"] / Decimal(100),
         estimated_tax=int(result["estimated_tax"] * 100),
         due_on=end + timedelta(days=14),
         paid=False,

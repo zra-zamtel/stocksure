@@ -20,10 +20,13 @@ from apps.shops.models import Shop
 from . import matching, services
 from .models import MobilePayment, Sale
 from .serializers import (
-    ManualMatchSerializer, MobilePaymentSerializer, SaleCreateSerializer, SaleSerializer,
-    SimulatePaymentSerializer, VoidSerializer,
+    ManualMatchSerializer,
+    MobilePaymentSerializer,
+    SaleCreateSerializer,
+    SaleSerializer,
+    SimulatePaymentSerializer,
+    VoidSerializer,
 )
-
 
 MAX_SYNC_ROWS = 500
 

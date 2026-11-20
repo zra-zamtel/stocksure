@@ -36,7 +36,7 @@ class SavingsTarget(TimeStampedModel):
         ordering = ["due_date", "-created_at"]
 
     def saved_amount(self):
-        return self.transactions.filter(kind=TaxPotTransaction.Kind.DEPOSIT).aggregate(t=Sum("amount"))["t"] or Decimal("0")
+        return self.transactions.filter(kind=TaxPotTransaction.Kind.DEPOSIT).aggregate(t=Sum("amount"))["t"] or Decimal(0)
 
 
 class TaxPotTransaction(TimeStampedModel):

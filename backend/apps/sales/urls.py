@@ -6,6 +6,4 @@ from .views import MobilePaymentViewSet, SaleViewSet, ZamtelWebhookView
 router = DefaultRouter()
 router.register("sales", SaleViewSet, basename="sale")
 router.register("payments", MobilePaymentViewSet, basename="payment")
-urlpatterns = router.urls + [
-    path("webhooks/zamtel/", ZamtelWebhookView.as_view(), name="zamtel-webhook"),
-]
+urlpatterns = [*router.urls, path("webhooks/zamtel/", ZamtelWebhookView.as_view(), name="zamtel-webhook")]

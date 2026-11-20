@@ -1,7 +1,7 @@
 import logging
 from datetime import date, datetime
 
-from django.db import IntegrityError, transaction
+from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
@@ -94,10 +94,7 @@ def _timestamp(payload, *keys, default=None):
     value = _get(payload, *keys)
     if value in (None, ""):
         return default or timezone.now()
-    if isinstance(value, datetime):
-        parsed = value
-    else:
-        parsed = parse_datetime(str(value))
+    parsed = value if isinstance(value, datetime) else parse_datetime(str(value))
     if parsed is None:
         raise SyncError(f"{keys[0]} must be an ISO 8601 timestamp.")
     if timezone.is_naive(parsed):
@@ -135,7 +132,7 @@ def _require_shop(shop: Shop | None) -> Shop:
 def user_shops(user: User):
     """Sync shops the user can use: their own, plus the shop of an owner who
     added them as an assistant (the assistant link still lives on Membership)."""
-    owned = Shop.objects.filter(owner=user)
+    Shop.objects.filter(owner=user)
     memberships = (
         Membership.objects.select_related("shop__owner")
         .filter(user=user, is_active=True, shop__is_active=True)
@@ -288,7 +285,7 @@ def _fill_shop(shop: Shop, payload: dict, ids: dict) -> None:
     )
     shop.tpin = _text(payload, "tpin", default="", max_length=20)
     providers = _get(payload, "providersJson", "providers_json", default=[])
-    if not isinstance(providers, (list, dict)):
+    if not isinstance(providers, list | dict):
         raise SyncError("providersJson must be a JSON list or object.")
     shop.providers_json = providers
     shop.onboarding_completed = _bool(
@@ -379,7 +376,7 @@ def upsert_product(payload, shop: Shop) -> Product:
         payload, "defaultSellPrice", "default_sell_price", default=0, minimum=0
     )
     discount = _get(payload, "discountJson", "discount_json")
-    if discount is not None and not isinstance(discount, (dict, list)):
+    if discount is not None and not isinstance(discount, dict | list):
         raise SyncError("discountJson must be a JSON object or list.")
     product.discount_json = discount
     product.updated_at = ids["updated_at"]
@@ -727,7 +724,7 @@ def upsert_tax_period(payload: dict, shop: Shop, *, partial=False) -> TaxPeriod:
         row.turnover = _int(payload, "turnover", default=0, minimum=0)
     if "rateUsed" in payload or "rate_used" in payload:
         value = _get(payload, "rateUsed", "rate_used", default=0)
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
+        if isinstance(value, bool) or not isinstance(value, int | float):
             raise SyncError("rateUsed must be a number.")
         if not 0 <= value <= 1:
             raise SyncError("rateUsed is a fraction, like 0.05 for 5%.")
@@ -851,8 +848,7 @@ def cursor_value(raw) -> int:
     if raw in (None, "", "0"):
         return 0
     text = str(raw)
-    if text.startswith("c_"):
-        text = text[2:]
+    text = text.removeprefix("c_")
     try:
         return max(0, int(text))
     except (TypeError, ValueError):

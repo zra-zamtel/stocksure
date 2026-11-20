@@ -80,6 +80,7 @@ INSTALLED_APPS = [
     "apps.taxmate",
     "apps.notifications",
     "apps.ussd",
+    "apps.configs",
     "apps.analytics",
     "apps.integrations",
     "apps.sync",

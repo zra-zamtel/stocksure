@@ -2,7 +2,7 @@ import re
 
 from rest_framework import serializers
 
-from apps.core.utils import normalize_phone, validate_zm_phone
+from apps.core.utils import validate_zm_phone
 from apps.shops.models import Membership, Shop
 
 from .models import User

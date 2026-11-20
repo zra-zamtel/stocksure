@@ -5,7 +5,11 @@ belongs to one shop (always true for assistants) the header can be left out.
 
 Roles: owner sees everything for the shop; assistant only gets the simple sales screens.
 """
-from rest_framework.exceptions import NotAuthenticated, PermissionDenied, ValidationError
+from rest_framework.exceptions import (
+    NotAuthenticated,
+    PermissionDenied,
+    ValidationError,
+)
 from rest_framework.permissions import BasePermission, IsAuthenticated
 
 

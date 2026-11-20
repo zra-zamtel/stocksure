@@ -1,6 +1,5 @@
 from decimal import Decimal
 
-from django.conf import settings
 from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 

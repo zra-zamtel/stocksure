@@ -20,7 +20,7 @@ def notify_owner(shop, kind, message, dedupe_key=""):
     )
     try:
         ok, info = get_sms_backend().send(note.recipient_phone, message)
-    except Exception as exc:  # a gateway failure must never break a sale or a close
+    except Exception as exc:  # noqa: BLE001 - a gateway failure must never break a sale or a close
         ok, info = False, str(exc)[:250]
     note.status = Notification.Status.SENT if ok else Notification.Status.FAILED
     note.provider_message = info[:255]
@@ -49,7 +49,7 @@ def generate_reminders(shop):
 
     for target in SavingsTarget.objects.filter(shop=shop, is_active=True):
         saved = target.saved_amount()
-        remaining = max(target.target_amount - saved, Decimal("0"))
+        remaining = max(target.target_amount - saved, Decimal(0))
         if remaining <= 0:
             continue
         days_left = (target.due_date - today).days if target.due_date else None

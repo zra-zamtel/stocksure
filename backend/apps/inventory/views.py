@@ -11,9 +11,18 @@ from apps.integrations.ai import get_invoice_reader
 from . import services
 from .models import InvoiceScan, Item, StockMovement, StockTake, StockTakeLine
 from .serializers import (
-    AdjustSerializer, BulkItemSerializer, InvoiceConfirmSerializer, InvoiceScanSerializer,
-    ItemBriefSerializer, ItemSerializer, ReceiveSerializer, StockMovementSerializer,
-    StockTakeCloseSerializer, StockTakeLineSerializer, StockTakeScanSerializer, StockTakeSerializer,
+    AdjustSerializer,
+    BulkItemSerializer,
+    InvoiceConfirmSerializer,
+    InvoiceScanSerializer,
+    ItemBriefSerializer,
+    ItemSerializer,
+    ReceiveSerializer,
+    StockMovementSerializer,
+    StockTakeCloseSerializer,
+    StockTakeLineSerializer,
+    StockTakeScanSerializer,
+    StockTakeSerializer,
 )
 
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
@@ -146,7 +155,7 @@ class InvoiceScanViewSet(ShopScopedMixin, mixins.CreateModelMixin, mixins.Retrie
             data = scan.image.read()
             scan.image.close()
             scan.parsed_items = get_invoice_reader().read(data, image.content_type)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - any reader failure marks the scan failed
             scan.status = InvoiceScan.Status.FAILED
             scan.error = str(exc)[:250]
         scan.save()

@@ -25,7 +25,7 @@ def apply_movement(*, item_id, change, kind, user=None, reference="", note=""):
 
 def expand_sizes(value):
     """'40-44' -> ['40','41','42','43','44'];  '40,42,44' -> [...];  ['S','M'] -> ['S','M']."""
-    if isinstance(value, (list, tuple)):
+    if isinstance(value, list | tuple):
         return [str(v).strip() for v in value if str(v).strip()]
     value = str(value or "").strip()
     if not value:
@@ -143,7 +143,7 @@ def build_report(take):
     """Exactly which items are missing (or extra), and what the shortfall is worth."""
     lines = list(take.lines.select_related("item"))
     missing, extra, uncounted = [], [], []
-    missing_value = Decimal("0")
+    missing_value = Decimal(0)
     for ln in lines:
         item = ln.item
         row = {

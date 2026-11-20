@@ -7,7 +7,7 @@ from django.db.models.functions import TruncDay, TruncMonth, TruncWeek
 from .models import LedgerEntry
 
 TRUNC = {"daily": TruncDay, "weekly": TruncWeek, "monthly": TruncMonth}
-ZERO = Decimal("0")
+ZERO = Decimal(0)
 
 
 def base_qs(shop, start=None, end=None):

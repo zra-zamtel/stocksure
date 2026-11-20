@@ -30,8 +30,8 @@ def compute_day(shop, date):
         shop=shop, status=MobilePayment.Status.UNMATCHED,
         received_at__gte=day_start, received_at__lt=day_start + timedelta(days=1),
     ).count()
-    cash_total = cash["t"] or Decimal("0")
-    mobile_total = mobile["t"] or Decimal("0")
+    cash_total = cash["t"] or Decimal(0)
+    mobile_total = mobile["t"] or Decimal(0)
     return {
         "date": date,
         "expected_cash": cash_total,

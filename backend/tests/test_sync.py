@@ -7,7 +7,6 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.accounts.models import User
 from apps.sync.models import (
-    MobileMoneyTxn,
     Payment,
     Product,
     ProductVariant,

@@ -1,5 +1,5 @@
 import re
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
 from django.utils import timezone
@@ -19,8 +19,7 @@ def normalize_phone(raw: str) -> str:
     0977123456 -> 260977123456, +260 977 123 456 -> 260977123456, 977123456 -> 260977123456
     """
     digits = re.sub(r"\D", "", raw or "")
-    if digits.startswith("00"):
-        digits = digits[2:]
+    digits = digits.removeprefix("00")
     if digits.startswith("0") and len(digits) == 10:
         digits = "260" + digits[1:]
     elif len(digits) == 9:
@@ -65,3 +64,8 @@ def parse_date(value, field="date"):
         return date.fromisoformat(value)
     except (ValueError, TypeError):
         raise ValidationError({field: "Use the format YYYY-MM-DD."})
+
+
+def iso_now() -> str:
+    """Current time as the ISO string the app uses (UTC, milliseconds, trailing Z)."""
+    return timezone.now().astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"

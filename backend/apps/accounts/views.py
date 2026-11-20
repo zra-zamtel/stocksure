@@ -257,7 +257,7 @@ class RegisterOwnerView(APIView):
         try:
             _, _, link = issue_magic_link(user)
             send_magic_link_email(user, link)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - a mail failure must not undo the sign-up
             logger.warning("Could not send the verification email for %s: %s", user.id, exc)
 
         return Response(auth_payload(user), status=status.HTTP_201_CREATED)

@@ -71,7 +71,7 @@ def record_sale(*, shop, user, role, payment_method, lines=None, amount=None, cl
                 price = ln["unit_price"]
                 description = ln.get("description", "")
             prepared.append((item, description, qty, price, money(Decimal(price) * qty)))
-        total = sum((p[4] for p in prepared), Decimal("0"))
+        total = sum((p[4] for p in prepared), Decimal(0))
     else:
         if amount is None:
             raise ValidationError({"amount": "Send either 'lines' or an 'amount'."})

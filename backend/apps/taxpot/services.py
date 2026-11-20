@@ -19,8 +19,8 @@ def get_wallet(shop):
 
 def progress(target):
     saved = target.saved_amount()
-    remaining = max(target.target_amount - saved, Decimal("0"))
-    pct = Decimal("100") if target.target_amount <= 0 else min(saved / target.target_amount * 100, Decimal("100"))
+    remaining = max(target.target_amount - saved, Decimal(0))
+    pct = Decimal(100) if target.target_amount <= 0 else min(saved / target.target_amount * 100, Decimal(100))
     return {"saved": saved, "remaining": remaining, "percent": pct.quantize(Decimal("0.1"))}
 
 
@@ -98,7 +98,7 @@ def simulate_payment(*, shop, target, amount, user=None):
 def prepare_payment(shop, target):
     wallet = get_wallet(shop)
     p = progress(target)
-    shortfall = max(target.target_amount - wallet.balance, Decimal("0"))
+    shortfall = max(target.target_amount - wallet.balance, Decimal(0))
     return {
         "target": target.name,
         "target_amount": target.target_amount,
