@@ -15,7 +15,6 @@ import {
   getTaxPotView,
   ignorePayment,
   injectDemoMessages,
-  recordGatewayPayment,
   InsufficientStockError,
   listIdentities,
   listMovements,
@@ -27,6 +26,8 @@ import {
   markStaffFirstSignIn,
   payTaxPot,
   reconcileDay,
+  addPaymentMessage,
+  DuplicateMessageError,
   recordSale,
   restockVariant,
   saveCashCount,
@@ -618,6 +619,42 @@ describe('IT-SALE recording and voiding sales', () => {
 });
 
 describe('IT-REC reconciliation', () => {
+  it('IT-REC-00 a pasted message with a reference pairs with a sale that has none', async () => {
+    const { variantId } = await product(5);
+    const { saleId } = await recordSale(db, mobileSale(variantId, at(DAY, '10:00')));
+    const txn = await addPaymentMessage(db, {
+      provider: 'MTN',
+      amount: 8000,
+      reference: '8812345678',
+      sender: 'JOHN BANDA',
+      receivedAt: at(DAY, '10:02'),
+      rawMessage: 'You have received ZMW 80.00 from JOHN BANDA. Financial Transaction Id: 8812345678.',
+      parsed: true,
+    });
+    const result = await reconcileDay(db, DAY);
+    expect(result.matched).toEqual([expect.objectContaining({ saleId, txnId: txn })]);
+    const queued = await db.getFirstAsync<{ n: number }>(
+      "SELECT COUNT(*) AS n FROM sync_queue WHERE entity = 'mobile_money_txn' AND entity_id = ? AND operation = 'create'",
+      txn
+    );
+    expect(queued?.n).toBe(1);
+  });
+
+  it('IT-REC-00b refuses the same reference pasted twice', async () => {
+    const input = {
+      provider: 'Airtel' as const,
+      amount: 5000,
+      reference: 'PP261117.A1',
+      receivedAt: at(DAY, '11:00'),
+      rawMessage: 'x',
+      parsed: true,
+    };
+    await addPaymentMessage(db, input);
+    await expect(addPaymentMessage(db, { ...input, reference: ' pp261117.a1 ' })).rejects.toBeInstanceOf(
+      DuplicateMessageError
+    );
+  });
+
   it('IT-REC-01 matches a sale to its message and persists both statuses', async () => {
     const { variantId } = await product(5);
     const { saleId } = await recordSale(db, mobileSale(variantId, at(DAY, '10:00')));
@@ -767,24 +804,6 @@ describe('IT-REC reconciliation', () => {
     expect(await injectDemoMessages(db)).toEqual({ matched: 0, orphan: 0 });
     await reconcileDay(db);
     expect(await saleStatus(saleId)).toBe('matched');
-  });
-
-  it('IT-REC-PAY matches a sale paid by an approved pay request, and queues the payment for sync', async () => {
-    const { variantId } = await product();
-    const txnId = await recordGatewayPayment(db, {
-      provider: 'MTN',
-      amount: 8000,
-      phone: '0961234567',
-      reference: 'MP-SIM-TEST1',
-      simulated: true,
-    });
-    const { saleId } = await recordSale(db, mobileSale(variantId, new Date().toISOString(), 'MP-SIM-TEST1'));
-    await reconcileDay(db);
-    expect(await saleStatus(saleId)).toBe('matched');
-    expect(await txnStatus(txnId)).toBe('matched');
-    expect(
-      await count(db, 'sync_queue', "entity = 'mobile_money_txn' AND entity_id = ? AND operation = 'create'", txnId)
-    ).toBe(1);
   });
 });
 

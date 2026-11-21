@@ -24,9 +24,15 @@ A sale and a received payment match when all of these hold:
 1. The amount is identical.
 2. The provider is identical, when both sides record one.
 3. The times are within the window (30 minutes by default).
-4. The references agree, **or** neither side has one.
+4. **If both sides have a reference, they agree.** The reference only decides
+   when the customer read it out and the cashier typed it at the counter.
 
-If only one side has a reference, they do not match: that is not evidence.
+The provider's message always carries a reference and the cashier usually types
+none, so a reference on one side only is the normal case and is no reason to
+refuse a match: amount, provider and time decide. (An earlier version refused
+one-sided pairs; in practice that left almost every real sale unmatched.)
+A typed reference that disagrees with the message rules that message out, which
+also lets the cashier settle a tie by typing the reference.
 
 If a sale has **more than one** payment that fits, it is reported as
 **needs review** and nothing is matched. A human chooses, because a wrong match
@@ -61,10 +67,19 @@ moves money into the turnover tax estimate.
 ## Tests
 
 `mobile/src/core/core.test.ts` covers: reference agreement, no-reference single
-candidate, one-sided reference refusal, provider mismatch, time window, and the
+candidate, one-sided references (both directions), a typed reference breaking a tie, provider mismatch, time window, and the
 ambiguous case where two payments fit one sale. `mobile/src/db/repos.integration.test.ts`
 (IT-REC) covers the stored decisions: hand confirmation, ignored messages,
 cross-midnight pairs in both directions, and release on void.
+
+## Getting the messages in
+
+The app cannot read the shop phone's SMS inbox (not possible in Expo Go, and
+Google Play restricts the SMS permission). The owner copies the provider's
+"you have received" message and pastes it under Reconcile, "Paste a payment
+message". `core/momo-message.ts` reads the amount, reference, sender, time and
+provider; the owner checks them and types anything it could not read. The same
+reference cannot be added twice, so one payment never settles two sales.
 
 ## Decision needed
 

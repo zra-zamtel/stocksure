@@ -5,11 +5,31 @@ import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { usePermissionGuard } from '@/auth/permissions';
 import { useAuth } from '@/auth/session';
 import { BarcodeScanner } from '@/components/barcode-scanner';
-import { PayRequestSheet, type PaidRequest } from '@/components/pay-request';
-import { Button, Card, Choice, EmptyState, ErrorState, LoadingList, Field, Pill, Row, Screen, SectionTitle } from '@/components/ui';
+import { Notice } from '@/components/auth';
+import { RequestToPay, type PaidRequest } from '@/components/request-to-pay';
+import {
+  Button,
+  Card,
+  Choice,
+  EmptyState,
+  ErrorState,
+  Field,
+  LoadingList,
+  Pill,
+  Row,
+  Screen,
+  SectionTitle,
+} from '@/components/ui';
 import { priceSale, toNgwee, type LineInput, type PaymentInput, type Provider } from '@/core';
 import { useProducts, useShop } from '@/db/hooks';
-import { findVariantByBarcode, InsufficientStockError, recordSale, type StockShortfall } from '@/db/repos';
+import {
+  addPaymentMessage,
+  findVariantByBarcode,
+  InsufficientStockError,
+  reconcileDay,
+  recordSale,
+  type StockShortfall,
+} from '@/db/repos';
 import { useI18n } from '@/i18n';
 import { formatKwacha } from '@/lib/format';
 import { colors, radii, spacing, touch, typeScale } from '@/theme/tokens';
@@ -61,7 +81,7 @@ export default function NewSaleScreen() {
   const [error, setError] = useState<string | null>(null);
   const [shortfalls, setShortfalls] = useState<StockShortfall[] | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [payOpen, setPayOpen] = useState(false);
+  const [paid, setPaid] = useState<PaidRequest | null>(null);
 
   const index = useMemo(() => {
     const map = new Map<string, { label: string; sellPrice: number; buyPrice: number; discount?: LineInput['productDiscount'] }>();
@@ -97,31 +117,25 @@ export default function NewSaleScreen() {
   const priced = useMemo(() => priceSale(lines), [lines]);
 
   const cashAmount = Math.max(0, toNgwee(Number.parseFloat(cashPart) || 0));
+  const mobileAmount = method === 'mobile_money' ? priced.total : Math.max(0, priced.total - cashAmount);
+  // An approved request only counts while the basket still asks for exactly
+  // that amount from that provider; otherwise the cashier must ask again.
+  const paidValid = paid && method !== 'cash' && paid.amount === mobileAmount && paid.provider === provider ? paid : null;
+  const saleReference = paidValid ? paidValid.reference : reference;
 
-  const buildPayments = (ref: string, network: Provider): PaymentInput[] => {
+  const payments = useMemo<PaymentInput[]>(() => {
     if (priced.total === 0) return [];
     if (method === 'cash') return [{ method: 'cash', amount: priced.total }];
     if (method === 'mobile_money') {
-      return [{ method: 'mobile_money', provider: network, amount: priced.total, reference: ref }];
+      return [{ method: 'mobile_money', provider, amount: priced.total, reference: saleReference }];
     }
     // Split with nothing left for mobile money is just a cash sale.
     if (cashAmount === priced.total) return [{ method: 'cash', amount: priced.total }];
     return [
       { method: 'cash', amount: cashAmount },
-      { method: 'mobile_money', provider: network, amount: priced.total - cashAmount, reference: ref },
+      { method: 'mobile_money', provider, amount: priced.total - cashAmount, reference: saleReference },
     ];
-  };
-  const payments = buildPayments(reference, provider);
-  // What a pay request asks the customer for: the mobile money part only.
-  const requestAmount = method === 'mobile_money' ? priced.total : Math.max(0, priced.total - cashAmount);
-
-  /** The customer approved: keep the reference on the sale and save it straight away. */
-  function handlePaid(paid: PaidRequest) {
-    setPayOpen(false);
-    setProvider(paid.provider);
-    setReference(paid.reference);
-    void submit(null, buildPayments(paid.reference, paid.provider));
-  }
+  }, [method, priced.total, provider, saleReference, cashAmount]);
 
   // Any basket change voids an override shown for the old basket.
   const setQuantity = (variantId: string, next: number) => {
@@ -154,7 +168,7 @@ export default function NewSaleScreen() {
     }
   }
 
-  async function submit(approved: StockShortfall[] | null, paymentsOverride?: PaymentInput[]) {
+  async function submit(approved: StockShortfall[] | null) {
     if (submitting) return;
     if (!user) {
       setError(t('sale.new.signInRequired'));
@@ -174,11 +188,31 @@ export default function NewSaleScreen() {
       const result = await recordSale(db, {
         recordedBy: user.id,
         lines,
-        payments: paymentsOverride ?? payments,
+        payments,
         // Only the owner can approve an override; the movement records who did.
         override: approved ? { approvedBy: user.id, shortfalls: approved } : undefined,
       });
+      if (paidValid) {
+        // The provider confirmed this payment, so file it as received now:
+        // the sale matches at once on its reference, and pasting the same
+        // message later is refused as a duplicate.
+        try {
+          await addPaymentMessage(db, {
+            provider: paidValid.provider,
+            amount: paidValid.amount,
+            reference: paidValid.reference,
+            sender: paidValid.phone,
+            receivedAt: paidValid.at,
+            rawMessage: `Request to pay approved by ${paidValid.phone}. Ref ${paidValid.reference}.`,
+            parsed: true,
+          });
+          await reconcileDay(db);
+        } catch {
+          // The sale is saved; Reconcile can still pair it later.
+        }
+      }
       setQuantityByVariant({});
+      setPaid(null);
       router.replace(`/sale/${result.saleId}`);
     } catch (cause) {
       if (cause instanceof InsufficientStockError) {
@@ -355,21 +389,27 @@ export default function NewSaleScreen() {
               />
             ))}
           </View>
-          <Button
-            label={t('sale.new.requestPay')}
-            icon="send_to_mobile"
-            variant="secondary"
-            disabled={requestAmount === 0 || lines.length === 0}
-            onPress={() => setPayOpen(true)}
+          <Text style={styles.subhead}>{t('rtp.title')}</Text>
+          {paid && !paidValid ? <Notice tone="warning">{t('rtp.changed')}</Notice> : null}
+          <RequestToPay
+            provider={provider}
+            amount={mobileAmount}
+            paid={paidValid}
+            onPaid={setPaid}
+            onClear={() => setPaid(null)}
           />
-          <Text style={styles.muted}>{t('sale.new.requestPayHint')}</Text>
-          <Field
-            label={t('sale.new.reference')}
-            value={reference}
-            onChangeText={setReference}
-            placeholder="MP2607.1122.A84721"
-          />
-          <Text style={styles.muted}>{t('sale.new.referenceHint')}</Text>
+          {!paidValid ? (
+            <>
+              <Text style={styles.subhead}>{t('rtp.orReference')}</Text>
+              <Field
+                label={t('sale.new.reference')}
+                value={reference}
+                onChangeText={setReference}
+                placeholder={t('common.optional')}
+              />
+              <Text style={styles.muted}>{t('sale.new.referenceHint')}</Text>
+            </>
+          ) : null}
         </Card>
       ) : null}
 
@@ -393,16 +433,6 @@ export default function NewSaleScreen() {
         <Card style={styles.dangerCard}>
           <Text style={styles.warningText}>{error}</Text>
         </Card>
-      ) : null}
-
-      {payOpen ? (
-        <PayRequestSheet
-          visible
-          amount={requestAmount}
-          initialProvider={provider}
-          onClose={() => setPayOpen(false)}
-          onPaid={handlePaid}
-        />
       ) : null}
 
       {scannerOpen ? (
@@ -442,5 +472,6 @@ const styles = StyleSheet.create({
   dangerCard: { backgroundColor: colors.dangerSoft, gap: spacing.xs },
   warningText: { fontSize: typeScale.label, color: colors.text, fontWeight: '600' },
   methods: { gap: spacing.sm },
+  subhead: { fontSize: typeScale.label, fontWeight: '800', color: colors.text, marginTop: spacing.sm },
   providers: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
 });

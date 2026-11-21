@@ -6,7 +6,10 @@ import type { Ngwee } from './types';
  *
  * The message that arrives on the shop phone carries the reference, so a
  * cashier is not asked to type one. A pair matches when the amount and provider
- * agree, the times are close, and the references agree or neither side has one.
+ * agree and the times are close. The reference only decides when both sides
+ * have one (the customer read it out and the cashier typed it): then it must
+ * agree. A reference on the message alone is the normal case and is no reason
+ * to refuse a match.
  *
  * The match is one-to-one. A sale with several fitting payments is reported as
  * ambiguous rather than guessed, because a wrong match quietly moves money into
@@ -44,9 +47,10 @@ function fitsSale(sale: MatchCandidate, payment: MatchCandidate, windowMinutes: 
 
   const saleRef = normaliseReference(sale.reference);
   const paymentRef = normaliseReference(payment.reference);
+  // Both typed and received: they must be the same payment. Otherwise amount,
+  // provider and time decide, and two equal fits go to the owner as ambiguous.
   if (saleRef && paymentRef) return saleRef === paymentRef;
-  // Only one side has a reference: not enough to say these are the same payment.
-  return !saleRef && !paymentRef;
+  return true;
 }
 
 export function matchPayments(

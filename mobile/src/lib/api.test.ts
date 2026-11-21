@@ -16,6 +16,8 @@ const {
   confirmPinResetOnServer,
   confirmStaffSignInOnServer,
   loginOwnerOnServer,
+  paymentRequestStatusOnServer,
+  requestToPayOnServer,
   registerOwnerOnServer,
   registerStaffOnServer,
   requestMagicLinkOnServer,
@@ -448,5 +450,55 @@ describe('UT-API staff identity client', () => {
 
     respond(404, { code: 'staff_not_found' });
     expect((await staffFailure(reset)).code).toBe('staff-not-found');
+  });
+});
+
+describe('request to pay', () => {
+  const pending = {
+    id: 'rtp_abc12345',
+    provider: 'MTN',
+    phone: '260971234567',
+    amount: 25000,
+    status: 'pending',
+    reference: '',
+    reason: '',
+    createdAt: '2026-11-21T10:00:00Z',
+    completedAt: null,
+  };
+
+  it('UT-API-RTP-01 sends the request with the device token and returns it', async () => {
+    const fetchMock = respond(201, pending);
+    const result = await requestToPayOnServer({
+      id: 'rtp_abc12345',
+      provider: 'MTN',
+      phone: '0971234567',
+      amount: 25000,
+      deviceToken: 'tok',
+    });
+    expect(result.status).toBe('pending');
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toMatch(/\/api\/v1\/collections\/request-to-pay$/);
+    expect((init.headers as Record<string, string>).Authorization).toBe('Bearer tok');
+    expect(JSON.parse(init.body as string)).toEqual({
+      id: 'rtp_abc12345',
+      provider: 'MTN',
+      phone: '0971234567',
+      amount: 25000,
+    });
+  });
+
+  it('UT-API-RTP-02 polls the status by id', async () => {
+    const fetchMock = respond(200, { ...pending, status: 'successful', reference: 'MPSIM1A2B' });
+    const result = await paymentRequestStatusOnServer({ id: 'rtp_abc12345', deviceToken: 'tok' });
+    expect(result.reference).toBe('MPSIM1A2B');
+    const [url] = fetchMock.mock.calls[0] as unknown as [string];
+    expect(url).toMatch(/request-to-pay\/rtp_abc12345$/);
+  });
+
+  it('UT-API-RTP-03 maps a bad phone or amount to validation', async () => {
+    respond(400, { detail: 'Enter a valid Zambian phone number.' });
+    await expect(
+      requestToPayOnServer({ id: 'rtp_x1234567', provider: 'MTN', phone: '1', amount: 1, deviceToken: 'tok' })
+    ).rejects.toMatchObject({ code: 'validation' });
   });
 });

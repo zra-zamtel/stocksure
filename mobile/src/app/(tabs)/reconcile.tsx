@@ -1,24 +1,43 @@
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
-import { useCallback, useState } from 'react';
+import { useCallback, useState, type ReactNode } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { usePermissionGuard } from '@/auth/permissions';
 import { useAuth } from '@/auth/session';
-import { Button, Card, EmptyState, ErrorState, Field, LoadingList, Pill, Row, Screen, SectionTitle } from '@/components/ui';
+import { Notice } from '@/components/auth';
+import {
+  Button,
+  EmptyState,
+  ErrorState,
+  Field,
+  Icon,
+  LoadingList,
+  Screen,
+  SectionTitle,
+  TextLink,
+} from '@/components/ui';
 import { PermissionError, toNgwee, type Permission } from '@/core';
 import { useReconciliation } from '@/db/hooks';
 import { ignorePayment, injectDemoMessages, markSalePaid, saveCashCount, voidSale } from '@/db/repos';
 import { useI18n } from '@/i18n';
 import { formatKwacha } from '@/lib/format';
 import { markVisited } from '@/lib/getting-started';
-import { colors, spacing, typeScale } from '@/theme/tokens';
+import { colors, radii, spacing, typeScale } from '@/theme/tokens';
 
+const time = (iso: string) => new Date(iso).toTimeString().slice(0, 5);
+
+/**
+ * Does the money match the sales? Mobile money sales are paired with the
+ * provider messages pasted in; what is left over is listed for the owner with
+ * one tap to settle each item. Cash is checked by a count at closing.
+ */
 export default function ReconcileScreen() {
   const { t } = useI18n();
+  const router = useRouter();
   const db = useSQLiteContext();
   const { can } = useAuth();
   const guard = usePermissionGuard();
-  const { data, loading, error, reload } = useReconciliation();
+  const { data, initialLoading, error, reload } = useReconciliation();
   // Opening this tab ticks "Check today's money" on the Home start list.
   useFocusEffect(useCallback(() => markVisited('reconcile'), []));
   const canResolve = can('reconcile.resolve');
@@ -30,17 +49,9 @@ export default function ReconcileScreen() {
   const [message, setMessage] = useState<string | null>(null);
   const [countedDraft, setCountedDraft] = useState<string | null>(null);
   const [noteDraft, setNoteDraft] = useState<string | null>(null);
+  const [showMatched, setShowMatched] = useState(false);
 
-  const countedValue =
-    countedDraft ??
-    (data?.cash.countedCash !== undefined ? (data.cash.countedCash / 100).toFixed(2) : '');
-  const noteValue = noteDraft ?? data?.cash.note ?? '';
-
-  async function perform(
-    action: () => Promise<unknown>,
-    success?: string,
-    permission: Permission = 'reconcile.resolve'
-  ) {
+  async function perform(action: () => Promise<unknown>, success?: string, permission: Permission = 'reconcile.resolve') {
     setBusy(true);
     setActionError(null);
     setMessage(null);
@@ -55,246 +66,324 @@ export default function ReconcileScreen() {
           ? t('permission.denied')
           : cause instanceof Error
             ? cause.message
-            : 'Something went wrong'
+            : t('reconcile.error')
       );
     } finally {
       setBusy(false);
     }
   }
 
-  if (loading && !data) {
-    return (
-      <Screen title={t('reconcile.title')}>
-        <LoadingList label={t('state.loading')} hero count={2} />
-      </Screen>
-    );
-  }
-
-  if (error) {
-    return (
-      <Screen title={t('reconcile.title')}>
-        <ErrorState
-          title={t('state.error.title')}
-          message={t('state.error.message')}
-          detail={error}
-          retryLabel={t('common.retry')}
-          onRetry={reload}
-        />
-      </Screen>
-    );
-  }
+  const footer = canResolve ? (
+    <Button label={t('payMsg.open')} onPress={() => router.push('/payment-message')} />
+  ) : undefined;
 
   if (!data) {
     return (
-      <Screen title={t('reconcile.title')}>
-        <EmptyState
-          icon="fact_check"
-          title={t('reconcile.empty.title')}
-          message={t('reconcile.empty.message')}
-        />
+      <Screen title={t('reconcile.title')} footer={footer}>
+        {initialLoading ? (
+          <LoadingList label={t('state.loading')} hero count={2} />
+        ) : error ? (
+          <ErrorState
+            title={t('state.error.title')}
+            message={t('state.error.message')}
+            detail={error}
+            retryLabel={t('common.retry')}
+            onRetry={reload}
+          />
+        ) : (
+          <EmptyState icon="fact_check" title={t('reconcile.empty.title')} message={t('reconcile.empty.message')} />
+        )}
       </Screen>
     );
   }
 
   const cash = data.cash;
+  const countedValue =
+    countedDraft ?? (cash.countedCash !== undefined ? (cash.countedCash / 100).toFixed(2) : '');
+  const noteValue = noteDraft ?? cash.note ?? '';
   const hasCounted = cash.countedCash !== undefined;
   const showCashForm = seesMoney || !hasCounted;
+  const toCheck = data.salesWithoutPayment.length + data.needsReview.length;
+  const allClear = toCheck === 0 && data.paymentsWithoutSale.length === 0;
 
   return (
-    <Screen title={t('reconcile.title')} subtitle={data.day}>
+    <Screen title={t('reconcile.title')} subtitle={t('reconcile.today')} footer={footer}>
+      {message ? <Notice tone="success">{message}</Notice> : null}
+      {actionError ? <Notice tone="error">{actionError}</Notice> : null}
+
       {canResolve ? (
         <>
-      <Card>
-        <View style={styles.headingRow}>
-          <Text style={styles.heading}>{t('reconcile.matched')}</Text>
-          <Pill label={String(data.matched.length)} tone="success" />
-        </View>
-        {data.matched.map((match) => (
-          <Row
-            key={`${match.saleId}-${match.txnId}`}
-            label={match.reference ?? match.saleId}
-            value={formatKwacha(match.amount)}
-          />
-        ))}
-      </Card>
-
-      <Card>
-        <View style={styles.headingRow}>
-          <Text style={styles.heading}>{t('reconcile.saleNoPayment')}</Text>
-          <Pill label={String(data.salesWithoutPayment.length)} tone="warning" />
-        </View>
-        {data.salesWithoutPayment.length === 0 ? (
-          <Text style={styles.muted}>{t('reconcile.empty')}</Text>
-        ) : (
-          data.salesWithoutPayment.map((sale) => (
-            <View key={sale.saleId} style={styles.item}>
-              <Row
-                label={`${sale.provider ?? t('sale.new.mobileMoney')} · ${sale.reference ?? t('common.notYet')}`}
-                value={formatKwacha(sale.total)}
-              />
-              <View style={styles.actions}>
-                <View style={styles.actionButton}>
-                  <Button
-                    label={t('reconcile.markPaid')}
-                    variant="secondary"
-                    disabled={busy}
-                    loading={busy}
-                    onPress={() => perform(() => markSalePaid(db, sale.saleId))}
-                  />
-                </View>
-                <View style={styles.actionButton}>
-                  <Button
-                    label={t('sales.void')}
-                    variant="danger"
-                    disabled={busy}
-                    loading={busy}
-                    onPress={() => perform(() => voidSale(db, sale.saleId, 'No payment received'))}
-                  />
-                </View>
-              </View>
-            </View>
-          ))
-        )}
-      </Card>
-
-      {data.needsReview.length > 0 ? (
-        <Card style={styles.reviewCard}>
-          <View style={styles.headingRow}>
-            <Text style={styles.heading}>{t('reconcile.needsReview')}</Text>
-            <Pill label={String(data.needsReview.length)} tone="info" />
+          <View style={styles.counts}>
+            <Count value={data.matched.length} label={t('reconcile.count.matched')} tone="success" />
+            <Count value={toCheck} label={t('reconcile.count.toCheck')} tone="warning" />
+            <Count value={data.paymentsWithoutSale.length} label={t('reconcile.count.unknown')} tone="warning" />
           </View>
-          {data.needsReview.map((sale) => (
-            <View key={sale.saleId} style={styles.item}>
-              <Row
-                label={`${sale.provider ?? t('sale.new.mobileMoney')} · ${sale.reference ?? t('common.notYet')}`}
-                value={formatKwacha(sale.total)}
-              />
-              <Text style={styles.muted}>{t('reconcile.ambiguousBody')}</Text>
-            </View>
-          ))}
-        </Card>
-      ) : null}
 
-      <Card>
-        <View style={styles.headingRow}>
-          <Text style={styles.heading}>{t('reconcile.paymentNoSale')}</Text>
-          <Pill label={String(data.paymentsWithoutSale.length)} tone="warning" />
-        </View>
-        {data.paymentsWithoutSale.length === 0 ? (
-          <Text style={styles.muted}>{t('reconcile.empty')}</Text>
-        ) : (
-          data.paymentsWithoutSale.map((payment) => (
-            <View key={payment.txnId} style={styles.item}>
-              <Row
-                label={`${payment.provider} · ${payment.sender ?? t('common.notYet')}`}
-                value={formatKwacha(payment.amount)}
-              />
+          {allClear ? (
+            <View style={styles.allClear}>
+              <Icon name="check_circle" size={20} color={colors.success} />
               <Text style={styles.muted}>
-                {payment.reference ?? t('common.notYet')} · {payment.receivedAt.slice(11, 16)}
+                {data.matched.length > 0 ? t('reconcile.allClear') : t('reconcile.nothingYet')}
               </Text>
-              <Button
-                label={t('reconcile.ignore')}
-                variant="secondary"
-                disabled={busy}
-                loading={busy}
-                onPress={() => perform(() => ignorePayment(db, payment.txnId))}
-              />
             </View>
-          ))
-        )}
-      </Card>
+          ) : null}
+
+          {data.salesWithoutPayment.length > 0 ? (
+            <Group title={t('reconcile.saleNoPayment')} hint={t('reconcile.saleNoPaymentHint')}>
+              {data.salesWithoutPayment.map((sale, index) => (
+                <Item
+                  key={sale.saleId}
+                  last={index === data.salesWithoutPayment.length - 1}
+                  title={`${sale.provider ?? t('sale.new.mobileMoney')} · ${formatKwacha(sale.total)}`}
+                  meta={[time(sale.createdAt), sale.reference].filter(Boolean).join(' · ')}
+                  actions={
+                    <>
+                      <TextLink
+                        accent
+                        label={t('reconcile.markPaid')}
+                        onPress={() => void perform(() => markSalePaid(db, sale.saleId))}
+                      />
+                      <TextLink
+                        label={t('sales.void')}
+                        onPress={() => void perform(() => voidSale(db, sale.saleId, 'No payment received'))}
+                      />
+                    </>
+                  }
+                />
+              ))}
+            </Group>
+          ) : null}
+
+          {data.needsReview.length > 0 ? (
+            <Group title={t('reconcile.needsReview')} hint={t('reconcile.ambiguousBody')}>
+              {data.needsReview.map((sale, index) => (
+                <Item
+                  key={sale.saleId}
+                  last={index === data.needsReview.length - 1}
+                  title={`${sale.provider ?? t('sale.new.mobileMoney')} · ${formatKwacha(sale.total)}`}
+                  meta={time(sale.createdAt)}
+                  actions={
+                    <TextLink
+                      accent
+                      label={t('reconcile.markPaid')}
+                      onPress={() => void perform(() => markSalePaid(db, sale.saleId))}
+                    />
+                  }
+                />
+              ))}
+            </Group>
+          ) : null}
+
+          {data.paymentsWithoutSale.length > 0 ? (
+            <Group title={t('reconcile.paymentNoSale')} hint={t('reconcile.paymentNoSaleHint')}>
+              {data.paymentsWithoutSale.map((payment, index) => (
+                <Item
+                  key={payment.txnId}
+                  last={index === data.paymentsWithoutSale.length - 1}
+                  title={`${payment.provider} · ${formatKwacha(payment.amount)}`}
+                  meta={[time(payment.receivedAt), payment.sender, payment.reference].filter(Boolean).join(' · ')}
+                  actions={
+                    <>
+                      <TextLink accent label={t('reconcile.recordSale')} onPress={() => router.push('/sale/new')} />
+                      <TextLink
+                        label={t('reconcile.ignore')}
+                        onPress={() => void perform(() => ignorePayment(db, payment.txnId))}
+                      />
+                    </>
+                  }
+                />
+              ))}
+            </Group>
+          ) : null}
+
+          {data.matched.length > 0 ? (
+            <View>
+              <TextLink
+                accent
+                label={showMatched ? t('reconcile.hideMatched') : t('reconcile.showMatched', { count: data.matched.length })}
+                onPress={() => setShowMatched((value) => !value)}
+              />
+              {showMatched ? (
+                <Group title={t('reconcile.matched')}>
+                  {data.matched.map((match, index) => (
+                    <Item
+                      key={`${match.saleId}-${match.txnId}`}
+                      last={index === data.matched.length - 1}
+                      title={formatKwacha(match.amount)}
+                      meta={[time(match.at), match.reference].filter(Boolean).join(' · ')}
+                    />
+                  ))}
+                </Group>
+              ) : null}
+            </View>
+          ) : null}
         </>
       ) : (
-        <Card style={styles.reviewCard}>
-          <Text style={styles.heading}>{t('reconcile.staffNote')}</Text>
-        </Card>
+        <Notice tone="info">{t('reconcile.staffNote')}</Notice>
       )}
 
-      <SectionTitle>{t('reconcile.cash.title')}</SectionTitle>
-      <Card>
-        <Row label={t('reconcile.cash.openingFloat')} value={formatKwacha(cash.openingFloat)} />
-        {seesMoney ? (
-          <Row label={t('reconcile.cash.expected')} value={formatKwacha(cash.expected)} />
-        ) : null}
-        {showCashForm ? (
-          <>
-            <Field
-              label={t('reconcile.cash.counted')}
-              value={countedValue}
-              onChangeText={setCountedDraft}
-              placeholder="0.00"
-              keyboardType="decimal-pad"
-            />
-            <Field
-              label={t('reconcile.cash.note')}
-              value={noteValue}
-              onChangeText={setNoteDraft}
-              placeholder={t('common.optional')}
-            />
-            <Button
-              label={t('reconcile.cash.save')}
-              disabled={busy || !canCountCash || countedValue.trim() === ''}
-              onPress={() => {
-                const amount = toNgwee(Number.parseFloat(countedValue.replace(',', '.')) || 0);
-                perform(async () => {
-                  await saveCashCount(
-                    db,
-                    data.day,
-                    amount,
-                    noteValue.trim() || undefined,
-                    seesMoney
+      <Group title={t('reconcile.cash.title')}>
+        <View style={styles.cash}>
+          <View style={styles.cashRow}>
+            <Text style={styles.cashLabel}>{t('reconcile.cash.openingFloat')}</Text>
+            <Text style={styles.cashValue}>{formatKwacha(cash.openingFloat)}</Text>
+          </View>
+          {seesMoney ? (
+            <View style={styles.cashRow}>
+              <Text style={styles.cashLabel}>{t('reconcile.cash.expected')}</Text>
+              <Text style={styles.cashValue}>{formatKwacha(cash.expected)}</Text>
+            </View>
+          ) : null}
+          {showCashForm ? (
+            <>
+              <Field
+                label={t('reconcile.cash.counted')}
+                value={countedValue}
+                onChangeText={setCountedDraft}
+                placeholder="0.00"
+                keyboardType="decimal-pad"
+                prefix="K"
+              />
+              <Field
+                label={t('reconcile.cash.note')}
+                value={noteValue}
+                onChangeText={setNoteDraft}
+                placeholder={t('common.optional')}
+              />
+              <Button
+                label={t('reconcile.cash.save')}
+                variant="secondary"
+                disabled={!canCountCash || countedValue.trim() === ''}
+                loading={busy}
+                onPress={() => {
+                  const amount = toNgwee(Number.parseFloat(countedValue.replace(',', '.')) || 0);
+                  void perform(
+                    async () => {
+                      await saveCashCount(db, data.day, amount, noteValue.trim() || undefined, seesMoney);
+                      setCountedDraft(null);
+                      setNoteDraft(null);
+                    },
+                    t('reconcile.cashSaved'),
+                    'cash.count'
                   );
-                  setCountedDraft(null);
-                  setNoteDraft(null);
-                }, t('reconcile.cashSaved'), 'cash.count');
-              }}
-            />
-          </>
-        ) : (
-          <Text style={styles.muted}>{t('reconcile.cash.staffNote')}</Text>
-        )}
-        {seesMoney && cash.variance !== undefined ? (
-          <Row
-            label={t('reconcile.cash.variance')}
-            value={formatKwacha(cash.variance)}
-            emphasis
-          />
-        ) : null}
-      </Card>
+                }}
+              />
+            </>
+          ) : (
+            <Text style={styles.muted}>{t('reconcile.cash.staffNote')}</Text>
+          )}
+          {seesMoney && cash.variance !== undefined ? (
+            <View style={styles.cashRow}>
+              <Text style={styles.cashLabel}>{t('reconcile.cash.variance')}</Text>
+              <Text
+                style={[
+                  styles.cashValue,
+                  styles.strong,
+                  cash.variance < 0 ? styles.short : cash.variance > 0 ? styles.over : null,
+                ]}
+              >
+                {cash.variance > 0 ? '+' : ''}
+                {formatKwacha(cash.variance)}
+              </Text>
+            </View>
+          ) : null}
+        </View>
+      </Group>
 
       {canResolve ? (
-        <>
-          <SectionTitle>{t('common.today')}</SectionTitle>
-          <Card>
-            <Button
-              label={t('reconcile.demo')}
-              variant="secondary"
-              disabled={busy}
-              loading={busy}
-              onPress={() => perform(() => injectDemoMessages(db, data.day), t('reconcile.demoAdded'))}
-            />
-            <Text style={styles.muted}>
-              Real MTN, Airtel and Zamtel confirmation messages cannot be triggered on cue, so these are
-              samples.
-            </Text>
-          </Card>
-        </>
+        <View style={styles.demo}>
+          <TextLink
+            label={t('reconcile.demo')}
+            onPress={() => void perform(() => injectDemoMessages(db, data.day), t('reconcile.demoAdded'))}
+          />
+        </View>
       ) : null}
-
-      {message ? <Text style={styles.success}>{message}</Text> : null}
-      {actionError ? <Text style={styles.error}>{actionError}</Text> : null}
     </Screen>
   );
 }
 
+function Count({ value, label, tone }: { value: number; label: string; tone: 'success' | 'warning' }) {
+  const ink = value === 0 ? colors.text : tone === 'success' ? colors.success : colors.warning;
+  return (
+    <View style={styles.count} accessible accessibilityLabel={`${label}: ${value}`}>
+      <Text style={[styles.countValue, { color: ink }]}>{value}</Text>
+      <Text style={styles.countLabel} numberOfLines={1}>
+        {label}
+      </Text>
+    </View>
+  );
+}
+
+function Group({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
+  return (
+    <View style={styles.group}>
+      <SectionTitle>{title}</SectionTitle>
+      {hint ? <Text style={styles.hint}>{hint}</Text> : null}
+      <View style={styles.groupCard}>{children}</View>
+    </View>
+  );
+}
+
+function Item({ title, meta, actions, last }: { title: string; meta?: string; actions?: ReactNode; last?: boolean }) {
+  return (
+    <View style={[styles.item, !last && styles.itemDivider]}>
+      <View style={styles.itemText}>
+        <Text style={styles.itemTitle}>{title}</Text>
+        {meta ? (
+          <Text style={styles.itemMeta} numberOfLines={1}>
+            {meta}
+          </Text>
+        ) : null}
+      </View>
+      {actions ? <View style={styles.itemActions}>{actions}</View> : null}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
-  reviewCard: { backgroundColor: colors.infoSoft },
-  headingRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  heading: { fontSize: typeScale.body, fontWeight: '700', color: colors.text },
-  item: { gap: spacing.xs, marginTop: spacing.xs },
-  actions: { flexDirection: 'row', gap: spacing.sm },
-  actionButton: { flex: 1 },
-  muted: { fontSize: typeScale.label, color: colors.textMuted },
-  success: { fontSize: typeScale.label, color: colors.success, fontWeight: '600' },
-  error: { fontSize: typeScale.label, color: colors.danger, fontWeight: '600' },
+  counts: { flexDirection: 'row', gap: spacing.sm },
+  count: {
+    flex: 1,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  countValue: { fontSize: typeScale.title, fontWeight: '800', fontVariant: ['tabular-nums'] },
+  countLabel: { fontSize: typeScale.label, color: colors.textMuted, fontWeight: '600' },
+  allClear: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  group: { gap: spacing.xs },
+  hint: { fontSize: typeScale.label, color: colors.textMuted, lineHeight: 18 },
+  groupCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radii.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    overflow: 'hidden',
+  },
+  item: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingLeft: spacing.lg,
+    paddingRight: spacing.xs,
+    paddingVertical: spacing.sm,
+    minHeight: 56,
+  },
+  itemDivider: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  itemText: { flex: 1, gap: 2 },
+  itemTitle: { fontSize: typeScale.body, fontWeight: '700', color: colors.text, fontVariant: ['tabular-nums'] },
+  itemMeta: { fontSize: typeScale.label, color: colors.textMuted },
+  itemActions: { flexDirection: 'row', alignItems: 'center' },
+  cash: { padding: spacing.lg, gap: spacing.md },
+  cashRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.md },
+  cashLabel: { fontSize: typeScale.body, color: colors.textMuted, flexShrink: 1 },
+  cashValue: { fontSize: typeScale.body, color: colors.text, fontWeight: '600', fontVariant: ['tabular-nums'] },
+  strong: { fontWeight: '800' },
+  short: { color: colors.danger },
+  over: { color: colors.success },
+  muted: { fontSize: typeScale.body, color: colors.textMuted },
+  demo: { alignItems: 'center' },
 });

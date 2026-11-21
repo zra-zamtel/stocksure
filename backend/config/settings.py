@@ -84,6 +84,7 @@ INSTALLED_APPS = [
     "apps.analytics",
     "apps.integrations",
     "apps.sync",
+    "apps.collections",
 ]
 
 MIDDLEWARE = [
@@ -215,6 +216,8 @@ REST_FRAMEWORK = {
         "sync-pull": "120/min",
         "ussd": "120/min",
         "webhook": "300/min",
+        "collections": "30/min",
+        "collections_status": "240/min",
     },
 }
 
@@ -283,3 +286,11 @@ LOGGING = {
 }
 USSD_SHARED_SECRET = os.environ.get("USSD_SHARED_SECRET", "")  # gateway secret; sent as X-USSD-Secret or ?token= on the callback URL
 ALLOW_PAYMENT_SIMULATION = env_bool("ALLOW_PAYMENT_SIMULATION", False)  # demo-only; off unless explicitly enabled
+
+# Request to pay. The simulated provider needs no merchant account and moves
+# no money; set COLLECTIONS_PROVIDER to a real provider class once one exists.
+COLLECTIONS_PROVIDER = os.environ.get(
+    "COLLECTIONS_PROVIDER", "apps.collections.providers.SimulatedProvider"
+)
+COLLECTIONS_SIMULATED_DELAY_SECONDS = int(os.environ.get("COLLECTIONS_SIMULATED_DELAY_SECONDS", "6"))
+COLLECTIONS_TIMEOUT_SECONDS = int(os.environ.get("COLLECTIONS_TIMEOUT_SECONDS", "120"))
