@@ -1,0 +1,143 @@
+name: Mobile
+
+# Checks the app on every change, and builds an installable Android APK for the
+# team to test.
+#
+#   push to main      -> checks, then the APK replaces the "mobile-latest" release
+#   tag mobile-v*     -> checks, then a permanent release with that APK
+#   run manually      -> checks, then the APK as a downloadable workflow artifact
+#   pull request      -> checks; add the "build-apk" label to also get an APK artifact
+#
+# How the team installs it: docs/mobile-releases.md
+
+on:
+  push:
+    branches: [main]
+    paths: ["mobile/**", ".github/workflows/mobile.yml"]
+    tags: ["mobile-v*"]
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+    paths: ["mobile/**", ".github/workflows/mobile.yml"]
+  workflow_dispatch:
+
+concurrency:
+  group: mobile-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Baked into the app at build time. Without it a release build points at the
+  # developer address 10.0.2.2, which only works in an emulator. Override with a
+  # repository variable named MOBILE_API_URL (Settings > Variables > Actions).
+  EXPO_PUBLIC_API_URL: ${{ vars.MOBILE_API_URL || 'https://xrj6hnz51i.execute-api.eu-north-1.amazonaws.com' }}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: mobile/.nvmrc
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+
+  apk:
+    needs: check
+    # Pull requests only build an APK when asked for with the "build-apk" label.
+    if: >-
+      github.event_name != 'pull_request' ||
+      contains(github.event.pull_request.labels.*.name, 'build-apk')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write # only used to publish releases on main and tags
+    defaults:
+      run:
+        working-directory: mobile
+    env:
+      # Newer than the last build, so the APK installs over the previous one.
+      APP_VERSION_CODE: ${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: mobile/.nvmrc
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+      - run: npm ci
+
+      # The android/ folder is generated from app.json and the config plugins
+      # (it is not committed), so a build always matches the app config.
+      - name: Generate the Android project
+        run: npx expo prebuild --platform android --no-install --clean
+
+      # arm64 and armeabi-v7a cover real phones; x86 is only for emulators and
+      # would double the build time.
+      - name: Build the release APK
+        working-directory: mobile/android
+        run: >-
+          ./gradlew assembleRelease
+          -PreactNativeArchitectures=armeabi-v7a,arm64-v8a
+          -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=1g"
+          --no-daemon
+
+      - name: Name the APK
+        id: apk
+        run: |
+          short="${GITHUB_SHA::7}"
+          case "$GITHUB_REF" in
+            refs/tags/*) name="StockSure-${GITHUB_REF_NAME#mobile-}.apk" ;;
+            *)           name="StockSure-${short}.apk" ;;
+          esac
+          cp android/app/build/outputs/apk/release/app-release.apk "$name"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "short=$short" >> "$GITHUB_OUTPUT"
+          ls -lh "$name"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.apk.outputs.name }}
+          path: mobile/${{ steps.apk.outputs.name }}
+          if-no-files-found: error
+          retention-days: 30
+
+      # main: one rolling "latest" release with a link that never changes.
+      - name: Publish the latest test build
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APK: ${{ steps.apk.outputs.name }}
+          SHORT: ${{ steps.apk.outputs.short }}
+        run: |
+          cat > notes.md <<EOF
+          Test build of the StockSure Android app from \`main\` at ${SHORT}, build ${APP_VERSION_CODE}.
+
+          Install: download the APK on your phone and open it. See docs/mobile-releases.md.
+          It installs over the previous test build; your data stays.
+
+          Built by ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+          EOF
+          gh release delete mobile-latest --cleanup-tag --yes || true
+          gh release create mobile-latest "$APK" \
+            --target "$GITHUB_SHA" --prerelease \
+            --title "Latest test build (${SHORT})" --notes-file notes.md
+
+      # mobile-v* tag: a permanent release to keep.
+      - name: Publish a tagged release
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/mobile-v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APK: ${{ steps.apk.outputs.name }}
+        run: gh release create "$GITHUB_REF_NAME" "$APK" --title "StockSure ${GITHUB_REF_NAME#mobile-}" --generate-notes

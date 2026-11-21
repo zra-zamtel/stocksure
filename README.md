@@ -133,6 +133,12 @@ setup is unusual, start Expo with:
 $env:EXPO_PUBLIC_API_URL="http://<your-lan-ip>:8000"; npx expo start
 ```
 
+## Testing on a phone
+
+Every change merged to `main` builds an installable Android APK and publishes it
+as the **Latest test build** release. How to install it and how the pipeline
+works: [`docs/mobile-releases.md`](./docs/mobile-releases.md).
+
 ## Running the app
 
 Requires **Node 26 LTS** (see `mobile/.nvmrc`; Expo 58 does not support
