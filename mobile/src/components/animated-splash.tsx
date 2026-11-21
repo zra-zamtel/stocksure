@@ -10,8 +10,8 @@ import Animated, {
   withDelay,
   withTiming,
 } from 'react-native-reanimated';
-import Svg, { Circle, Path } from 'react-native-svg';
-import { MARK_DOT, MARK_STROKE, MARK_S_PATH, MARK_VIEWBOX, Wordmark } from './brand';
+import Svg, { G, Path, Rect } from 'react-native-svg';
+import { MARK, MARK_VIEWBOX, Wordmark } from './brand';
 import { useI18n } from '../i18n';
 import { colors, spacing, typeScale } from '../theme/tokens';
 
@@ -19,29 +19,35 @@ import { colors, spacing, typeScale } from '../theme/tokens';
 // painted, so the hand-over is invisible. Called once, at import time.
 void SplashScreen.preventAutoHideAsync().catch(() => undefined);
 
-/** Ease in and out, for the pen stroke. */
+/** Ease in and out, for the tick being drawn. */
 const easeInOutCubic = (x: number) => (x < 0.5 ? 4 * x * x * x : 1 - (-2 * x + 2) ** 3 / 2);
-/** A little overshoot, for the dot popping in. */
+/** A little overshoot, for a crate landing. */
 const easeOutBack = (x: number) => 1 + 2.7 * (x - 1) ** 3 + 1.7 * (x - 1) ** 2;
-const DOT_MS = 320;
+const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
+
+type MarkProgress = { bottom: number; top: number; tick: number };
 
 /**
- * Progress of the S stroke (0 to 1) and the dot (0 to ~1.1), driven by a plain
- * animation-frame clock. The SVG gets ordinary props each frame: animating
- * SVG props through Reanimated left the S undrawn on some Android phones.
+ * How far each part of the mark has come (0 to 1): the bottom crate rises
+ * into place, the top crate drops onto it, then the tick is drawn. Driven by a
+ * plain animation-frame clock so the SVG gets ordinary props each frame:
+ * animating SVG props through Reanimated left the mark undrawn on some phones.
  */
-function useMarkProgress(timing: { drawDelay: number; draw: number; dot: number }, still: boolean) {
-  const [progress, setProgress] = useState(() => (still ? { draw: 1, dot: 1 } : { draw: 0, dot: 0 }));
+function useMarkProgress(timing: Timing, still: boolean): MarkProgress {
+  const [progress, setProgress] = useState<MarkProgress>(() =>
+    still ? { bottom: 1, top: 1, tick: 1 } : { bottom: 0, top: 0, tick: 0 },
+  );
   useEffect(() => {
     if (still) return;
     const start = Date.now();
     let frame = 0;
     const tick = () => {
       const elapsed = Date.now() - start;
-      const draw = Math.min(1, Math.max(0, (elapsed - timing.drawDelay) / timing.draw));
-      const dotT = Math.min(1, Math.max(0, (elapsed - timing.dot) / DOT_MS));
-      setProgress({ draw: easeInOutCubic(draw), dot: dotT === 0 ? 0 : easeOutBack(dotT) });
-      if (draw < 1 || dotT < 1) frame = requestAnimationFrame(tick);
+      const bottom = clamp01((elapsed - timing.bottom) / timing.crateLen);
+      const top = clamp01((elapsed - timing.top) / timing.crateLen);
+      const stroke = clamp01((elapsed - timing.tick) / timing.tickLen);
+      setProgress({ bottom, top, tick: stroke });
+      if (stroke < 1) frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
@@ -49,8 +55,6 @@ function useMarkProgress(timing: { drawDelay: number; draw: number; dot: number 
   return progress;
 }
 
-/** Length of MARK_S_PATH in viewBox units: 94 straight + 4 vertical + 4 quarter arcs of r 12. */
-const S_LENGTH = 174;
 const SEEN_KEY = 'stocksure.splashSeen';
 
 /**
@@ -59,9 +63,10 @@ const SEEN_KEY = 'stocksure.splashSeen';
  * record a sale should not wait for a logo.
  */
 const TIMINGS = {
-  full: { drawDelay: 150, draw: 1000, dot: 1150, word: 1450, wordLen: 450, tag: 1700, min: 2500 },
-  short: { drawDelay: 0, draw: 500, dot: 500, word: 650, wordLen: 300, tag: 750, min: 1300 },
+  full: { bottom: 150, top: 450, crateLen: 350, tick: 800, tickLen: 600, word: 1450, wordLen: 450, tag: 1700, min: 2500 },
+  short: { bottom: 0, top: 150, crateLen: 200, tick: 350, tickLen: 350, word: 650, wordLen: 300, tag: 750, min: 1300 },
 } as const;
+type Timing = (typeof TIMINGS)[keyof typeof TIMINGS];
 const EXIT_MS = 280;
 
 function readSeen() {
@@ -73,7 +78,7 @@ function readSeen() {
 }
 
 /**
- * The StockSure splash: the S draws itself, the blue dot pops in, then the name
+ * The StockSure splash: the crates stack up, the blue tick is drawn, then the name
  * and tagline rise. It stays until the app is `ready` (database and session
  * loaded) and the animation has played, then fades out to reveal the app.
  */
@@ -131,17 +136,25 @@ export function AnimatedSplash({ ready, onDone }: { ready: boolean; onDone: () =
       pointerEvents={ready && played ? 'none' : 'auto'}
     >
       <Svg width={128} height={128} viewBox={MARK_VIEWBOX}>
-        <Path
-          d={MARK_S_PATH}
-          fill="none"
-          stroke={colors.charcoal}
-          strokeWidth={MARK_STROKE}
-          strokeLinejoin="round"
-          strokeDasharray={[S_LENGTH, S_LENGTH]}
-          strokeDashoffset={S_LENGTH * (1 - mark.draw)}
-        />
-        {mark.dot > 0 ? (
-          <Circle cx={MARK_DOT.cx} cy={MARK_DOT.cy} r={MARK_DOT.r * mark.dot} fill={colors.primary} />
+        {/* Bottom crate rises 10 units into place; top crate drops 14 onto it. */}
+        <G opacity={mark.bottom} transform={`translate(0 ${10 * (1 - easeOutBack(mark.bottom))})`}>
+          <Rect {...MARK.bottom} fill={colors.charcoal} />
+          <Rect {...MARK.slot} fill={colors.bg} />
+        </G>
+        <G opacity={mark.top} transform={`translate(0 ${-14 * (1 - easeOutBack(mark.top))})`}>
+          <Rect {...MARK.top} fill={colors.charcoal} />
+        </G>
+        {mark.tick > 0 ? (
+          <Path
+            d={MARK.tick}
+            fill="none"
+            stroke={colors.primary}
+            strokeWidth={MARK.tickWidth}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeDasharray={[MARK.tickLength, MARK.tickLength]}
+            strokeDashoffset={MARK.tickLength * (1 - easeInOutCubic(mark.tick))}
+          />
         ) : null}
       </Svg>
       <Animated.View style={wordStyle}>
