@@ -102,13 +102,11 @@ export default function SignInScreen() {
         <OptionRow
           icon="mail"
           title={t('auth.signIn.emailOption')}
-          caption={t('auth.signIn.emailOptionHint')}
           onPress={() => router.push('/email-sign-in')}
         />
         <OptionRow
           icon="badge"
           title={t('auth.signIn.staffOption')}
-          caption={t('auth.signIn.staffOptionHint')}
           onPress={() => router.push('/staff-sign-in')}
         />
       </View>

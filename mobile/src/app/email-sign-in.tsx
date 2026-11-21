@@ -5,7 +5,7 @@ import { useAuth } from '@/auth/session';
 import { Hint, Notice } from '@/components/auth';
 import { Toggle } from '@/components/charts';
 import { SetupStep } from '@/components/onboarding';
-import { Button, Field, SectionTitle } from '@/components/ui';
+import { Button, Field, TextLink } from '@/components/ui';
 import { isValidEmail, isValidPhone, normalisePhone } from '@/core';
 import { useI18n } from '@/i18n';
 import { ApiError, type ApiErrorCode } from '@/lib/api';
@@ -44,6 +44,7 @@ export default function EmailSignInScreen() {
   const [info, setInfo] = useState<string | null>(null);
   const [demoToken, setDemoToken] = useState<string | null>(null);
   const [pastedLink, setPastedLink] = useState('');
+  const [showPaste, setShowPaste] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [magicSending, setMagicSending] = useState(false);
 
@@ -212,13 +213,17 @@ export default function EmailSignInScreen() {
         )}
       </View>
 
+      {mode === 'password' ? (
+        <View style={styles.forgot}>
+          <TextLink accent label={t('auth.email.forgotPassword')} onPress={() => switchMode('link')} />
+        </View>
+      ) : null}
+
       {error ? <Notice tone="error">{error}</Notice> : null}
 
-      {mode === 'password' ? (
-        <Hint icon="key">{t('auth.email.pinNote')}</Hint>
-      ) : (
+      {mode === 'link' ? (
         <>
-          {info ? <Notice tone="success">{info}</Notice> : <Hint icon="link">{t('auth.email.linkHint')}</Hint>}
+          {info ? <Notice tone="success">{info}</Notice> : null}
 
           {demoToken ? (
             <Notice
@@ -226,7 +231,12 @@ export default function EmailSignInScreen() {
               action={
                 <Button
                   label={t('auth.email.openDemoLink')}
-                  onPress={() => router.push({ pathname: '/magic-link', params: { token: demoToken } })}
+                  onPress={() =>
+                    router.push({
+                      pathname: '/magic-link',
+                      params: { token: demoToken },
+                    })
+                  }
                 />
               }
             >
@@ -234,30 +244,42 @@ export default function EmailSignInScreen() {
             </Notice>
           ) : null}
 
-          <SectionTitle>{t('auth.email.pasteTitle')}</SectionTitle>
-          <View style={styles.fields}>
-            <Field
-              label={t('auth.email.pasteLabel')}
-              value={pastedLink}
-              onChangeText={setPastedLink}
-              placeholder={t('auth.email.pastePlaceholder')}
-              autoCapitalize="none"
-              icon="link"
-            />
-            <Hint icon="info">{t('auth.email.pasteHint')}</Hint>
-            <Button
-              label={t('auth.email.pasteAction')}
-              variant="secondary"
-              disabled={pastedLink.trim() === ''}
-              onPress={handlePastedLink}
-            />
-          </View>
+          {!showPaste ? (
+            <View style={styles.center}>
+              <TextLink
+                lead={t('auth.email.haveLink')}
+                label={t('auth.email.pasteIt')}
+                accent
+                onPress={() => setShowPaste(true)}
+              />
+            </View>
+          ) : (
+            <View style={styles.fields}>
+              <Field
+                label={t('auth.email.pasteLabel')}
+                value={pastedLink}
+                onChangeText={setPastedLink}
+                placeholder={t('auth.email.pastePlaceholder')}
+                autoCapitalize="none"
+                icon="link"
+              />
+              <Hint icon="info">{t('auth.email.pasteHint')}</Hint>
+              <Button
+                label={t('auth.email.pasteAction')}
+                variant="secondary"
+                disabled={pastedLink.trim() === ''}
+                onPress={handlePastedLink}
+              />
+            </View>
+          )}
         </>
-      )}
+      ) : null}
     </SetupStep>
   );
 }
 
 const styles = StyleSheet.create({
   fields: { gap: spacing.md },
+  forgot: { alignItems: 'flex-end', marginTop: -spacing.sm },
+  center: { alignItems: 'center' },
 });

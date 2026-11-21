@@ -363,7 +363,15 @@ const styles = StyleSheet.create({
   },
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.md, minHeight: 28 },
   rowLabel: { fontSize: typeScale.body, color: colors.textMuted, flexShrink: 1 },
-  rowValue: { fontSize: typeScale.body, color: colors.text, fontWeight: '500' },
+  // The value may wrap but never pushes the label out: each side keeps room.
+  rowValue: {
+    fontSize: typeScale.body,
+    color: colors.text,
+    fontWeight: '500',
+    flexShrink: 1,
+    maxWidth: '62%',
+    textAlign: 'right',
+  },
   rowValueStrong: { fontWeight: '700' },
   amount: { fontSize: typeScale.heading, fontWeight: '700', color: colors.text, fontVariant: ['tabular-nums'] },
   amountLg: { fontSize: typeScale.display },
