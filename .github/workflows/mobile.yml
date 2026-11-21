@@ -24,12 +24,6 @@ concurrency:
   group: mobile-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  # Baked into the app at build time. Without it a release build points at the
-  # developer address 10.0.2.2, which only works in an emulator. Override with a
-  # repository variable named MOBILE_API_URL (Settings > Variables > Actions).
-  EXPO_PUBLIC_API_URL: ${{ vars.MOBILE_API_URL || 'https://xrj6hnz51i.execute-api.eu-north-1.amazonaws.com' }}
-
 jobs:
   check:
     runs-on: ubuntu-latest
@@ -62,6 +56,10 @@ jobs:
       run:
         working-directory: mobile
     env:
+      # Baked into the app at build time. Without it a release build points at
+      # the developer address 10.0.2.2, which only works in an emulator.
+      # Override with a repository variable named MOBILE_API_URL.
+      EXPO_PUBLIC_API_URL: ${{ vars.MOBILE_API_URL || 'https://xrj6hnz51i.execute-api.eu-north-1.amazonaws.com' }}
       # Newer than the last build, so the APK installs over the previous one.
       APP_VERSION_CODE: ${{ github.run_number }}
     steps:

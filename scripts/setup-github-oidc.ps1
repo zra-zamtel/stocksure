@@ -6,8 +6,9 @@
 .DESCRIPTION
     GitHub Actions assumes this role through OIDC, so the pipeline needs no
     long-lived access keys. The trust policy only allows the configured repo on
-    the configured branch. Safe to re-run: existing resources are updated in
-    place instead of duplicated.
+    the configured branch, or jobs running in the configured GitHub environment.
+    Safe to re-run: existing resources are updated in place instead of
+    duplicated.
 
 .EXAMPLE
     .\scripts\setup-github-oidc.ps1 -ConfigureRepo
@@ -18,8 +19,14 @@
 [CmdletBinding()]
 param(
     [string]$GitHubRepo = 'zra-zamtel/stocksure',
+    # GitHub's OIDC subject embeds immutable owner and repository IDs, e.g.
+    # repo:zra-zamtel@357624666/stocksure@1460763018:environment:production.
+    # Keep them in sync with the token if the repo is ever recreated.
+    [string]$OwnerId = '357624666',
+    [string]$RepoId = '1460763018',
     [string]$RoleName = 'GitHubActionsStockSureDeploy',
     [string]$Branch = 'main',
+    [string]$Environment = 'production',
     [string]$Region = 'eu-north-1',
     [string]$ArtifactBucket = 'stocksure-lambda-artifacts-866874944490',
     [string]$StackName = 'stocksure-api',
@@ -59,6 +66,9 @@ try {
     }
 
     # ------------------------------------------------------------------- trust
+    $Owner, $Repo = $GitHubRepo -split '/', 2
+    $RepoSubject = "repo:$Owner/$Repo"
+    $RepoIdSubject = "repo:$Owner@$OwnerId/$Repo@$RepoId"
     $TrustPolicy = @"
 {
   "Version": "2012-10-17",
@@ -72,7 +82,12 @@ try {
           "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
         },
         "StringLike": {
-          "token.actions.githubusercontent.com:sub": "repo:$GitHubRepo`:ref:refs/heads/$Branch"
+          "token.actions.githubusercontent.com:sub": [
+            "$RepoIdSubject`:ref:refs/heads/$Branch",
+            "$RepoIdSubject`:environment:$Environment",
+            "$RepoSubject`:ref:refs/heads/$Branch",
+            "$RepoSubject`:environment:$Environment"
+          ]
         }
       }
     }
