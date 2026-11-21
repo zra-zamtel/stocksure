@@ -636,5 +636,21 @@
   "reconcile.paymentNoSaleHint": "Money came in, but no sale was recorded for it.",
   "reconcile.recordSale": "Record sale",
   "reconcile.showMatched": "Show {count} matched",
-  "reconcile.hideMatched": "Hide matched"
+  "reconcile.hideMatched": "Hide matched",
+
+  "rtp.title": "Ask customer to pay",
+  "rtp.orReference": "Or type the reference",
+  "rtp.phone": "Customer's phone number",
+  "rtp.ask": "Send payment request · {amount}",
+  "rtp.sending": "Sending...",
+  "rtp.waiting": "Waiting for the customer to approve {amount} on {phone}. They enter their PIN on their own phone.",
+  "rtp.paid": "Paid: {amount} received. Ref {reference}. Confirm the sale to finish.",
+  "rtp.expired": "The customer didn't answer in time. Send the request again.",
+  "rtp.failed": "The payment didn't go through. Send the request again or take cash.",
+  "rtp.cancel": "Start again",
+  "rtp.changed": "The amount or provider changed after the customer paid. Ask again for the new amount.",
+  "rtp.error.phone": "Enter the customer's number, like 97 123 4567.",
+  "rtp.error.signIn": "Sign in with the owner account once to use payment requests.",
+  "rtp.error.offline": "Payment requests need internet. Connect, or record the sale and paste the message later.",
+  "rtp.error.server": "The payment service could not be reached. Try again."
 }

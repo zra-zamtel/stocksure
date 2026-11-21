@@ -618,5 +618,21 @@
   "reconcile.paymentNoSaleHint": "Ndalama zinalowa, koma palibe malonda olembedwa.",
   "reconcile.recordSale": "Lembani malonda",
   "reconcile.showMatched": "Onetsani {count} zogwirizana",
-  "reconcile.hideMatched": "Bisani zogwirizana"
+  "reconcile.hideMatched": "Bisani zogwirizana",
+
+  "rtp.title": "Pemphani kasitomala kulipira",
+  "rtp.orReference": "Kapena lembani nambala ya malipiro",
+  "rtp.phone": "Nambala ya foni ya kasitomala",
+  "rtp.ask": "Tumizani pempho la malipiro · {amount}",
+  "rtp.sending": "Tikutumiza...",
+  "rtp.waiting": "Tikudikira kasitomala kuvomereza {amount} pa {phone}. Alemba PIN yawo pa foni yawo.",
+  "rtp.paid": "Zalipidwa: {amount} zalandiridwa. Ref {reference}. Tsimikizani malonda kuti mumalize.",
+  "rtp.expired": "Kasitomala sanayankhe pa nthawi. Tumizaninso pempho.",
+  "rtp.failed": "Malipiro sanadutse. Tumizaninso pempho kapena landirani ndalama.",
+  "rtp.cancel": "Yambaninso",
+  "rtp.changed": "Ndalama kapena kampani zasintha kasitomala atalipira. Pemphaninso ndalama zatsopano.",
+  "rtp.error.phone": "Lembani nambala ya kasitomala, monga 97 123 4567.",
+  "rtp.error.signIn": "Lowani ndi akaunti ya mwini shopu kamodzi kuti mugwiritse ntchito mapempho a malipiro.",
+  "rtp.error.offline": "Mapempho a malipiro amafunika intaneti. Lumikizani, kapena lembani malonda ndi kuika uthenga pambuyo pake.",
+  "rtp.error.server": "Sitinathe kufika ku ntchito ya malipiro. Yesaninso."
 }

@@ -539,3 +539,56 @@ export async function pullSync(input: {
   }
   throw new ApiError('server', payload?.detail ?? 'The sync service could not send changes.');
 }
+
+// --- Request to pay -------------------------------------------------------
+
+export type PaymentRequestStatus = 'pending' | 'successful' | 'failed' | 'expired';
+
+export type PaymentRequest = {
+  id: string;
+  provider: 'MTN' | 'Airtel' | 'Zamtel';
+  phone: string;
+  amount: number;
+  status: PaymentRequestStatus;
+  reference: string;
+  reason: string;
+  createdAt: string;
+  completedAt: string | null;
+};
+
+const REQUEST_TO_PAY_PATH = '/api/v1/collections/request-to-pay';
+
+function paymentRequestError(response: Response, payload: ErrorPayload | null): ApiError {
+  if (response.status === 401) return new ApiError('unauthorized', payload?.detail ?? 'Sign in again.');
+  if (response.status === 400) return new ApiError('validation', payload?.detail ?? 'Check the phone number and amount.');
+  return new ApiError('server', payload?.detail ?? 'The payment service could not be reached.');
+}
+
+/**
+ * Asks the customer's wallet for the amount; they approve with their PIN on
+ * their own phone. The id comes from the phone, so retrying after a dropped
+ * connection returns the same request instead of prompting the customer again.
+ */
+export async function requestToPayOnServer(input: {
+  id: string;
+  provider: 'MTN' | 'Airtel' | 'Zamtel';
+  phone: string;
+  amount: number;
+  deviceToken: string;
+}): Promise<PaymentRequest> {
+  const { deviceToken, ...body } = input;
+  const response = await postJson(REQUEST_TO_PAY_PATH, body, { Authorization: `Bearer ${deviceToken}` });
+  if (response.ok) return (await response.json()) as PaymentRequest;
+  throw paymentRequestError(response, await readErrorPayload(response));
+}
+
+export async function paymentRequestStatusOnServer(input: {
+  id: string;
+  deviceToken: string;
+}): Promise<PaymentRequest> {
+  const response = await getJson(`${REQUEST_TO_PAY_PATH}/${encodeURIComponent(input.id)}`, {
+    Authorization: `Bearer ${input.deviceToken}`,
+  });
+  if (response.ok) return (await response.json()) as PaymentRequest;
+  throw paymentRequestError(response, await readErrorPayload(response));
+}
