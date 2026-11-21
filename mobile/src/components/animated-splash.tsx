@@ -23,7 +23,7 @@ void SplashScreen.preventAutoHideAsync().catch(() => undefined);
 const easeInOutCubic = (x: number) => (x < 0.5 ? 4 * x * x * x : 1 - (-2 * x + 2) ** 3 / 2);
 /** A little overshoot, for the dot popping in. */
 const easeOutBack = (x: number) => 1 + 2.7 * (x - 1) ** 3 + 1.7 * (x - 1) ** 2;
-const DOT_MS = 320;
+const DOT_MS = 450;
 
 /**
  * Progress of the S stroke (0 to 1) and the dot (0 to ~1.1), driven by a plain
@@ -59,7 +59,8 @@ const SEEN_KEY = 'stocksure.splashSeen';
  * record a sale should not wait for a logo.
  */
 const TIMINGS = {
-  full: { drawDelay: 150, draw: 1000, dot: 1150, word: 1450, wordLen: 450, tag: 1700, min: 2500 },
+  // Matches the "Animated splash: Shelf S" board on the StockSure Logo Concepts canvas.
+  full: { drawDelay: 400, draw: 1100, dot: 1500, word: 1900, wordLen: 500, tag: 2300, min: 3000 },
   short: { drawDelay: 0, draw: 500, dot: 500, word: 650, wordLen: 300, tag: 750, min: 1300 },
 } as const;
 const EXIT_MS = 280;
@@ -159,7 +160,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bg,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: spacing.lg,
+    gap: 20,
     padding: spacing.xxl,
     zIndex: 10,
   },
