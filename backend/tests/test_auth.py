@@ -323,6 +323,44 @@ class OwnerLoginTests(AuthTestCase):
         self.assertEqual(response.status_code, 403)
         self.assertEqual(response.json()["code"], "email_unverified")
 
+    def test_unverified_login_with_the_right_password_emails_a_verification_link(self):
+        self.owner.email_verified_at = None
+        self.owner.save(update_fields=["email_verified_at"])
+        mail.outbox.clear()
+
+        response = self.login()
+
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(response.json()["verificationSent"])
+        self.assertNotIn("demoToken", response.json())
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ["elton@example.com"])
+        self.assertEqual(
+            MagicLinkToken.objects.filter(user=self.owner, used_at__isnull=True).count(), 1
+        )
+
+    @override_settings(EXPOSE_EMAIL_TOKEN=True)
+    def test_unverified_login_link_verifies_the_email_and_signs_in(self):
+        self.owner.email_verified_at = None
+        self.owner.save(update_fields=["email_verified_at"])
+
+        token = self.login().json()["demoToken"]
+        verified = self.post("/api/v1/auth/magic-link/verify", {"token": token})
+
+        self.assertEqual(verified.status_code, 200, verified.content)
+        self.owner.refresh_from_db()
+        self.assertIsNotNone(self.owner.email_verified_at)
+        self.assertEqual(self.login().status_code, 200)
+
+    def test_a_wrong_password_for_an_unverified_owner_sends_nothing(self):
+        self.owner.email_verified_at = None
+        self.owner.save(update_fields=["email_verified_at"])
+        mail.outbox.clear()
+
+        self.login(password="wrong password")
+
+        self.assertEqual(len(mail.outbox), 0)
+
     def test_a_wrong_password_for_an_unverified_owner_stays_generic(self):
         self.owner.email_verified_at = None
         self.owner.save(update_fields=["email_verified_at"])

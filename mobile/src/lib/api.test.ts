@@ -262,6 +262,15 @@ describe('UT-API owner email client', () => {
     expect(error.code).toBe('email-unverified');
   });
 
+  it('UT-API-17c passes on that the server emailed a verification link', async () => {
+    respond(403, { code: 'email_unverified', verificationSent: true, demoToken: 'tok_123' });
+    const error = await authFailure(() =>
+      loginOwnerOnServer({ email: 'elton@example.com', password: 'correct horse battery' })
+    );
+    expect(error.code).toBe('email-unverified');
+    expect(error.details).toEqual({ verificationSent: true, demoToken: 'tok_123' });
+  });
+
   it('UT-API-18 requests a magic link and returns the demo token', async () => {
     const fetchMock = respond(200, {
       expiresAt: '2026-11-17T10:15:00Z',

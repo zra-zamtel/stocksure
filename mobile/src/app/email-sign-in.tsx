@@ -45,6 +45,9 @@ export default function EmailSignInScreen() {
   const [demoToken, setDemoToken] = useState<string | null>(null);
   const [pastedLink, setPastedLink] = useState('');
   const [showPaste, setShowPaste] = useState(false);
+  // Set when a password sign-in found the email unverified and the server
+  // emailed a verification link instead. Opening that link signs the owner in.
+  const [verifySentTo, setVerifySentTo] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [magicSending, setMagicSending] = useState(false);
 
@@ -54,6 +57,7 @@ export default function EmailSignInScreen() {
   function switchMode(next: Mode) {
     setMode(next);
     setError(null);
+    setVerifySentTo(null);
   }
 
   function describe(cause: unknown): string {
@@ -82,11 +86,22 @@ export default function EmailSignInScreen() {
     }
 
     setSubmitting(true);
+    setVerifySentTo(null);
+    setDemoToken(null);
     try {
       await beginOwnerLogin({ email, password });
       router.replace('/set-phone-pin');
     } catch (cause) {
-      setError(describe(cause));
+      if (cause instanceof ApiError && cause.code === 'email-unverified') {
+        if (cause.details.verificationSent) {
+          setVerifySentTo(email.trim().toLowerCase());
+          setDemoToken(cause.details.demoToken ?? null);
+        } else {
+          setError(t('auth.email.error.verifyNotSent'));
+        }
+      } else {
+        setError(describe(cause));
+      }
     } finally {
       setSubmitting(false);
     }
@@ -221,9 +236,13 @@ export default function EmailSignInScreen() {
 
       {error ? <Notice tone="error">{error}</Notice> : null}
 
-      {mode === 'link' ? (
+      {mode === 'password' && verifySentTo ? (
+        <Notice tone="success">{t('auth.email.verifySent', { email: verifySentTo })}</Notice>
+      ) : null}
+
+      {mode === 'link' || verifySentTo ? (
         <>
-          {info ? <Notice tone="success">{info}</Notice> : null}
+          {mode === 'link' && info ? <Notice tone="success">{info}</Notice> : null}
 
           {demoToken ? (
             <Notice

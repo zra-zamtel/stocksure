@@ -62,7 +62,9 @@ export type ApiErrorCode =
 export class ApiError extends Error {
   constructor(
     public readonly code: ApiErrorCode,
-    message: string
+    message: string,
+    /** Extra facts the server sent with the refusal, e.g. that a link was emailed. */
+    public readonly details: { verificationSent?: boolean; demoToken?: string } = {}
   ) {
     super(message);
     this.name = 'ApiError';
@@ -138,7 +140,7 @@ async function getJson(
   }
 }
 
-type ErrorPayload = { code?: string; detail?: string };
+type ErrorPayload = { code?: string; detail?: string; verificationSent?: boolean; demoToken?: string };
 
 async function readErrorPayload(response: Response): Promise<ErrorPayload | null> {
   try {
@@ -195,7 +197,8 @@ export async function loginOwnerOnServer(input: {
   if (response.status === 403 && payload?.code === 'email_unverified') {
     throw new ApiError(
       'email-unverified',
-      payload.detail ?? 'Verify your email with a sign-in link before using your password.'
+      payload.detail ?? 'Verify your email with a sign-in link before using your password.',
+      { verificationSent: payload.verificationSent === true, demoToken: payload.demoToken }
     );
   }
   if (response.status === 401) {

@@ -86,7 +86,7 @@
   "auth.email.error.emailInvalid": "Enter an email address like you@example.com.",
   "auth.email.error.passwordRequired": "Enter your password.",
   "auth.email.error.invalidCredentials": "That email and password do not match.",
-  "auth.email.error.emailUnverified": "Verify your email first. Tap \"Email me a magic link\" below, open the link, then use your password here.",
+  "auth.email.error.emailUnverified": "Confirm your email first: we've sent you a link. Open it on this phone to sign in.",
   "auth.email.error.phoneRequired": "Enter the phone number that registered this account.",
   "auth.email.error.phoneInvalid": "Enter the phone number on the account, like 097 123 4567.",
   "auth.email.error.pasteInvalid": "Paste the full link from the email.",
@@ -589,5 +589,8 @@
 
   "auth.email.forgotPassword": "Forgot password?",
   "auth.email.haveLink": "Already have a link?",
-  "auth.email.pasteIt": "Paste it"
+  "auth.email.pasteIt": "Paste it",
+
+  "auth.email.verifySent": "Check your inbox. We sent a link to {email} to confirm it's yours. Open it on this phone to finish signing in.",
+  "auth.email.error.verifyNotSent": "Your email isn't confirmed yet and we couldn't send the link. Try again in a minute."
 }

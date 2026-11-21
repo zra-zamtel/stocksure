@@ -357,7 +357,7 @@
   "auth.email.error.emailInvalid": "Lowetsani imelo ngati you@example.com.",
   "auth.email.error.passwordRequired": "Lowetsani mawu anu achinsinsi.",
   "auth.email.error.invalidCredentials": "Imelo ndi mawu achinsinsi amenewo sakufanana.",
-  "auth.email.error.emailUnverified": "Tsimikizani imelo yanu choyamba. Dinani \"Nditumizireni ulalo pa imelo\" m'munsimu, tsegulani ulalowo, kenako gwiritsani ntchito mawu achinsinsi apa.",
+  "auth.email.error.emailUnverified": "Tsimikizani imelo yanu choyamba: takutumizirani ulalo. Utsegulireni pa foni iyi kuti mulowe.",
   "auth.email.error.phoneRequired": "Lowetsani nambala ya foni yomwe inalembetsa akaunti iyi.",
   "auth.email.error.phoneInvalid": "Lowetsani nambala ya foni ya akaunti, ngati 097 123 4567.",
   "auth.email.error.pasteInvalid": "Namikani ulalo wonse kuchokera mu imelo.",
@@ -571,5 +571,8 @@
 
   "auth.email.forgotPassword": "Mwaiwala password?",
   "auth.email.haveLink": "Muli kale ndi ulalo?",
-  "auth.email.pasteIt": "Uikeni pano"
+  "auth.email.pasteIt": "Uikeni pano",
+
+  "auth.email.verifySent": "Onani imelo yanu. Tatumiza ulalo ku {email} kutsimikiza kuti ndi yanu. Utsegulireni pa foni iyi kuti mumalize kulowa.",
+  "auth.email.error.verifyNotSent": "Imelo yanu sinatsimikizidwe ndipo sitinathe kutumiza ulalo. Yesaninso pakapita mphindi."
 }

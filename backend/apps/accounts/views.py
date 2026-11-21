@@ -303,11 +303,25 @@ class LoginView(APIView):
             # inbox. The magic link is the verification step; only reveal this
             # after the password is correct so the endpoint cannot be used to
             # discover account state.
-            return error(
-                "email_unverified",
-                "Verify your email with a sign-in link before using your password.",
-                status.HTTP_403_FORBIDDEN,
-            )
+            #
+            # The correct password already proves this is the person who
+            # registered, the same proof registration had when it sent the
+            # first link. So send a fresh verification link now instead of
+            # making the owner go and ask for one: opening it signs them in.
+            payload = {
+                "code": "email_unverified",
+                "detail": "We emailed you a link to verify your address. Open it to sign in.",
+                "verificationSent": False,
+            }
+            try:
+                _, token, link = issue_magic_link(user)
+                send_magic_link_email(user, link)
+                payload["verificationSent"] = True
+                if settings.EXPOSE_EMAIL_TOKEN:
+                    payload["demoToken"] = token
+            except Exception as exc:  # noqa: BLE001 - report it; the owner can retry
+                logger.warning("Could not send the verification email for %s: %s", user.id, exc)
+            return Response(payload, status=status.HTTP_403_FORBIDDEN)
 
         return Response(auth_payload(user), status=status.HTTP_200_OK)
 
