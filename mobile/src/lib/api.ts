@@ -37,6 +37,8 @@ export type ServerOwner = {
 export type OwnerSession = {
   owner: ServerOwner;
   deviceToken: string;
+  /** Sign-up only: whether the server managed to email the confirmation link. */
+  verificationSent?: boolean;
 };
 
 export type ApiErrorCode =

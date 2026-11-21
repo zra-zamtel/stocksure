@@ -592,5 +592,16 @@
   "auth.email.pasteIt": "Paste it",
 
   "auth.email.verifySent": "Check your inbox. We sent a link to {email} to confirm it's yours. Open it on this phone to finish signing in.",
-  "auth.email.error.verifyNotSent": "Your email isn't confirmed yet and we couldn't send the link. Try again in a minute."
+  "auth.email.error.verifyNotSent": "Your email isn't confirmed yet and we couldn't send the link. Try again in a minute.",
+
+  "verify.sent": "Confirm your email: we sent a link to {email}. Open it on this phone. Check spam if you can't find it.",
+  "verify.notSent": "We couldn't email {email} yet. Send the confirmation link again.",
+  "verify.resent": "Sent again to {email}. The link works for 15 minutes.",
+  "verify.failed": "Couldn't send it. Check your internet and try again.",
+  "verify.resend": "Send the link again",
+  "verify.sending": "Sending...",
+  "auth.magic.confirmedTitle": "Email confirmed",
+  "auth.magic.confirmed": "Your email is confirmed. You can now sign in with it on any phone.",
+  "auth.magic.otherAccount": "This link is for a different account. Sign out first, then open the link again.",
+  "auth.magic.continue": "Continue"
 }

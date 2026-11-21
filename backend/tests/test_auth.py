@@ -119,6 +119,7 @@ class RegisterOwnerTests(AuthTestCase):
         response = self.post_register()
 
         self.assertEqual(response.status_code, 201)
+        self.assertTrue(response.json()["verificationSent"])
         self.assertEqual(len(mail.outbox), 1)
         self.assertEqual(mail.outbox[0].to, ["elton@example.com"])
         self.assertIn("Elton Chiwala", mail.outbox[0].body)
@@ -136,6 +137,7 @@ class RegisterOwnerTests(AuthTestCase):
 
         self.assertEqual(response.status_code, 201)
         self.assertTrue(User.objects.filter(email="elton@example.com").exists())
+        self.assertFalse(response.json()["verificationSent"])
 
     def test_normalises_an_international_phone(self):
         response = self.post_register(phone="+260 97 123 4567")

@@ -73,6 +73,8 @@ function RootNavigator() {
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="index" />
+      {/* Open in every state: a signed-in owner taps the link to confirm their email. */}
+      <Stack.Screen name="magic-link" />
 
       <Stack.Protected guard={!hasAccount && pendingOwner === null}>
         <Stack.Screen name="onboarding/language" />
@@ -81,7 +83,6 @@ function RootNavigator() {
 
       <Stack.Protected guard={!signedIn}>
         <Stack.Screen name="email-sign-in" />
-        <Stack.Screen name="magic-link" />
         <Stack.Screen name="staff-sign-in" />
       </Stack.Protected>
 

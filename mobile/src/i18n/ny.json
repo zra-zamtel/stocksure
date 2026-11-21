@@ -574,5 +574,16 @@
   "auth.email.pasteIt": "Uikeni pano",
 
   "auth.email.verifySent": "Onani imelo yanu. Tatumiza ulalo ku {email} kutsimikiza kuti ndi yanu. Utsegulireni pa foni iyi kuti mumalize kulowa.",
-  "auth.email.error.verifyNotSent": "Imelo yanu sinatsimikizidwe ndipo sitinathe kutumiza ulalo. Yesaninso pakapita mphindi."
+  "auth.email.error.verifyNotSent": "Imelo yanu sinatsimikizidwe ndipo sitinathe kutumiza ulalo. Yesaninso pakapita mphindi.",
+
+  "verify.sent": "Tsimikizani imelo yanu: tatumiza ulalo ku {email}. Utsegulireni pa foni iyi. Onaninso mu spam ngati simukuupeza.",
+  "verify.notSent": "Sitinathe kutumiza imelo ku {email}. Tumizaninso ulalo wotsimikizira.",
+  "verify.resent": "Tatumizanso ku {email}. Ulalo umagwira ntchito kwa mphindi 15.",
+  "verify.failed": "Sizinatheke. Onani intaneti ndipo yesaninso.",
+  "verify.resend": "Tumizaninso ulalo",
+  "verify.sending": "Tikutumiza...",
+  "auth.magic.confirmedTitle": "Imelo yatsimikizidwa",
+  "auth.magic.confirmed": "Imelo yanu yatsimikizidwa. Tsopano mutha kulowa nayo pa foni iliyonse.",
+  "auth.magic.otherAccount": "Ulalo uwu ndi wa akaunti ina. Tulukani choyamba, kenako tsegulaninso ulalo.",
+  "auth.magic.continue": "Pitirizani"
 }

@@ -254,13 +254,18 @@ class RegisterOwnerView(APIView):
         # Verify the address while the registration is fresh, so a real owner's
         # claim becomes protected within minutes. A mail outage must not lose
         # the account that was just created; the owner can request another link.
+        payload = auth_payload(user)
+        # Tell the app whether the email went out, so it can tell the owner to
+        # check their inbox, or offer to resend.
+        payload["verificationSent"] = False
         try:
             _, _, link = issue_magic_link(user)
             send_magic_link_email(user, link)
+            payload["verificationSent"] = True
         except Exception as exc:  # noqa: BLE001 - a mail failure must not undo the sign-up
             logger.warning("Could not send the verification email for %s: %s", user.id, exc)
 
-        return Response(auth_payload(user), status=status.HTTP_201_CREATED)
+        return Response(payload, status=status.HTTP_201_CREATED)
 
 
 class LoginView(APIView):

@@ -3,6 +3,7 @@ import type { AndroidSymbol } from 'expo-symbols';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '@/auth/session';
 import { displayName } from '@/components/auth';
+import { EmailReminder } from '@/components/email-reminder';
 import { Button, Card, Icon, IconButton, Pill, Screen, SectionTitle } from '@/components/ui';
 import { useDayTotals, useLowStock, useShop } from '@/db/hooks';
 import { useI18n } from '@/i18n';
@@ -78,6 +79,8 @@ export default function HomeScreen() {
       action={headerAction}
       footer={<Button label={t('home.actions.recordSale')} onPress={() => router.push('/sale/new')} />}
     >
+      <EmailReminder />
+
       <Card>
         <Text style={styles.heroLabel}>{t('home.today.salesToday')}</Text>
         <Text style={styles.heroValue} numberOfLines={1} adjustsFontSizeToFit>

@@ -1,4 +1,5 @@
 import Storage from 'expo-sqlite/kv-store';
+import { clearEmailPending, markEmailPending } from '@/lib/email-verify-store';
 import * as SecureStore from 'expo-secure-store';
 import { useSQLiteContext } from 'expo-sqlite';
 import {
@@ -102,7 +103,8 @@ type AuthValue = {
   /** A staff member's first sign-in on a phone that does not know them yet. */
   signInStaff: (input: { phone: string; pin: string }) => Promise<void>;
   beginOwnerLogin: (input: { email: string; password: string }) => Promise<void>;
-  beginOwnerMagicLink: (token: string) => Promise<void>;
+  /** Verifies the link and returns whose account it opened. */
+  beginOwnerMagicLink: (token: string) => Promise<{ id: string }>;
   requestOwnerMagicLink: (email: string, phone?: string) => Promise<MagicLinkRequestResult>;
   completeDeviceSetup: (input: { pin: string }) => Promise<void>;
   cancelOwnerLogin: () => void;
@@ -295,6 +297,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setDeviceToken(session.deviceToken);
       pendingRegistration.current = null;
       clearPendingRegistration();
+      // Older servers do not say; they always attempted the email.
+      markEmailPending(owner.email ?? email, session.verificationSent !== false);
       setOwnerPreview({ name: owner.name, phone: owner.phone, email: owner.email });
       setHasAccount(true);
       setUser({ id: owner.id, name: owner.name, phone: owner.phone, role: 'owner' });
@@ -382,6 +386,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         email: input.email.trim().toLowerCase(),
         password: input.password,
       });
+      // A password sign-in only succeeds for a confirmed email.
+      clearEmailPending();
       setPendingOwner({ owner: session.owner, deviceToken: session.deviceToken });
       setStatus('ready');
       setError(null);
@@ -397,9 +403,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const beginOwnerMagicLink = useCallback(async (token: string) => {
     const session = await verifyMagicLinkOnServer(token);
+    // Opening any link proves the inbox, so the email is confirmed now.
+    clearEmailPending();
     setPendingOwner({ owner: session.owner, deviceToken: session.deviceToken });
     setStatus('ready');
     setError(null);
+    return { id: session.owner.id };
   }, []);
 
   const completeDeviceSetup = useCallback(
