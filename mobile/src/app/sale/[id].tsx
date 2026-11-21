@@ -1,10 +1,10 @@
-import { useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { usePermissionGuard } from '@/auth/permissions';
 import { useAuth } from '@/auth/session';
-import { Button, Card, EmptyState, Field, Pill, Row, Screen, SectionTitle } from '@/components/ui';
+import { Button, Card, EmptyState, ErrorState, Field, LoadingList, Pill, Row, Screen, SectionTitle } from '@/components/ui';
 import { useSaleDetail } from '@/db/hooks';
 import { voidSale } from '@/db/repos';
 import { useI18n } from '@/i18n';
@@ -28,7 +28,7 @@ export default function SaleScreen() {
   if (loading && !sale) {
     return (
       <Screen title={t('sales.title')}>
-        <Text style={styles.muted}>{t('common.syncing')}</Text>
+        <LoadingList label={t('state.loading')} hero count={2} />
       </Screen>
     );
   }
@@ -36,7 +36,13 @@ export default function SaleScreen() {
   if (error) {
     return (
       <Screen title={t('sales.title')}>
-        <EmptyState message={error} />
+        <ErrorState
+          title={t('state.error.title')}
+          message={t('state.error.message')}
+          detail={error}
+          retryLabel={t('common.retry')}
+          onRetry={reload}
+        />
       </Screen>
     );
   }
@@ -44,7 +50,12 @@ export default function SaleScreen() {
   if (!sale) {
     return (
       <Screen title={t('sales.title')}>
-        <EmptyState message="Sale not found." />
+        <EmptyState
+          icon="receipt_long"
+          title={t('state.notFound.title')}
+          message={t('state.notFound.message')}
+          secondary={{ label: t('common.back'), icon: 'arrow_back', onPress: () => router.back() }}
+        />
       </Screen>
     );
   }
@@ -134,6 +145,7 @@ export default function SaleScreen() {
               label={t('sales.void')}
               variant="danger"
               disabled={submitting}
+              loading={submitting}
               onPress={handleVoid}
             />
             {submitError ? <Text style={styles.error}>{submitError}</Text> : null}

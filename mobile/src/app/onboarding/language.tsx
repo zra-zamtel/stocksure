@@ -3,7 +3,7 @@ import { useRouter } from 'expo-router';
 import { StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import { LanguageBubbles } from '@/components/onboarding';
-import { Button, Choice, Screen } from '@/components/ui';
+import { Button, Choice, HelpTip, Screen } from '@/components/ui';
 import { LANGUAGE_LABELS, useI18n, type Language } from '@/i18n';
 import { colors, spacing, typeScale } from '@/theme/tokens';
 
@@ -47,6 +47,8 @@ export default function LanguageScreen() {
           />
         ))}
       </View>
+
+      <HelpTip icon="schedule">{t('onboarding.language.time')}</HelpTip>
     </Screen>
   );
 }

@@ -4,8 +4,9 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '@/auth/session';
 import { displayName } from '@/components/auth';
 import { EmailReminder } from '@/components/email-reminder';
-import { Button, Card, Icon, IconButton, Pill, Screen, SectionTitle } from '@/components/ui';
-import { useDayTotals, useLowStock, useShop } from '@/db/hooks';
+import { GettingStarted } from '@/components/getting-started';
+import { Button, Card, Icon, IconButton, Pill, Screen, SectionTitle, Skeleton } from '@/components/ui';
+import { useDayTotals, useLowStock, useProducts, useShop } from '@/db/hooks';
 import { useI18n } from '@/i18n';
 import { formatKwacha } from '@/lib/format';
 import { colors, radii, spacing, touch, typeScale } from '@/theme/tokens';
@@ -21,8 +22,9 @@ export default function HomeScreen() {
   const { t } = useI18n();
   const router = useRouter();
   const { user, can, signOut } = useAuth();
-  const { data: totals } = useDayTotals();
-  const { data: alerts } = useLowStock();
+  const { data: totals, initialLoading: totalsLoading } = useDayTotals();
+  const { data: alerts, initialLoading: alertsLoading } = useLowStock();
+  const { data: products } = useProducts();
   const { data: shopRecord } = useShop();
 
   const hour = new Date().getHours();
@@ -83,15 +85,26 @@ export default function HomeScreen() {
 
       <Card>
         <Text style={styles.heroLabel}>{t('home.today.salesToday')}</Text>
-        <Text style={styles.heroValue} numberOfLines={1} adjustsFontSizeToFit>
-          {formatKwacha(totals.salesTotal)}
-        </Text>
-        <Text style={styles.muted}>
-          {t(totals.saleCount === 1 ? 'home.today.countOne' : 'home.today.countMany', {
-            count: totals.saleCount,
-          })}
-        </Text>
+        {totalsLoading ? (
+          <View style={styles.heroLoading} accessible accessibilityLabel={t('state.loading')}>
+            <Skeleton width="55%" height={36} />
+            <Skeleton width="30%" height={14} />
+          </View>
+        ) : (
+          <>
+            <Text style={styles.heroValue} numberOfLines={1} adjustsFontSizeToFit>
+              {formatKwacha(totals.salesTotal)}
+            </Text>
+            <Text style={styles.muted}>
+              {t(totals.saleCount === 1 ? 'home.today.countOne' : 'home.today.countMany', {
+                count: totals.saleCount,
+              })}
+            </Text>
+          </>
+        )}
       </Card>
+
+      <GettingStarted />
 
       <View style={styles.grid}>
         {shortcuts.map((item) => (
@@ -113,7 +126,14 @@ export default function HomeScreen() {
       </View>
 
       <SectionTitle>{t('home.alerts.title')}</SectionTitle>
-      {alerts.length === 0 ? (
+      {alertsLoading ? (
+        <Skeleton height={20} width="70%" />
+      ) : products.length === 0 ? (
+        <View style={styles.allGood}>
+          <Icon name="info" size={20} color={colors.textMuted} />
+          <Text style={[styles.muted, styles.flexText]}>{t('home.alerts.noProducts')}</Text>
+        </View>
+      ) : alerts.length === 0 ? (
         <View style={styles.allGood}>
           <Icon name="check_circle" size={20} color={colors.success} />
           <Text style={styles.muted}>{t('home.alerts.empty')}</Text>
@@ -185,6 +205,8 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   allGood: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  flexText: { flex: 1 },
+  heroLoading: { gap: spacing.sm, paddingVertical: spacing.xs },
   alertRow: {
     flexDirection: 'row',
     alignItems: 'center',

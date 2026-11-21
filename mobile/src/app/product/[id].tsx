@@ -1,10 +1,10 @@
 import * as Print from 'expo-print';
-import { useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { usePermissionGuard } from '@/auth/permissions';
-import { Button, Card, Choice, EmptyState, Field, Pill, Row, Screen, SectionTitle } from '@/components/ui';
+import { Button, Card, Choice, EmptyState, ErrorState, LoadingList, Field, Pill, Row, Screen, SectionTitle } from '@/components/ui';
 import { isValidEan13, toNgwee } from '@/core';
 import { useMovements, useProducts, useShop } from '@/db/hooks';
 import { restockVariant, setVariantBarcode } from '@/db/repos';
@@ -114,7 +114,7 @@ export default function ProductScreen() {
   if (loading && !product) {
     return (
       <Screen title={t('products.title')}>
-        <Text style={styles.muted}>{t('common.syncing')}</Text>
+        <LoadingList label={t('state.loading')} hero count={2} />
       </Screen>
     );
   }
@@ -122,7 +122,13 @@ export default function ProductScreen() {
   if (error) {
     return (
       <Screen title={t('products.title')}>
-        <EmptyState message={error} />
+        <ErrorState
+          title={t('state.error.title')}
+          message={t('state.error.message')}
+          detail={error}
+          retryLabel={t('common.retry')}
+          onRetry={reloadProducts}
+        />
       </Screen>
     );
   }
@@ -130,7 +136,12 @@ export default function ProductScreen() {
   if (!product) {
     return (
       <Screen title={t('products.title')}>
-        <EmptyState message="Product not found." />
+        <EmptyState
+          icon="inventory_2"
+          title={t('state.notFound.title')}
+          message={t('state.notFound.message')}
+          secondary={{ label: t('common.back'), icon: 'arrow_back', onPress: () => router.back() }}
+        />
       </Screen>
     );
   }
@@ -204,6 +215,7 @@ export default function ProductScreen() {
                   label={t('products.generateBarcode')}
                   variant="secondary"
                   disabled={submitting}
+                  loading={submitting}
                   onPress={handleGenerateBarcode}
                 />
               </>
@@ -237,6 +249,7 @@ export default function ProductScreen() {
             <Button
               label={t('products.restock')}
               disabled={submitting}
+              loading={submitting}
               onPress={handleRestock}
             />
             {message ? <Text style={styles.success}>{message}</Text> : null}

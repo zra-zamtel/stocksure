@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '@/auth/session';
 import { SETUP_STEPS, SetupStep } from '@/components/onboarding';
-import { Button, Card } from '@/components/ui';
+import { Button, Card, FormError, HelpTip, SkeletonCard } from '@/components/ui';
 import { taxRules } from '@/data/fake';
 import { useProducts, useShop } from '@/db/hooks';
 import { completeOnboarding, ensureTaxPeriod } from '@/db/repos';
@@ -16,7 +16,7 @@ export default function FirstProductsScreen() {
   const router = useRouter();
   const db = useSQLiteContext();
   const { refresh } = useAuth();
-  const { data: products, loading } = useProducts();
+  const { data: products, initialLoading } = useProducts();
   const { data: shop } = useShop();
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -54,7 +54,7 @@ export default function FirstProductsScreen() {
       backLabel={t('common.back')}
       footer={
         count > 0 ? (
-          <Button label={t('onboarding.products.finish')} disabled={saving} onPress={finish} />
+          <Button label={t('onboarding.products.finish')} disabled={saving} loading={saving} onPress={finish} />
         ) : (
           <Button label={t('onboarding.products.addNow')} onPress={addProduct} />
         )
@@ -67,7 +67,8 @@ export default function FirstProductsScreen() {
           </Text>
         </Card>
       ) : null}
-      {loading ? <Text style={styles.hint}>{t('common.syncing')}</Text> : null}
+      {initialLoading ? <SkeletonCard lines={1} /> : null}
+      {!initialLoading && count === 0 ? <HelpTip>{t('onboarding.products.tip')}</HelpTip> : null}
 
       <View style={styles.actions}>
         {count > 0 ? (
@@ -81,18 +82,16 @@ export default function FirstProductsScreen() {
           />
         ) : null}
         {count === 0 ? (
-          <Button label={t('onboarding.products.later')} variant="secondary" disabled={saving} onPress={finish} />
+          <Button label={t('onboarding.products.later')} variant="secondary" disabled={saving} loading={saving} onPress={finish} />
         ) : null}
       </View>
 
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {error ? <FormError message={error} /> : null}
     </SetupStep>
   );
 }
 
 const styles = StyleSheet.create({
   count: { fontSize: typeScale.body, fontWeight: '700', color: colors.text },
-  hint: { fontSize: typeScale.label, color: colors.textMuted },
   actions: { gap: spacing.md, marginTop: spacing.md },
-  error: { fontSize: typeScale.label, color: colors.danger, fontWeight: '600' },
 });

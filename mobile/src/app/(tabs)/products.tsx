@@ -2,7 +2,7 @@ import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useAuth } from '@/auth/session';
-import { Button, Icon, IconButton, Pill, Screen } from '@/components/ui';
+import { Button, EmptyState, ErrorState, Icon, IconButton, LoadingList, Pill, Screen } from '@/components/ui';
 import { useProducts, useShop } from '@/db/hooks';
 import type { ProductWithStock } from '@/db/repos';
 import { useI18n } from '@/i18n';
@@ -28,7 +28,7 @@ export default function ProductsScreen() {
   const { t } = useI18n();
   const router = useRouter();
   const { can } = useAuth();
-  const { data: products, loading, error } = useProducts();
+  const { data: products, initialLoading, error, reload } = useProducts();
   const { data: shop } = useShop();
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
@@ -51,6 +51,41 @@ export default function ProductsScreen() {
       .includes(needle);
   });
 
+  const scan = () => router.push('/scan');
+  const addProduct = () => router.push('/product/new');
+
+  if (initialLoading || error || products.length === 0) {
+    return (
+      <Screen title={t('products.title')}>
+        {initialLoading ? (
+          <LoadingList label={t('state.loading')} count={4} />
+        ) : error ? (
+          <ErrorState
+            title={t('state.error.title')}
+            message={t('state.error.message')}
+            detail={error}
+            retryLabel={t('common.retry')}
+            onRetry={reload}
+          />
+        ) : (
+          <EmptyState
+            icon="inventory_2"
+            title={t('products.empty.title')}
+            message={t(managesProducts ? 'products.empty.message' : 'products.empty.staffMessage')}
+            action={
+              managesProducts ? { label: t('products.addProduct'), icon: 'add', onPress: addProduct } : undefined
+            }
+            secondary={
+              managesProducts && shop?.usesBarcodes
+                ? { label: t('products.empty.scan'), icon: 'barcode_scanner', onPress: scan }
+                : undefined
+            }
+          />
+        )}
+      </Screen>
+    );
+  }
+
   return (
     <Screen
       title={t('products.title')}
@@ -59,13 +94,13 @@ export default function ProductsScreen() {
           <IconButton
             name="barcode_scanner"
             label={t('products.scanBarcode')}
-            onPress={() => router.push('/scan')}
+            onPress={scan}
           />
         ) : undefined
       }
       footer={
         managesProducts ? (
-          <Button label={t('products.addProduct')} onPress={() => router.push('/product/new')} />
+          <Button label={t('products.addProduct')} onPress={addProduct} />
         ) : undefined
       }
     >
@@ -105,15 +140,20 @@ export default function ProductsScreen() {
         />
       </View>
 
-      {error ? <Text style={styles.muted}>{error}</Text> : null}
-
-      {!loading && !error && visible.length === 0 ? (
-        <View style={styles.empty}>
-          <Icon name="inventory_2" size={40} color={colors.border} />
-          <Text style={styles.emptyText}>
-            {products.length === 0 ? t('products.emptyShort') : t('products.noMatch')}
-          </Text>
-        </View>
+      {visible.length === 0 ? (
+        needle ? (
+          <EmptyState
+            icon="search_off"
+            title={t('products.noMatch.title', { query: query.trim() })}
+            message={t('products.noMatch.message')}
+            secondary={{ label: t('products.noMatch.clear'), icon: 'close', onPress: () => setQuery('') }}
+          />
+        ) : (
+          <View style={styles.empty}>
+            <Icon name="inventory_2" size={40} color={colors.border} />
+            <Text style={styles.emptyText}>{t('products.noMatch')}</Text>
+          </View>
+        )
       ) : null}
 
       <View style={styles.list}>

@@ -1,17 +1,17 @@
 import { useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useEffect, useRef, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { useAuth } from '@/auth/session';
 import { EmailReminder } from '@/components/email-reminder';
 import type { AndroidSymbol } from 'expo-symbols';
-import { Button, Field } from '@/components/ui';
+import { Button, Field, FormError } from '@/components/ui';
 import { OptionCard, OptionGrid, SETUP_STEPS, SetupStep, StepSection } from '@/components/onboarding';
 import type { ShopType } from '@/core';
 import { useShop } from '@/db/hooks';
 import { saveShopDetails } from '@/db/repos';
 import { useI18n } from '@/i18n';
-import { colors, spacing, typeScale } from '@/theme/tokens';
+import { spacing } from '@/theme/tokens';
 
 const SHOP_TYPES: { type: ShopType; icon: AndroidSymbol }[] = [
   { type: 'clothes', icon: 'checkroom' },
@@ -32,6 +32,8 @@ export default function ShopScreen() {
   const [shopType, setShopType] = useState<ShopType>('clothes');
   const [usesBarcodes, setUsesBarcodes] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [nameError, setNameError] = useState<string | null>(null);
+  const [townError, setTownError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   // Fill the form once from an existing shop (a resumed setup or an upgrade),
@@ -49,8 +51,11 @@ export default function ShopScreen() {
   async function handleNext() {
     if (saving) return;
     setError(null);
-    if (!name.trim()) return setError(t('onboarding.shop.error.nameRequired'));
-    if (!town.trim()) return setError(t('onboarding.shop.error.townRequired'));
+    const missingName = !name.trim();
+    const missingTown = !town.trim();
+    setNameError(missingName ? t('onboarding.shop.error.nameRequired') : null);
+    setTownError(missingTown ? t('onboarding.shop.error.townRequired') : null);
+    if (missingName || missingTown) return;
 
     setSaving(true);
     try {
@@ -70,7 +75,7 @@ export default function ShopScreen() {
       eyebrow={t('onboarding.shop.eyebrow')}
       title={t('onboarding.shop.title')}
       subtitle={t('onboarding.shop.subtitle')}
-      footer={<Button label={t('common.next')} disabled={saving} onPress={handleNext} />}
+      footer={<Button label={t('common.next')} disabled={saving} loading={saving} onPress={handleNext} />}
     >
       <EmailReminder />
 
@@ -78,7 +83,12 @@ export default function ShopScreen() {
         <Field
           label={t('onboarding.shop.name')}
           value={name}
-          onChangeText={setName}
+          onChangeText={(value) => {
+            setName(value);
+            setNameError(null);
+          }}
+          hint={t('onboarding.shop.hint.name')}
+          error={nameError}
           placeholder="Chiwala Fashions"
           icon="storefront"
           autoCapitalize="words"
@@ -87,7 +97,12 @@ export default function ShopScreen() {
         <Field
           label={t('onboarding.shop.town')}
           value={town}
-          onChangeText={setTown}
+          onChangeText={(value) => {
+            setTown(value);
+            setTownError(null);
+          }}
+          hint={t('onboarding.shop.hint.town')}
+          error={townError}
           placeholder="Lusaka"
           icon="location_on"
           autoCapitalize="words"
@@ -127,12 +142,11 @@ export default function ShopScreen() {
         />
       </OptionGrid>
 
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {error ? <FormError message={error} /> : null}
     </SetupStep>
   );
 }
 
 const styles = StyleSheet.create({
   fields: { gap: spacing.md },
-  error: { fontSize: typeScale.label, color: colors.danger, fontWeight: '600' },
 });

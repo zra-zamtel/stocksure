@@ -204,6 +204,7 @@ export default function SettingsScreen() {
                 <Button
                   label={saving ? t('common.saving') : t('common.save')}
                   disabled={saving}
+                  loading={saving}
                   onPress={() => void saveEdits()}
                 />
               </View>

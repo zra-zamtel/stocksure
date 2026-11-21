@@ -3,7 +3,7 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '@/auth/session';
-import { Button, Card, Choice, Field, Row } from '@/components/ui';
+import { Button, Card, Choice, Field, FormError, HelpTip, Row } from '@/components/ui';
 import { SETUP_STEPS, SetupStep } from '@/components/onboarding';
 import { isValidTpin } from '@/core';
 import { useShop } from '@/db/hooks';
@@ -72,7 +72,7 @@ export default function MoneyScreen() {
       subtitle={t('onboarding.money.subtitle')}
       onBack={() => router.back()}
       backLabel={t('common.back')}
-      footer={<Button label={t('common.next')} disabled={saving} onPress={handleNext} />}
+      footer={<Button label={t('common.next')} disabled={saving} loading={saving} onPress={handleNext} />}
     >
       <Card>
         <Row label={t('onboarding.money.currency')} value="ZMW (K)" />
@@ -100,6 +100,8 @@ export default function MoneyScreen() {
         </View>
       </View>
 
+      <HelpTip>{t('onboarding.money.registeredTip')}</HelpTip>
+
       <Card>
         <Field
           label={t('onboarding.money.tpin')}
@@ -112,7 +114,7 @@ export default function MoneyScreen() {
         <Text style={styles.hint}>{t('onboarding.money.tpinHint')}</Text>
       </Card>
 
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {error ? <FormError message={error} /> : null}
     </SetupStep>
   );
 }
@@ -123,5 +125,4 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', gap: spacing.md },
   rowChoice: { flex: 1 },
   hint: { fontSize: typeScale.label, color: colors.textMuted },
-  error: { fontSize: typeScale.label, color: colors.danger, fontWeight: '600' },
 });

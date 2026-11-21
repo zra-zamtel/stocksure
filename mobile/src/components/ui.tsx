@@ -1,5 +1,6 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import {
+  ActivityIndicator,
   ImageBackground,
   Pressable,
   ScrollView,
@@ -13,6 +14,15 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { SymbolView, type AndroidSymbol } from 'expo-symbols';
+import Animated, {
+  Easing,
+  FadeIn,
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withRepeat,
+  withTiming,
+} from 'react-native-reanimated';
 import { colors, radii, spacing, touch, typeScale } from '../theme/tokens';
 
 type ScreenProps = {
@@ -128,21 +138,33 @@ type ButtonProps = {
   onPress?: () => void;
   variant?: 'primary' | 'secondary' | 'danger';
   disabled?: boolean;
+  /** Shows a spinner beside the label and blocks taps while work is running. */
+  loading?: boolean;
+  /** A symbol before the label. */
+  icon?: AndroidSymbol;
 };
 
-export function Button({ label, onPress, variant = 'primary', disabled }: ButtonProps) {
+export function Button({ label, onPress, variant = 'primary', disabled, loading, icon }: ButtonProps) {
+  const ink = variant === 'secondary' ? colors.text : colors.primaryText;
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityState={{ disabled: Boolean(disabled || loading), busy: Boolean(loading) }}
       onPress={onPress}
-      disabled={disabled}
+      disabled={disabled || loading}
       style={({ pressed }) => [
         styles.button,
         variant === 'secondary' && styles.buttonSecondary,
         variant === 'danger' && styles.buttonDanger,
         (pressed || disabled) && styles.buttonPressed,
+        loading && styles.buttonLoading,
       ]}
     >
+      {loading ? (
+        <ActivityIndicator size="small" color={ink} />
+      ) : icon ? (
+        <Icon name={icon} size={20} color={ink} />
+      ) : null}
       <Text
         style={[
           styles.buttonLabel,
@@ -186,6 +208,8 @@ export function Field({
   icon,
   prefix,
   revealLabels,
+  hint,
+  error,
 }: {
   label: string;
   value?: string;
@@ -203,6 +227,10 @@ export function Field({
   prefix?: string;
   /** With secureTextEntry: adds an eye button that shows the typed value. */
   revealLabels?: { show: string; hide: string };
+  /** One line under the box that says what to type and why. */
+  hint?: string;
+  /** Replaces the hint in red and outlines the box, so the owner sees which field to fix. */
+  error?: string | null;
 }) {
   const [revealed, setRevealed] = useState(false);
   const canReveal = Boolean(secureTextEntry && revealLabels);
@@ -213,7 +241,7 @@ export function Field({
         {label}
         {required ? ' *' : ''}
       </Text>
-      <View style={styles.inputBox}>
+      <View style={[styles.inputBox, error ? styles.inputBoxError : null]}>
         {prefix ? (
           <View style={styles.inputPrefix}>
             <Text style={styles.inputPrefixText}>{prefix}</Text>
@@ -235,6 +263,7 @@ export function Field({
           autoFocus={autoFocus}
           autoCapitalize={autoCapitalize ?? (keyboardType === 'email-address' ? 'none' : undefined)}
           accessibilityLabel={label}
+          accessibilityHint={error ?? hint}
           style={[styles.input, (icon || prefix) && styles.inputAfterLead]}
           autoCorrect={false}
         />
@@ -249,6 +278,14 @@ export function Field({
           </Pressable>
         ) : null}
       </View>
+      {error ? (
+        <View style={styles.fieldMessage} accessibilityLiveRegion="polite">
+          <Icon name="error" size={16} color={colors.danger} />
+          <Text style={[styles.fieldMessageText, styles.fieldErrorText]}>{error}</Text>
+        </View>
+      ) : hint ? (
+        <Text style={styles.fieldMessageText}>{hint}</Text>
+      ) : null}
     </View>
   );
 }
@@ -307,8 +344,160 @@ export function Choice({
   );
 }
 
-export function EmptyState({ message }: { message: string }) {
-  return <Text style={styles.empty}>{message}</Text>;
+type StateAction = { label: string; onPress: () => void; icon?: AndroidSymbol };
+
+/**
+ * What a screen shows when there is nothing to list. Without an icon or title
+ * it is one quiet line (for small gaps inside a card). With them it becomes a
+ * full panel that says what this place is for and offers the one next step,
+ * so an owner on their own is never left looking at a blank screen.
+ */
+export function EmptyState({
+  message,
+  title,
+  icon,
+  action,
+  secondary,
+  tone = 'neutral',
+}: {
+  message: string;
+  title?: string;
+  icon?: AndroidSymbol;
+  action?: StateAction;
+  secondary?: StateAction;
+  tone?: 'neutral' | 'success';
+}) {
+  if (!title && !icon) return <Text style={styles.empty}>{message}</Text>;
+  return (
+    <Animated.View entering={FadeIn.duration(220)} style={styles.statePanel}>
+      {icon ? (
+        <View style={[styles.stateIcon, tone === 'success' && styles.stateIconSuccess]}>
+          <Icon name={icon} size={32} color={tone === 'success' ? colors.success : colors.primaryInk} />
+        </View>
+      ) : null}
+      {title ? (
+        <Text style={styles.stateTitle} accessibilityRole="header">
+          {title}
+        </Text>
+      ) : null}
+      <Text style={styles.stateMessage}>{message}</Text>
+      {action || secondary ? (
+        <View style={styles.stateActions}>
+          {action ? <Button label={action.label} icon={action.icon} onPress={action.onPress} /> : null}
+          {secondary ? (
+            <Button label={secondary.label} icon={secondary.icon} variant="secondary" onPress={secondary.onPress} />
+          ) : null}
+        </View>
+      ) : null}
+    </Animated.View>
+  );
+}
+
+/**
+ * Shown when a read failed. It says it in plain words, keeps the technical
+ * detail small underneath for whoever helps the owner, and always offers a retry.
+ */
+export function ErrorState({
+  title,
+  message,
+  detail,
+  retryLabel,
+  onRetry,
+}: {
+  title: string;
+  message: string;
+  detail?: string | null;
+  retryLabel: string;
+  onRetry: () => void;
+}) {
+  return (
+    <Animated.View entering={FadeIn.duration(220)} style={styles.statePanel} accessibilityLiveRegion="polite">
+      <View style={[styles.stateIcon, styles.stateIconDanger]}>
+        <Icon name="cloud_off" size={32} color={colors.danger} />
+      </View>
+      <Text style={styles.stateTitle} accessibilityRole="header">
+        {title}
+      </Text>
+      <Text style={styles.stateMessage}>{message}</Text>
+      <View style={styles.stateActions}>
+        <Button label={retryLabel} icon="refresh" onPress={onRetry} />
+      </View>
+      {detail ? <Text style={styles.stateDetail}>{detail}</Text> : null}
+    </Animated.View>
+  );
+}
+
+/**
+ * A grey block that gently pulses where content is about to appear, so the
+ * layout does not jump when it arrives. Static when the phone asks for less motion.
+ */
+export function Skeleton({
+  width = '100%',
+  height = 16,
+  radius = radii.sm,
+  style,
+}: {
+  width?: number | `${number}%`;
+  height?: number;
+  radius?: number;
+  style?: StyleProp<ViewStyle>;
+}) {
+  const reduceMotion = useReducedMotion();
+  const pulse = useSharedValue(1);
+  useEffect(() => {
+    if (reduceMotion) return;
+    pulse.value = withRepeat(withTiming(0.45, { duration: 700, easing: Easing.inOut(Easing.quad) }), -1, true);
+  }, [pulse, reduceMotion]);
+  const animated = useAnimatedStyle(() => ({ opacity: pulse.value }));
+  return (
+    <Animated.View
+      style={[{ width, height, borderRadius: radius, backgroundColor: colors.surfaceAlt }, animated, style]}
+    />
+  );
+}
+
+/** A card-shaped placeholder: a heading line and a couple of body lines. */
+export function SkeletonCard({ lines = 2, tall }: { lines?: number; tall?: boolean }) {
+  return (
+    <View style={styles.card}>
+      <Skeleton width="45%" height={tall ? 28 : 18} />
+      {Array.from({ length: lines }, (_, index) => (
+        <Skeleton key={index} width={index === lines - 1 ? '60%' : '85%'} height={12} />
+      ))}
+    </View>
+  );
+}
+
+/** A screen-sized loading placeholder, announced once to screen readers. */
+export function LoadingList({ label, count = 3, hero }: { label: string; count?: number; hero?: boolean }) {
+  return (
+    <View style={styles.loadingList} accessible accessibilityLabel={label} accessibilityRole="progressbar">
+      {hero ? <SkeletonCard tall lines={1} /> : null}
+      {Array.from({ length: count }, (_, index) => (
+        <SkeletonCard key={index} />
+      ))}
+    </View>
+  );
+}
+
+/** A red box for a problem that is not about one field, e.g. no internet. */
+export function FormError({ message }: { message: string }) {
+  return (
+    <View style={[styles.helpTip, styles.formError]} accessibilityLiveRegion="polite" accessibilityRole="alert">
+      <Icon name="error" size={20} color={colors.danger} />
+      <Text style={[styles.helpTipText, styles.formErrorText]}>{message}</Text>
+    </View>
+  );
+}
+
+/** A tinted box with an info symbol: one short "why" or "how" beside a step. */
+export function HelpTip({ children, icon = 'lightbulb' }: { children: ReactNode; icon?: AndroidSymbol }) {
+  return (
+    <View style={styles.helpTip}>
+      <Icon name={icon} size={20} color={colors.info} />
+      <Text style={styles.helpTipText}>{children}</Text>
+    </View>
+  );
 }
 
 export function Divider() {
@@ -378,6 +567,8 @@ const styles = StyleSheet.create({
   amountSm: { fontSize: typeScale.body },
   button: {
     minHeight: touch.minHeight,
+    flexDirection: 'row',
+    gap: spacing.sm,
     borderRadius: radii.pill,
     backgroundColor: colors.primary,
     alignItems: 'center',
@@ -387,6 +578,7 @@ const styles = StyleSheet.create({
   buttonSecondary: { backgroundColor: colors.bg, borderWidth: 1, borderColor: colors.border },
   buttonDanger: { backgroundColor: colors.danger },
   buttonPressed: { opacity: 0.6 },
+  buttonLoading: { opacity: 0.85 },
   buttonLabel: { color: colors.primaryText, fontSize: typeScale.body, fontWeight: '700' },
   buttonLabelSecondary: { color: colors.text },
   buttonLabelDanger: { color: colors.primaryText },
@@ -405,6 +597,48 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     overflow: 'hidden',
   },
+  inputBoxError: { borderColor: colors.danger, borderWidth: 2 },
+  fieldMessage: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.xs },
+  fieldMessageText: { flexShrink: 1, fontSize: typeScale.label, lineHeight: 18, color: colors.textMuted },
+  fieldErrorText: { color: colors.danger, fontWeight: '600' },
+  statePanel: {
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.xl,
+    paddingHorizontal: spacing.lg,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  stateIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primarySoft,
+    marginBottom: spacing.xs,
+  },
+  stateIconSuccess: { backgroundColor: colors.successSoft },
+  stateIconDanger: { backgroundColor: colors.dangerSoft },
+  stateTitle: { fontSize: typeScale.heading, fontWeight: '700', color: colors.text, textAlign: 'center' },
+  stateMessage: { fontSize: typeScale.body, lineHeight: 22, color: colors.textMuted, textAlign: 'center', maxWidth: 320 },
+  stateActions: { alignSelf: 'stretch', gap: spacing.sm, marginTop: spacing.sm },
+  stateDetail: { fontSize: typeScale.caption, color: colors.textMuted, textAlign: 'center' },
+  loadingList: { gap: spacing.md },
+  helpTip: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+    padding: spacing.md,
+    borderRadius: radii.md,
+    backgroundColor: colors.infoSoft,
+  },
+  formError: { backgroundColor: colors.dangerSoft },
+  formErrorText: { color: colors.danger, fontWeight: '600' },
+  helpTipText: { flex: 1, fontSize: typeScale.label, lineHeight: 19, color: colors.info },
   input: {
     flex: 1,
     minHeight: touch.minHeight,

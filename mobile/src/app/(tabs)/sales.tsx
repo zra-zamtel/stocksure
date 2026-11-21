@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { Button, Card, EmptyState, Icon, Pill, Screen, SectionTitle } from '@/components/ui';
+import { Button, Card, EmptyState, ErrorState, Icon, LoadingList, Pill, Screen, SectionTitle } from '@/components/ui';
 import type { ReconcileStatus } from '@/core/types';
 import { useDayTotals, useSales } from '@/db/hooks';
 import { useI18n } from '@/i18n';
@@ -20,14 +20,46 @@ const statusView: Record<ReconcileStatus, { key: string; tone: 'success' | 'warn
 export default function SalesScreen() {
   const { t } = useI18n();
   const router = useRouter();
-  const { data: totals } = useDayTotals();
-  const { data: sales, loading, error } = useSales();
+  const { data: totals, initialLoading: totalsLoading } = useDayTotals();
+  const { data: sales, initialLoading, error, reload } = useSales();
+  const recordSale = () => router.push('/sale/new');
+
+  if (initialLoading || totalsLoading || error) {
+    return (
+      <Screen title={t('sales.title')} subtitle={t('common.today')}>
+        {error ? (
+          <ErrorState
+            title={t('state.error.title')}
+            message={t('state.error.message')}
+            detail={error}
+            retryLabel={t('common.retry')}
+            onRetry={reload}
+          />
+        ) : (
+          <LoadingList label={t('state.loading')} hero count={3} />
+        )}
+      </Screen>
+    );
+  }
+
+  if (sales.length === 0) {
+    return (
+      <Screen title={t('sales.title')} subtitle={t('common.today')}>
+        <EmptyState
+          icon="receipt_long"
+          title={t('sales.empty.title')}
+          message={t('sales.empty.message')}
+          action={{ label: t('sales.new'), icon: 'add', onPress: recordSale }}
+        />
+      </Screen>
+    );
+  }
 
   return (
     <Screen
       title={t('sales.title')}
       subtitle={t('common.today')}
-      footer={<Button label={t('sales.new')} onPress={() => router.push('/sale/new')} />}
+      footer={<Button label={t('sales.new')} onPress={recordSale} />}
     >
       <Card>
         <Text style={styles.heroLabel}>{t('sales.total')}</Text>
@@ -35,8 +67,6 @@ export default function SalesScreen() {
       </Card>
 
       <SectionTitle>{t('sales.items')}</SectionTitle>
-      {error ? <EmptyState message={error} /> : null}
-      {!loading && !error && sales.length === 0 ? <EmptyState message={t('sales.empty')} /> : null}
 
       {sales.map((sale) => {
         const status = statusView[sale.reconcileStatus as ReconcileStatus] ?? statusView.unresolved;

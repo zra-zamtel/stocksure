@@ -40,6 +40,9 @@ function useQuery<T>(
   const db = useSQLiteContext();
   const [data, setData] = useState<T>(initial);
   const [loading, setLoading] = useState(true);
+  // True once the first read has finished, so a refresh on refocus keeps the
+  // old content on screen instead of flashing the loading placeholders again.
+  const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
   // A literal dependency list keeps the lint rule happy; the key encodes the
@@ -61,7 +64,10 @@ function useQuery<T>(
           if (!cancelled) setError(cause instanceof Error ? cause.message : 'Could not read the database');
         })
         .finally(() => {
-          if (!cancelled) setLoading(false);
+          if (!cancelled) {
+            setLoading(false);
+            setLoaded(true);
+          }
         });
       return () => {
         cancelled = true;
@@ -72,7 +78,7 @@ function useQuery<T>(
   );
 
   const reload = useCallback(() => setTick((value) => value + 1), []);
-  return { data, loading, error, reload };
+  return { data, loading, initialLoading: loading && !loaded, error, reload };
 }
 
 export function useProducts() {

@@ -127,7 +127,7 @@ export default function NewProductScreen() {
   return (
     <Screen
       title={t('product.new.title')}
-      footer={<Button label={t('products.saveProduct')} disabled={saving} onPress={handleSave} />}
+      footer={<Button label={t('products.saveProduct')} disabled={saving} loading={saving} onPress={handleSave} />}
     >
       {usesBarcodes ? (
         <Button

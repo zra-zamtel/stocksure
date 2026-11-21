@@ -1,9 +1,9 @@
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { useAuth } from '@/auth/session';
 import { SETUP_STEPS, SetupStep } from '@/components/onboarding';
-import { Button, Field, TextLink } from '@/components/ui';
+import { Button, Field, FormError, HelpTip, TextLink } from '@/components/ui';
 import {
   MAX_PIN_LENGTH,
   normalisePin,
@@ -12,7 +12,7 @@ import {
 } from '@/core';
 import { useI18n } from '@/i18n';
 import { ApiError, type ApiErrorCode } from '@/lib/api';
-import { colors, spacing, typeScale } from '@/theme/tokens';
+import { spacing } from '@/theme/tokens';
 
 const ERROR_KEYS: Record<AccountErrorCode, string> = {
   'name-required': 'onboarding.account.error.nameRequired',
@@ -23,6 +23,25 @@ const ERROR_KEYS: Record<AccountErrorCode, string> = {
   'password-mismatch': 'onboarding.account.error.passwordMismatch',
   'pin-invalid': 'onboarding.account.error.pinInvalid',
   'pin-mismatch': 'onboarding.account.error.pinMismatch',
+};
+
+type FieldName = 'name' | 'phone' | 'email' | 'password' | 'pin';
+
+/** Which box each problem belongs to, so the message sits right under it. */
+const ERROR_FIELDS: Record<AccountErrorCode, FieldName> = {
+  'name-required': 'name',
+  'phone-invalid': 'phone',
+  'email-required': 'email',
+  'email-invalid': 'email',
+  'password-invalid': 'password',
+  'password-mismatch': 'password',
+  'pin-invalid': 'pin',
+  'pin-mismatch': 'pin',
+};
+
+const API_ERROR_FIELDS: Partial<Record<ApiErrorCode, FieldName>> = {
+  'duplicate-phone': 'phone',
+  'duplicate-email': 'email',
 };
 
 const API_ERROR_KEYS: Partial<Record<ApiErrorCode, string>> = {
@@ -50,13 +69,21 @@ export default function AccountScreen() {
   const [password, setPassword] = useState('');
   const [pin, setPin] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<FieldName, string>>>({});
   const [saving, setSaving] = useState(false);
+
+  // Typing in a box clears its own message, so the owner sees the fix land.
+  const edit = (field: FieldName, set: (value: string) => void) => (value: string) => {
+    set(value);
+    if (fieldErrors[field]) setFieldErrors((current) => ({ ...current, [field]: undefined }));
+  };
 
   const reveal = { show: t('common.showTyped'), hide: t('common.hideTyped') };
 
   async function submit() {
     if (saving) return;
     setError(null);
+    setFieldErrors({});
     const errors = validateOwnerAccount({
       name,
       phone,
@@ -67,7 +94,11 @@ export default function AccountScreen() {
       confirmPin: pin,
     });
     if (errors.length > 0) {
-      setError(errors.map((code) => t(ERROR_KEYS[code])).join(' '));
+      const next: Partial<Record<FieldName, string>> = {};
+      for (const code of errors) next[ERROR_FIELDS[code]] ??= t(ERROR_KEYS[code]);
+      setFieldErrors(next);
+      // The footer button can be far below the first bad box, so say where to look.
+      setError(t('onboarding.account.error.checkFields'));
       return;
     }
 
@@ -79,7 +110,14 @@ export default function AccountScreen() {
       router.replace('/');
     } catch (cause) {
       if (cause instanceof ApiError) {
-        setError(t(API_ERROR_KEYS[cause.code] ?? 'onboarding.account.error.server'));
+        const message = t(API_ERROR_KEYS[cause.code] ?? 'onboarding.account.error.server');
+        const field = API_ERROR_FIELDS[cause.code];
+        if (field) {
+          setFieldErrors({ [field]: message });
+          setError(t('onboarding.account.error.checkFields'));
+        } else {
+          setError(message);
+        }
       } else {
         setError(cause instanceof Error ? cause.message : t('onboarding.account.error.generic'));
       }
@@ -100,6 +138,7 @@ export default function AccountScreen() {
         <Button
           label={saving ? t('onboarding.account.connecting') : t('onboarding.account.action')}
           disabled={saving}
+          loading={saving}
           onPress={submit}
         />
       }
@@ -108,7 +147,9 @@ export default function AccountScreen() {
         <Field
           label={t('onboarding.account.name')}
           value={name}
-          onChangeText={setName}
+          onChangeText={edit('name', setName)}
+          hint={t('onboarding.account.hint.name')}
+          error={fieldErrors.name}
           placeholder="Elton Chiwala"
           icon="person"
           autoCapitalize="words"
@@ -117,7 +158,9 @@ export default function AccountScreen() {
         <Field
           label={t('onboarding.account.phone')}
           value={phone}
-          onChangeText={setPhone}
+          onChangeText={edit('phone', setPhone)}
+          hint={t('onboarding.account.hint.phone')}
+          error={fieldErrors.phone}
           placeholder="97 123 4567"
           keyboardType="phone-pad"
           prefix="🇿🇲 +260"
@@ -126,7 +169,9 @@ export default function AccountScreen() {
         <Field
           label={t('onboarding.account.email')}
           value={email}
-          onChangeText={setEmail}
+          onChangeText={edit('email', setEmail)}
+          hint={t('onboarding.account.hint.email')}
+          error={fieldErrors.email}
           placeholder="you@example.com"
           keyboardType="email-address"
           icon="mail"
@@ -135,7 +180,9 @@ export default function AccountScreen() {
         <Field
           label={t('onboarding.account.password')}
           value={password}
-          onChangeText={setPassword}
+          onChangeText={edit('password', setPassword)}
+          hint={t('onboarding.account.hint.password')}
+          error={fieldErrors.password}
           placeholder={t('onboarding.account.passwordHint')}
           icon="lock"
           secureTextEntry
@@ -145,7 +192,9 @@ export default function AccountScreen() {
         <Field
           label={t('onboarding.account.pin')}
           value={pin}
-          onChangeText={(value) => setPin(normalisePin(value))}
+          onChangeText={edit('pin', (value) => setPin(normalisePin(value)))}
+          hint={t('onboarding.account.hint.pin')}
+          error={fieldErrors.pin}
           placeholder="••••"
           keyboardType="numeric"
           icon="dialpad"
@@ -156,13 +205,9 @@ export default function AccountScreen() {
         />
       </View>
 
-      <Text style={styles.note}>{t('onboarding.account.note')}</Text>
+      <HelpTip icon="wifi">{t('onboarding.account.note')}</HelpTip>
 
-      {error ? (
-        <Text style={styles.error} accessibilityLiveRegion="polite">
-          {error}
-        </Text>
-      ) : null}
+      {error ? <FormError message={error} /> : null}
 
       <View style={styles.links}>
         <TextLink
@@ -178,7 +223,5 @@ export default function AccountScreen() {
 
 const styles = StyleSheet.create({
   fields: { gap: spacing.md },
-  note: { fontSize: typeScale.label, color: colors.textMuted, lineHeight: 18 },
   links: { alignItems: 'center' },
-  error: { fontSize: typeScale.body, color: colors.danger, fontWeight: '600' },
 });

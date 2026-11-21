@@ -2,7 +2,7 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '@/auth/session';
-import { Button, Card, Field, Pill, Screen, SectionTitle } from '@/components/ui';
+import { Button, Card, EmptyState, Field, Pill, Screen, SectionTitle } from '@/components/ui';
 import {
   MAX_PIN_LENGTH,
   formatPhone,
@@ -244,6 +244,7 @@ export default function StaffScreen() {
               <Button
                 label={saving ? t('staff.saving') : t('common.save')}
                 disabled={saving}
+                loading={saving}
                 onPress={() => void handleAdd()}
               />
             </View>
@@ -261,6 +262,7 @@ export default function StaffScreen() {
               <Button
                 label={saving ? t('staff.saving') : t('common.save')}
                 disabled={saving}
+                loading={saving}
                 onPress={() => void handleResetPin()}
               />
             </View>
@@ -289,7 +291,9 @@ export default function StaffScreen() {
       ) : null}
 
       <SectionTitle>{t('staff.people')}</SectionTitle>
-      {staff.length === 0 ? <Text style={styles.muted}>{t('staff.empty')}</Text> : null}
+      {staff.length === 0 ? (
+        <EmptyState icon="group" title={t('staff.empty.title')} message={t('staff.emptyHint')} />
+      ) : null}
       {staff.map((person) => (
         <Card key={person.id}>
           <View style={styles.row}>

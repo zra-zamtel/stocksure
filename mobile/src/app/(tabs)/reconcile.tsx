@@ -1,14 +1,16 @@
+import { useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { usePermissionGuard } from '@/auth/permissions';
 import { useAuth } from '@/auth/session';
-import { Button, Card, EmptyState, Field, Pill, Row, Screen, SectionTitle } from '@/components/ui';
+import { Button, Card, EmptyState, ErrorState, Field, LoadingList, Pill, Row, Screen, SectionTitle } from '@/components/ui';
 import { PermissionError, toNgwee, type Permission } from '@/core';
 import { useReconciliation } from '@/db/hooks';
 import { ignorePayment, injectDemoMessages, markSalePaid, saveCashCount, voidSale } from '@/db/repos';
 import { useI18n } from '@/i18n';
 import { formatKwacha } from '@/lib/format';
+import { markVisited } from '@/lib/getting-started';
 import { colors, spacing, typeScale } from '@/theme/tokens';
 
 export default function ReconcileScreen() {
@@ -17,6 +19,8 @@ export default function ReconcileScreen() {
   const { can } = useAuth();
   const guard = usePermissionGuard();
   const { data, loading, error, reload } = useReconciliation();
+  // Opening this tab ticks "Check today's money" on the Home start list.
+  useFocusEffect(useCallback(() => markVisited('reconcile'), []));
   const canResolve = can('reconcile.resolve');
   const canCountCash = can('cash.count');
   const seesMoney = can('money.insights');
@@ -61,7 +65,7 @@ export default function ReconcileScreen() {
   if (loading && !data) {
     return (
       <Screen title={t('reconcile.title')}>
-        <Text style={styles.muted}>{t('common.syncing')}</Text>
+        <LoadingList label={t('state.loading')} hero count={2} />
       </Screen>
     );
   }
@@ -69,7 +73,13 @@ export default function ReconcileScreen() {
   if (error) {
     return (
       <Screen title={t('reconcile.title')}>
-        <EmptyState message={error} />
+        <ErrorState
+          title={t('state.error.title')}
+          message={t('state.error.message')}
+          detail={error}
+          retryLabel={t('common.retry')}
+          onRetry={reload}
+        />
       </Screen>
     );
   }
@@ -77,7 +87,11 @@ export default function ReconcileScreen() {
   if (!data) {
     return (
       <Screen title={t('reconcile.title')}>
-        <EmptyState message={t('reconcile.empty')} />
+        <EmptyState
+          icon="fact_check"
+          title={t('reconcile.empty.title')}
+          message={t('reconcile.empty.message')}
+        />
       </Screen>
     );
   }
@@ -124,6 +138,7 @@ export default function ReconcileScreen() {
                     label={t('reconcile.markPaid')}
                     variant="secondary"
                     disabled={busy}
+                    loading={busy}
                     onPress={() => perform(() => markSalePaid(db, sale.saleId))}
                   />
                 </View>
@@ -132,6 +147,7 @@ export default function ReconcileScreen() {
                     label={t('sales.void')}
                     variant="danger"
                     disabled={busy}
+                    loading={busy}
                     onPress={() => perform(() => voidSale(db, sale.saleId, 'No payment received'))}
                   />
                 </View>
@@ -180,6 +196,7 @@ export default function ReconcileScreen() {
                 label={t('reconcile.ignore')}
                 variant="secondary"
                 disabled={busy}
+                loading={busy}
                 onPress={() => perform(() => ignorePayment(db, payment.txnId))}
               />
             </View>
@@ -253,6 +270,7 @@ export default function ReconcileScreen() {
               label={t('reconcile.demo')}
               variant="secondary"
               disabled={busy}
+              loading={busy}
               onPress={() => perform(() => injectDemoMessages(db, data.day), t('reconcile.demoAdded'))}
             />
             <Text style={styles.muted}>

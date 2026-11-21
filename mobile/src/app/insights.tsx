@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import {
   ChartCard,
   ColumnChart,
@@ -12,12 +12,12 @@ import {
   type ColumnPoint,
   type RankedItem,
 } from '@/components/charts';
-import { IconButton, Screen } from '@/components/ui';
+import { EmptyState, ErrorState, IconButton, LoadingList, Screen } from '@/components/ui';
 import { change, type InsightPeriod, type Insights, type PaymentKey } from '@/core';
 import { useInsights } from '@/db/hooks';
 import { useI18n } from '@/i18n';
 import { formatCount, formatKwacha } from '@/lib/format';
-import { colors, spacing, typeScale } from '@/theme/tokens';
+import { spacing } from '@/theme/tokens';
 
 type Translate = ReturnType<typeof useI18n>['t'];
 type ProductMetric = 'sales' | 'profit' | 'units';
@@ -36,7 +36,7 @@ export default function InsightsScreen() {
   const [period, setPeriod] = useState<InsightPeriod>(7);
   const [metric, setMetric] = useState<ProductMetric>('sales');
   const [timeView, setTimeView] = useState<TimeView>('hour');
-  const { data, loading, error } = useInsights(period);
+  const { data, loading, error, reload } = useInsights(period);
 
   const back = <IconButton name="close" label={t('common.back')} onPress={() => router.back()} />;
 
@@ -51,9 +51,17 @@ export default function InsightsScreen() {
         onChange={setPeriod}
       />
 
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {error ? (
+        <ErrorState
+          title={t('state.error.title')}
+          message={t('state.error.message')}
+          detail={error}
+          retryLabel={t('common.retry')}
+          onRetry={reload}
+        />
+      ) : null}
       {!data ? (
-        <Text style={styles.muted}>{loading ? t('insights.loading') : ''}</Text>
+        loading ? <LoadingList label={t('insights.loading')} hero count={2} /> : null
       ) : (
         <Body
           data={data}
@@ -118,9 +126,11 @@ function Body({
       </View>
 
       {!hasSales ? (
-        <View style={styles.empty}>
-          <Text style={styles.emptyText}>{t('insights.empty', { days: period })}</Text>
-        </View>
+        <EmptyState
+          icon="bar_chart"
+          title={t('insights.empty.title')}
+          message={t('insights.empty', { days: period })}
+        />
       ) : (
         <>
           <DailyCard data={data} t={t} />
@@ -359,14 +369,4 @@ function ShelfCard({ data, t }: { data: Insights; t: Translate }) {
 
 const styles = StyleSheet.create({
   tiles: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md },
-  muted: { fontSize: typeScale.body, color: colors.textMuted },
-  error: { fontSize: typeScale.body, color: colors.danger, fontWeight: '600' },
-  empty: {
-    padding: spacing.lg,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderStyle: 'dashed',
-    borderColor: colors.border,
-  },
-  emptyText: { fontSize: typeScale.body, color: colors.textMuted, textAlign: 'center' },
 });

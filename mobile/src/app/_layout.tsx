@@ -1,8 +1,11 @@
+import { SpaceGrotesk_700Bold, useFonts } from '@expo-google-fonts/space-grotesk';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { useCallback, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider, useAuth } from '@/auth/session';
+import { AnimatedSplash } from '@/components/animated-splash';
 import { Button } from '@/components/ui';
 import { canAccessScreen } from '@/core';
 import { DatabaseProvider } from '@/db/provider';
@@ -18,11 +21,30 @@ export default function RootLayout() {
         <I18nProvider>
           <AuthProvider>
             <StatusBar style="dark" />
-            <RootNavigator />
+            <AppShell />
           </AuthProvider>
         </I18nProvider>
       </DatabaseProvider>
     </SafeAreaProvider>
+  );
+}
+
+/**
+ * The animated splash sits on top of the app until the session and the brand
+ * font are ready and the animation has played, then fades away and unmounts.
+ */
+function AppShell() {
+  const { status } = useAuth();
+  const [fontsLoaded, fontError] = useFonts({ SpaceGrotesk_700Bold });
+  const [splashDone, setSplashDone] = useState(false);
+  const finishSplash = useCallback(() => setSplashDone(true), []);
+  const ready = status !== 'loading' && (fontsLoaded || fontError !== null);
+
+  return (
+    <View style={styles.shell}>
+      <RootNavigator />
+      {splashDone ? null : <AnimatedSplash ready={ready} onDone={finishSplash} />}
+    </View>
   );
 }
 
@@ -155,6 +177,7 @@ function RootNavigator() {
 }
 
 const styles = StyleSheet.create({
+  shell: { flex: 1, backgroundColor: colors.bg },
   centred: {
     flex: 1,
     alignItems: 'center',

@@ -1,7 +1,7 @@
 import { useSQLiteContext } from 'expo-sqlite';
 import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { Button, Card, EmptyState, Field, Pill, Row, Screen, SectionTitle } from '@/components/ui';
+import { Button, Card, EmptyState, ErrorState, Field, LoadingList, Pill, Row, Screen, SectionTitle } from '@/components/ui';
 import { estimateTurnoverTax, potStatus, toNgwee } from '@/core';
 import { useTaxPot } from '@/db/hooks';
 import { payTaxPot, topUpTaxPot } from '@/db/repos';
@@ -42,7 +42,7 @@ export default function TaxPotScreen() {
   if (loading && !period) {
     return (
       <Screen title={t('tax.pot.title')}>
-        <Text style={styles.muted}>{t('common.syncing')}</Text>
+        <LoadingList label={t('state.loading')} hero count={2} />
       </Screen>
     );
   }
@@ -50,7 +50,13 @@ export default function TaxPotScreen() {
   if (error) {
     return (
       <Screen title={t('tax.pot.title')}>
-        <EmptyState message={error} />
+        <ErrorState
+          title={t('state.error.title')}
+          message={t('state.error.message')}
+          detail={error}
+          retryLabel={t('common.retry')}
+          onRetry={reload}
+        />
       </Screen>
     );
   }

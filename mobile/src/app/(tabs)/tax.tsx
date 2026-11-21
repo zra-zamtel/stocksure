@@ -1,26 +1,40 @@
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { useCallback } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { Button, Card, Pill, Row, Screen, SectionTitle } from '@/components/ui';
+import { Button, Card, HelpTip, LoadingList, Pill, Row, Screen, SectionTitle } from '@/components/ui';
 import { estimateTurnoverTax, potStatus } from '@/core';
 import { useTaxSnapshot } from '@/db/hooks';
 import { taxRules } from '@/data/fake';
 import { useI18n } from '@/i18n';
 import { formatKwacha } from '@/lib/format';
+import { markVisited } from '@/lib/getting-started';
 import { colors, spacing, typeScale } from '@/theme/tokens';
 
 export default function TaxScreen() {
   const { t } = useI18n();
   const router = useRouter();
-  const { data: snapshot } = useTaxSnapshot();
+  const { data: snapshot, initialLoading } = useTaxSnapshot();
+  // Opening this tab ticks "See your tax estimate" on the Home start list.
+  useFocusEffect(useCallback(() => markVisited('tax'), []));
   const estimate = estimateTurnoverTax(snapshot.turnover, taxRules, snapshot.yearToDate);
   const pot = potStatus(estimate.estimatedTax, snapshot.potBalance);
   const period = snapshot.period;
+
+  if (initialLoading) {
+    return (
+      <Screen title={t('tax.title')}>
+        <LoadingList label={t('state.loading')} hero count={1} />
+      </Screen>
+    );
+  }
 
   return (
     <Screen
       title={t('tax.title')}
       subtitle={period ? `${period.startsOn} – ${period.endsOn}` : undefined}
     >
+      {estimate.turnover === 0 ? <HelpTip icon="info">{t('tax.empty.tip')}</HelpTip> : null}
+
       <Card>
         <Row label={t('tax.turnover')} value={formatKwacha(estimate.turnover)} />
         <Row label={t('tax.rate')} value={`${(estimate.rate * 100).toFixed(1)}%`} />

@@ -5,7 +5,7 @@ import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { usePermissionGuard } from '@/auth/permissions';
 import { useAuth } from '@/auth/session';
 import { BarcodeScanner } from '@/components/barcode-scanner';
-import { Button, Card, Choice, EmptyState, Field, Pill, Row, Screen, SectionTitle } from '@/components/ui';
+import { Button, Card, Choice, EmptyState, ErrorState, LoadingList, Field, Pill, Row, Screen, SectionTitle } from '@/components/ui';
 import { priceSale, toNgwee, type LineInput, type PaymentInput, type Provider } from '@/core';
 import { useProducts, useShop } from '@/db/hooks';
 import { findVariantByBarcode, InsufficientStockError, recordSale, type StockShortfall } from '@/db/repos';
@@ -45,7 +45,7 @@ export default function NewSaleScreen() {
   const db = useSQLiteContext();
   const { user, can } = useAuth();
   const guard = usePermissionGuard();
-  const { data: products, loading, error: loadError } = useProducts();
+  const { data: products, initialLoading, error: loadError, reload: reloadProducts } = useProducts();
   const { data: shop } = useShop();
   const seesMoney = can('money.insights');
   const canApproveOverride = can('stock.override');
@@ -192,13 +192,34 @@ export default function NewSaleScreen() {
               ? `${t('sale.new.confirm')} · ${formatKwacha(priced.total)}`
               : t('sale.new.confirm')
           }
-          disabled={lines.length === 0 || submitting}
+          disabled={lines.length === 0}
+          loading={submitting}
           onPress={() => submit(null)}
         />
       }
     >
-      {loadError ? <EmptyState message={loadError} /> : null}
-      {loading ? <Text style={styles.muted}>{t('common.syncing')}</Text> : null}
+      {loadError ? (
+        <ErrorState
+          title={t('state.error.title')}
+          message={t('state.error.message')}
+          detail={loadError}
+          retryLabel={t('common.retry')}
+          onRetry={reloadProducts}
+        />
+      ) : null}
+      {initialLoading ? <LoadingList label={t('state.loading')} count={2} /> : null}
+      {!initialLoading && !loadError && products.length === 0 ? (
+        <EmptyState
+          icon="inventory_2"
+          title={t('sale.new.noProducts.title')}
+          message={t(can('products.manage') ? 'sale.new.noProducts.message' : 'products.empty.staffMessage')}
+          action={
+            can('products.manage')
+              ? { label: t('products.addProduct'), icon: 'add', onPress: () => router.push('/product/new') }
+              : undefined
+          }
+        />
+      ) : null}
 
       <SectionTitle>{t('sale.new.addItem')}</SectionTitle>
       {shop?.usesBarcodes ? (
@@ -288,6 +309,7 @@ export default function NewSaleScreen() {
               label={t('sale.new.sellAnyway')}
               variant="danger"
               disabled={submitting}
+              loading={submitting}
               onPress={() => submit(shortfalls)}
             />
           ) : (
