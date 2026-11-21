@@ -11,6 +11,7 @@ import Animated, {
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
+import { BrandMark, Wordmark } from './brand';
 import { Icon, Screen } from './ui';
 import { useI18n } from '../i18n';
 import { colors, radii, spacing, touch, typeScale } from '../theme/tokens';
@@ -266,11 +267,12 @@ export function LanguageBubbles({ language }: { language: 'en' | 'ny' }) {
   );
 }
 
-/** Placeholder mark until the real logo lands; swap this one component. */
-export function Logo({ size = 72 }: { size?: number }) {
+/** The StockSure mark beside the name, for the top of welcome and sign-in screens. */
+export function Logo({ size = 44 }: { size?: number }) {
   return (
-    <View style={[styles.logo, { width: size, height: size, borderRadius: size * 0.28 }]}>
-      <Icon name="storefront" size={size * 0.55} color={colors.primaryText} />
+    <View style={styles.logo} accessible accessibilityRole="image" accessibilityLabel="StockSure">
+      <BrandMark size={size} />
+      <Wordmark size={size * 0.62} />
     </View>
   );
 }
@@ -402,5 +404,5 @@ const styles = StyleSheet.create({
   tailLeft: { left: 20 },
   tailRight: { right: 20 },
   tailBlue: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
-  logo: { backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
+  logo: { flexDirection: 'row', alignItems: 'center', alignSelf: 'center', gap: spacing.sm },
 });

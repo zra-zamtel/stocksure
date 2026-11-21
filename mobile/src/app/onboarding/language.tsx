@@ -2,7 +2,7 @@ import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
-import { LanguageBubbles } from '@/components/onboarding';
+import { LanguageBubbles, Logo } from '@/components/onboarding';
 import { Button, Choice, HelpTip, Screen } from '@/components/ui';
 import { LANGUAGE_LABELS, useI18n, type Language } from '@/i18n';
 import { colors, spacing, typeScale } from '@/theme/tokens';
@@ -28,6 +28,7 @@ export default function LanguageScreen() {
       </Animated.View>
 
       <Animated.View entering={FadeInDown.duration(380).delay(120)} style={styles.heading}>
+        <Logo />
         <Text style={styles.eyebrow}>{t('onboarding.language.eyebrow')}</Text>
         <Text style={styles.title} accessibilityRole="header">
           {t('onboarding.language.title')}

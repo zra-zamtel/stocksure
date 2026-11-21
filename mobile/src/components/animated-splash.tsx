@@ -4,13 +4,10 @@ import { useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text } from 'react-native';
 import Animated, {
   Easing,
-  useAnimatedProps,
   useAnimatedStyle,
   useReducedMotion,
   useSharedValue,
   withDelay,
-  withSequence,
-  withSpring,
   withTiming,
 } from 'react-native-reanimated';
 import Svg, { Circle, Path } from 'react-native-svg';
@@ -22,8 +19,35 @@ import { colors, spacing, typeScale } from '../theme/tokens';
 // painted, so the hand-over is invisible. Called once, at import time.
 void SplashScreen.preventAutoHideAsync().catch(() => undefined);
 
-const AnimatedPath = Animated.createAnimatedComponent(Path);
-const AnimatedCircle = Animated.createAnimatedComponent(Circle);
+/** Ease in and out, for the pen stroke. */
+const easeInOutCubic = (x: number) => (x < 0.5 ? 4 * x * x * x : 1 - (-2 * x + 2) ** 3 / 2);
+/** A little overshoot, for the dot popping in. */
+const easeOutBack = (x: number) => 1 + 2.7 * (x - 1) ** 3 + 1.7 * (x - 1) ** 2;
+const DOT_MS = 320;
+
+/**
+ * Progress of the S stroke (0 to 1) and the dot (0 to ~1.1), driven by a plain
+ * animation-frame clock. The SVG gets ordinary props each frame: animating
+ * SVG props through Reanimated left the S undrawn on some Android phones.
+ */
+function useMarkProgress(timing: { drawDelay: number; draw: number; dot: number }, still: boolean) {
+  const [progress, setProgress] = useState(() => (still ? { draw: 1, dot: 1 } : { draw: 0, dot: 0 }));
+  useEffect(() => {
+    if (still) return;
+    const start = Date.now();
+    let frame = 0;
+    const tick = () => {
+      const elapsed = Date.now() - start;
+      const draw = Math.min(1, Math.max(0, (elapsed - timing.drawDelay) / timing.draw));
+      const dotT = Math.min(1, Math.max(0, (elapsed - timing.dot) / DOT_MS));
+      setProgress({ draw: easeInOutCubic(draw), dot: dotT === 0 ? 0 : easeOutBack(dotT) });
+      if (draw < 1 || dotT < 1) frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [still, timing]);
+  return progress;
+}
 
 /** Length of MARK_S_PATH in viewBox units: 94 straight + 4 vertical + 4 quarter arcs of r 12. */
 const S_LENGTH = 174;
@@ -60,21 +84,14 @@ export function AnimatedSplash({ ready, onDone }: { ready: boolean; onDone: () =
   const [played, setPlayed] = useState(false);
   const exiting = useRef(false);
 
-  const draw = useSharedValue(reduceMotion ? 1 : 0);
-  const dot = useSharedValue(reduceMotion ? 1 : 0);
+  const mark = useMarkProgress(timing, reduceMotion);
   const word = useSharedValue(reduceMotion ? 1 : 0);
   const tag = useSharedValue(reduceMotion ? 1 : 0);
   const screen = useSharedValue(1);
 
   useEffect(() => {
     if (!reduceMotion) {
-      const ease = Easing.inOut(Easing.cubic);
       const rise = Easing.out(Easing.cubic);
-      draw.value = withDelay(timing.drawDelay, withTiming(1, { duration: timing.draw, easing: ease }));
-      dot.value = withDelay(
-        timing.dot,
-        withSequence(withTiming(1.3, { duration: 150 }), withSpring(1, { damping: 9, stiffness: 220 })),
-      );
       word.value = withDelay(timing.word, withTiming(1, { duration: timing.wordLen, easing: rise }));
       tag.value = withDelay(timing.tag, withTiming(1, { duration: timing.wordLen, easing: rise }));
     }
@@ -85,7 +102,7 @@ export function AnimatedSplash({ ready, onDone }: { ready: boolean; onDone: () =
       // A missing flag only means the long version plays again.
     }
     return () => clearTimeout(id);
-  }, [dot, draw, reduceMotion, tag, timing, word]);
+  }, [reduceMotion, tag, timing, word]);
 
   useEffect(() => {
     if (!ready || !played || exiting.current) return;
@@ -95,8 +112,6 @@ export function AnimatedSplash({ ready, onDone }: { ready: boolean; onDone: () =
     return () => clearTimeout(id);
   }, [onDone, played, ready, screen]);
 
-  const pathProps = useAnimatedProps(() => ({ strokeDashoffset: S_LENGTH * (1 - draw.value) }));
-  const dotProps = useAnimatedProps(() => ({ r: MARK_DOT.r * dot.value }));
   const wordStyle = useAnimatedStyle(() => ({
     opacity: word.value,
     transform: [{ translateY: 14 * (1 - word.value) }],
@@ -116,16 +131,18 @@ export function AnimatedSplash({ ready, onDone }: { ready: boolean; onDone: () =
       pointerEvents={ready && played ? 'none' : 'auto'}
     >
       <Svg width={128} height={128} viewBox={MARK_VIEWBOX}>
-        <AnimatedPath
+        <Path
           d={MARK_S_PATH}
           fill="none"
           stroke={colors.charcoal}
           strokeWidth={MARK_STROKE}
           strokeLinejoin="round"
           strokeDasharray={[S_LENGTH, S_LENGTH]}
-          animatedProps={pathProps}
+          strokeDashoffset={S_LENGTH * (1 - mark.draw)}
         />
-        <AnimatedCircle cx={MARK_DOT.cx} cy={MARK_DOT.cy} fill={colors.primary} animatedProps={dotProps} />
+        {mark.dot > 0 ? (
+          <Circle cx={MARK_DOT.cx} cy={MARK_DOT.cy} r={MARK_DOT.r * mark.dot} fill={colors.primary} />
+        ) : null}
       </Svg>
       <Animated.View style={wordStyle}>
         <Wordmark size={40} />

@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useAuth } from '@/auth/session';
 import { Avatar, displayName, Hint, Notice, OptionRow, PinBoxes, SectionDivider } from '@/components/auth';
-import { SetupStep } from '@/components/onboarding';
+import { Logo, SetupStep } from '@/components/onboarding';
 import { Button, TextLink } from '@/components/ui';
 import { useI18n } from '@/i18n';
 import { spacing } from '@/theme/tokens';
@@ -62,7 +62,7 @@ export default function SignInScreen() {
       eyebrow={t('auth.signIn.title')}
       title={name ?? t('auth.signIn.title')}
       subtitle={t('auth.signIn.subtitle')}
-      hero={name ? <Avatar name={name} /> : undefined}
+      hero={name ? <Avatar name={name} /> : <Logo />}
       footer={
         <Button
           label={t('auth.signIn.action')}
