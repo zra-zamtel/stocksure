@@ -15,6 +15,7 @@ import {
   getTaxPotView,
   ignorePayment,
   injectDemoMessages,
+  recordGatewayPayment,
   InsufficientStockError,
   listIdentities,
   listMovements,
@@ -766,6 +767,24 @@ describe('IT-REC reconciliation', () => {
     expect(await injectDemoMessages(db)).toEqual({ matched: 0, orphan: 0 });
     await reconcileDay(db);
     expect(await saleStatus(saleId)).toBe('matched');
+  });
+
+  it('IT-REC-PAY matches a sale paid by an approved pay request, and queues the payment for sync', async () => {
+    const { variantId } = await product();
+    const txnId = await recordGatewayPayment(db, {
+      provider: 'MTN',
+      amount: 8000,
+      phone: '0961234567',
+      reference: 'MP-SIM-TEST1',
+      simulated: true,
+    });
+    const { saleId } = await recordSale(db, mobileSale(variantId, new Date().toISOString(), 'MP-SIM-TEST1'));
+    await reconcileDay(db);
+    expect(await saleStatus(saleId)).toBe('matched');
+    expect(await txnStatus(txnId)).toBe('matched');
+    expect(
+      await count(db, 'sync_queue', "entity = 'mobile_money_txn' AND entity_id = ? AND operation = 'create'", txnId)
+    ).toBe(1);
   });
 });
 

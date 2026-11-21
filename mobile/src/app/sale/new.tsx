@@ -5,6 +5,7 @@ import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { usePermissionGuard } from '@/auth/permissions';
 import { useAuth } from '@/auth/session';
 import { BarcodeScanner } from '@/components/barcode-scanner';
+import { PayRequestSheet, type PaidRequest } from '@/components/pay-request';
 import { Button, Card, Choice, EmptyState, ErrorState, LoadingList, Field, Pill, Row, Screen, SectionTitle } from '@/components/ui';
 import { priceSale, toNgwee, type LineInput, type PaymentInput, type Provider } from '@/core';
 import { useProducts, useShop } from '@/db/hooks';
@@ -60,6 +61,7 @@ export default function NewSaleScreen() {
   const [error, setError] = useState<string | null>(null);
   const [shortfalls, setShortfalls] = useState<StockShortfall[] | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [payOpen, setPayOpen] = useState(false);
 
   const index = useMemo(() => {
     const map = new Map<string, { label: string; sellPrice: number; buyPrice: number; discount?: LineInput['productDiscount'] }>();
@@ -96,19 +98,30 @@ export default function NewSaleScreen() {
 
   const cashAmount = Math.max(0, toNgwee(Number.parseFloat(cashPart) || 0));
 
-  const payments = useMemo<PaymentInput[]>(() => {
+  const buildPayments = (ref: string, network: Provider): PaymentInput[] => {
     if (priced.total === 0) return [];
     if (method === 'cash') return [{ method: 'cash', amount: priced.total }];
     if (method === 'mobile_money') {
-      return [{ method: 'mobile_money', provider, amount: priced.total, reference }];
+      return [{ method: 'mobile_money', provider: network, amount: priced.total, reference: ref }];
     }
     // Split with nothing left for mobile money is just a cash sale.
     if (cashAmount === priced.total) return [{ method: 'cash', amount: priced.total }];
     return [
       { method: 'cash', amount: cashAmount },
-      { method: 'mobile_money', provider, amount: priced.total - cashAmount, reference },
+      { method: 'mobile_money', provider: network, amount: priced.total - cashAmount, reference: ref },
     ];
-  }, [method, priced.total, provider, reference, cashAmount]);
+  };
+  const payments = buildPayments(reference, provider);
+  // What a pay request asks the customer for: the mobile money part only.
+  const requestAmount = method === 'mobile_money' ? priced.total : Math.max(0, priced.total - cashAmount);
+
+  /** The customer approved: keep the reference on the sale and save it straight away. */
+  function handlePaid(paid: PaidRequest) {
+    setPayOpen(false);
+    setProvider(paid.provider);
+    setReference(paid.reference);
+    void submit(null, buildPayments(paid.reference, paid.provider));
+  }
 
   // Any basket change voids an override shown for the old basket.
   const setQuantity = (variantId: string, next: number) => {
@@ -141,7 +154,7 @@ export default function NewSaleScreen() {
     }
   }
 
-  async function submit(approved: StockShortfall[] | null) {
+  async function submit(approved: StockShortfall[] | null, paymentsOverride?: PaymentInput[]) {
     if (submitting) return;
     if (!user) {
       setError(t('sale.new.signInRequired'));
@@ -161,7 +174,7 @@ export default function NewSaleScreen() {
       const result = await recordSale(db, {
         recordedBy: user.id,
         lines,
-        payments,
+        payments: paymentsOverride ?? payments,
         // Only the owner can approve an override; the movement records who did.
         override: approved ? { approvedBy: user.id, shortfalls: approved } : undefined,
       });
@@ -342,6 +355,14 @@ export default function NewSaleScreen() {
               />
             ))}
           </View>
+          <Button
+            label={t('sale.new.requestPay')}
+            icon="send_to_mobile"
+            variant="secondary"
+            disabled={requestAmount === 0 || lines.length === 0}
+            onPress={() => setPayOpen(true)}
+          />
+          <Text style={styles.muted}>{t('sale.new.requestPayHint')}</Text>
           <Field
             label={t('sale.new.reference')}
             value={reference}
@@ -372,6 +393,16 @@ export default function NewSaleScreen() {
         <Card style={styles.dangerCard}>
           <Text style={styles.warningText}>{error}</Text>
         </Card>
+      ) : null}
+
+      {payOpen ? (
+        <PayRequestSheet
+          visible
+          amount={requestAmount}
+          initialProvider={provider}
+          onClose={() => setPayOpen(false)}
+          onPaid={handlePaid}
+        />
       ) : null}
 
       {scannerOpen ? (

@@ -2180,6 +2180,56 @@ export async function injectDemoMessages(
 }
 
 /**
+ * Saves the confirmation of an approved pay request (see lib/payment-gateway)
+ * as a received mobile money payment, exactly as if the provider's message had
+ * arrived. The sale's payment carries the same reference, so the daily check
+ * matches the two without the owner doing anything.
+ *
+ * It is written as soon as the customer approves, before the sale is saved:
+ * the money has arrived either way, and if the sale is never saved the daily
+ * check correctly shows a payment with no sale.
+ */
+export async function recordGatewayPayment(
+  db: SQLiteDatabase,
+  input: { provider: 'MTN' | 'Airtel' | 'Zamtel'; amount: number; phone: string; reference: string; simulated: boolean }
+): Promise<string> {
+  const id = newId('mm');
+  const stamp = nowIso();
+  const rawMessage = `${input.simulated ? '[SIMULATED] ' : ''}${input.provider} pay request approved: K${(
+    input.amount / 100
+  ).toFixed(2)} from ${input.phone}. Ref ${input.reference}.`;
+  await db.withTransactionAsync(async () => {
+    await db.runAsync(
+      `INSERT INTO mobile_money_txn (id, provider, amount, sender, reference, received_at, raw_message, parsed, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'unmatched', ?, ?)`,
+      id,
+      input.provider,
+      input.amount,
+      input.phone,
+      input.reference,
+      stamp,
+      rawMessage,
+      stamp,
+      stamp
+    );
+    await enqueueSync(db, 'mobile_money_txn', id, 'create', {
+      id,
+      provider: input.provider,
+      amount: input.amount,
+      sender: input.phone,
+      reference: input.reference,
+      receivedAt: stamp,
+      rawMessage,
+      parsed: true,
+      status: 'unmatched',
+      createdAt: stamp,
+      updatedAt: stamp,
+    });
+  });
+  return id;
+}
+
+/**
  * Raw rows for the Insights screen: active sales, their lines and payments
  * from `since` onwards (covering the period and the one before it), plus
  * what is on the shelf now. The sums happen in core/insights.ts.
