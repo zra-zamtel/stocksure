@@ -33,6 +33,7 @@ echo "==> Collecting static files"
 rm -rf "$BACKEND_DIR/staticfiles"
 (
     cd "$BACKEND_DIR"
+    PYTHONPATH="$BUILD_DIR${PYTHONPATH:+:$PYTHONPATH}" \
     DJANGO_DEBUG=1 \
     DJANGO_SECRET_KEY='build-only-not-a-secret' \
     DJANGO_ALLOWED_HOSTS='*' \
