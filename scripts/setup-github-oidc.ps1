@@ -183,7 +183,8 @@ try {
       ],
       "Resource": [
         "arn:aws:cloudformation:$Region`:$AccountId`:stack/$StackName/*",
-        "arn:aws:cloudformation:$Region`:$AccountId`:stack/$StackName/*/*"
+        "arn:aws:cloudformation:$Region`:$AccountId`:stack/$StackName/*/*",
+        "arn:aws:cloudformation:$Region`:aws:transform/Serverless-2016-10-31"
       ]
     },
     {
