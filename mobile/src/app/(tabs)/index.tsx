@@ -5,7 +5,7 @@ import { useAuth } from '@/auth/session';
 import { displayName } from '@/components/auth';
 import { EmailReminder } from '@/components/email-reminder';
 import { GettingStarted } from '@/components/getting-started';
-import { Button, Card, Icon, IconButton, Pill, Screen, SectionTitle, Skeleton } from '@/components/ui';
+import { Button, Card, IconButton, Pill, Screen, SectionTitle, Skeleton } from '@/components/ui';
 import { useDayTotals, useLowStock, useProducts, useShop } from '@/db/hooks';
 import { useI18n } from '@/i18n';
 import { formatKwacha } from '@/lib/format';
@@ -115,9 +115,6 @@ export default function HomeScreen() {
             onPress={() => router.push(item.href)}
             style={({ pressed }) => [styles.tile, pressed && styles.tilePressed]}
           >
-            <View style={styles.tileIcon}>
-              <Icon name={item.icon} color={colors.primaryInk} />
-            </View>
             <Text style={styles.tileLabel} numberOfLines={2}>
               {item.label}
             </Text>
@@ -130,13 +127,11 @@ export default function HomeScreen() {
         <Skeleton height={20} width="70%" />
       ) : products.length === 0 ? (
         <View style={styles.allGood}>
-          <Icon name="info" size={20} color={colors.textMuted} />
           <Text style={[styles.muted, styles.flexText]}>{t('home.alerts.noProducts')}</Text>
         </View>
       ) : alerts.length === 0 ? (
         <View style={styles.allGood}>
-          <Icon name="check_circle" size={20} color={colors.success} />
-          <Text style={styles.muted}>{t('home.alerts.empty')}</Text>
+          <Text style={[styles.muted, styles.allGoodText]}>{t('home.alerts.empty')}</Text>
         </View>
       ) : (
         <Card>
@@ -178,7 +173,7 @@ const styles = StyleSheet.create({
   grid: { flexDirection: 'row', gap: spacing.sm },
   tile: {
     flex: 1,
-    minHeight: touch.minHeight * 2,
+    minHeight: touch.minHeight + spacing.xl,
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.xs,
@@ -190,14 +185,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
   },
   tilePressed: { backgroundColor: colors.surfaceAlt },
-  tileIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: colors.primarySoft,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   tileLabel: {
     fontSize: typeScale.label,
     fontWeight: '600',
@@ -206,6 +193,7 @@ const styles = StyleSheet.create({
   },
   allGood: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   flexText: { flex: 1 },
+  allGoodText: { color: colors.success, fontWeight: '600' },
   heroLoading: { gap: spacing.sm, paddingVertical: spacing.xs },
   alertRow: {
     flexDirection: 'row',

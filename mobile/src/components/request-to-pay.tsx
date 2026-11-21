@@ -1,5 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Modal, StyleSheet, Text, View } from 'react-native';
+import Animated, {
+  FadeIn,
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withRepeat,
+  withTiming,
+} from 'react-native-reanimated';
 import { useAuth } from '@/auth/session';
 import { isValidPhone, newId, normalisePhone, type Provider } from '@/core';
 import { useI18n } from '@/i18n';
@@ -10,62 +18,98 @@ import {
   type PaymentRequest,
 } from '@/lib/api';
 import { formatKwacha } from '@/lib/format';
-import { spacing } from '@/theme/tokens';
-import { Notice } from './auth';
-import { Button, Field, TextLink } from './ui';
+import { colors, radii, spacing, typeScale } from '@/theme/tokens';
+import { Button, Choice, Field, FormError, TextLink } from './ui';
 
 const POLL_MS = 2000;
+/** How long the "Paid" tick stays up before the sale is saved and the dialog closes. */
+const PAID_PAUSE_MS = 1100;
+const PROVIDERS: Provider[] = ['MTN', 'Airtel', 'Zamtel'];
+
+/** Network prefixes after the leading 0, e.g. 096 is MTN. */
+const PREFIXES: Record<Provider, string[]> = {
+  MTN: ['96', '76'],
+  Airtel: ['97', '77', '57'],
+  Zamtel: ['95', '75'],
+};
+
+/** Which network a number is on, read from its prefix; null while it is too short to tell. */
+export function providerForPhone(input: string): Provider | null {
+  const local = normalisePhone(input);
+  if (local.length < 3) return null;
+  const prefix = local.slice(1, 3);
+  return (Object.keys(PREFIXES) as Provider[]).find((provider) => PREFIXES[provider].includes(prefix)) ?? null;
+}
 
 export type PaidRequest = { reference: string; phone: string; amount: number; provider: Provider; at: string };
 
+type Phase = 'form' | 'sending' | 'waiting' | 'paid' | 'failed' | 'manual';
+
 /**
- * "Ask customer to pay": the cashier types the customer's number, the
- * customer gets a prompt on their own phone and approves it with their PIN.
- * The panel checks every two seconds until the payment is approved, declined
- * or times out, then hands the provider's reference to the sale.
+ * The mobile money step of a sale, as one dialog: type the customer's number,
+ * send the request, wait while they enter their PIN on their own phone, and
+ * the sale saves itself once they approve. If the customer has already paid,
+ * or there is no internet, the cashier can type the reference from the
+ * payment message instead.
  */
-export function RequestToPay({
-  provider,
+export function RequestToPayDialog({
   amount,
-  paid,
+  initialProvider,
+  onClose,
   onPaid,
-  onClear,
+  onManual,
 }: {
-  provider: Provider;
+  /** Ngwee to collect: the whole sale, or the mobile money part of a split. */
   amount: number;
-  paid: PaidRequest | null;
+  initialProvider: Provider;
+  onClose: () => void;
+  /** The customer approved. The parent saves the sale. */
   onPaid: (paid: PaidRequest) => void;
-  onClear: () => void;
+  /** Paid without a request: the parent saves the sale with this provider and reference. */
+  onManual: (input: { provider: Provider; reference: string }) => void;
 }) {
   const { t } = useI18n();
   const { deviceToken } = useAuth();
+  const [phase, setPhase] = useState<Phase>('form');
   const [phone, setPhone] = useState('');
+  const [provider, setProvider] = useState<Provider>(initialProvider);
+  const [reference, setReference] = useState('');
   const [request, setRequest] = useState<PaymentRequest | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [sending, setSending] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
   const onPaidRef = useRef(onPaid);
   useEffect(() => {
     onPaidRef.current = onPaid;
   }, [onPaid]);
 
-  // Poll while the customer decides. Stops when the answer is final or the
-  // panel goes away.
+  // Ask the server every two seconds until the customer answers.
   useEffect(() => {
-    if (!request || request.status !== 'pending' || !deviceToken) return;
+    if (phase !== 'waiting' || !request || !deviceToken) return;
     let stopped = false;
+    let paidTimer: ReturnType<typeof setTimeout> | undefined;
     const timer = setInterval(() => {
       paymentRequestStatusOnServer({ id: request.id, deviceToken })
         .then((next) => {
-          if (stopped) return;
-          setRequest(next);
+          if (stopped || next.status === 'pending') return;
+          stopped = true;
+          clearInterval(timer);
           if (next.status === 'successful') {
-            onPaidRef.current({
-              reference: next.reference,
-              phone: next.phone,
-              amount: next.amount,
-              provider: next.provider,
-              at: next.completedAt ?? new Date().toISOString(),
-            });
+            setPhase('paid');
+            // Let the tick register before the dialog closes on the saved sale.
+            paidTimer = setTimeout(
+              () =>
+                onPaidRef.current({
+                  reference: next.reference,
+                  phone: next.phone,
+                  amount: next.amount,
+                  provider: next.provider,
+                  at: next.completedAt ?? new Date().toISOString(),
+                }),
+              PAID_PAUSE_MS,
+            );
+          } else {
+            setFailure(next.status === 'expired' ? t('rtp.expired') : next.reason || t('rtp.failed'));
+            setPhase('failed');
           }
         })
         .catch(() => {
@@ -75,14 +119,22 @@ export function RequestToPay({
     return () => {
       stopped = true;
       clearInterval(timer);
+      if (paidTimer) clearTimeout(paidTimer);
     };
-  }, [deviceToken, request]);
+  }, [deviceToken, phase, request, t]);
+
+  function changePhone(value: string) {
+    setPhone(value);
+    setError(null);
+    const detected = providerForPhone(value);
+    if (detected) setProvider(detected);
+  }
 
   async function send() {
     setError(null);
     if (!deviceToken) return setError(t('rtp.error.signIn'));
     if (!isValidPhone(phone)) return setError(t('rtp.error.phone'));
-    setSending(true);
+    setPhase('sending');
     try {
       const created = await requestToPayOnServer({
         id: newId('rtp'),
@@ -92,68 +144,182 @@ export function RequestToPay({
         deviceToken,
       });
       setRequest(created);
+      setPhase('waiting');
     } catch (cause) {
+      setPhase('form');
       setError(
         cause instanceof ApiError && cause.code === 'offline'
           ? t('rtp.error.offline')
           : cause instanceof Error
             ? cause.message
-            : t('rtp.error.server')
+            : t('rtp.error.server'),
       );
-    } finally {
-      setSending(false);
     }
   }
 
-  function again() {
-    setRequest(null);
-    setError(null);
-    onClear();
-  }
-
-  if (paid) {
-    return (
-      <Notice tone="success" action={<TextLink label={t('rtp.cancel')} onPress={again} />}>
-        {t('rtp.paid', { amount: formatKwacha(paid.amount), reference: paid.reference })}
-      </Notice>
-    );
-  }
-
-  if (request?.status === 'pending') {
-    return (
-      <Notice tone="info" action={<TextLink label={t('rtp.cancel')} onPress={again} />}>
-        {t('rtp.waiting', { amount: formatKwacha(request.amount), phone: request.phone })}
-      </Notice>
-    );
-  }
+  const blocking = phase === 'sending' || phase === 'paid';
 
   return (
-    <View style={styles.box}>
-      {request && request.status !== 'successful' ? (
-        <Notice tone="warning">
-          {request.status === 'expired' ? t('rtp.expired') : request.reason || t('rtp.failed')}
-        </Notice>
-      ) : null}
-      <Field
-        label={t('rtp.phone')}
-        value={phone}
-        onChangeText={setPhone}
-        placeholder="97 123 4567"
-        keyboardType="phone-pad"
-        prefix="+260"
-      />
-      <Button
-        label={sending ? t('rtp.sending') : t('rtp.ask', { amount: formatKwacha(amount) })}
-        icon="send_to_mobile"
-        disabled={amount <= 0 || phone.trim() === ''}
-        loading={sending}
-        onPress={() => void send()}
-      />
-      {error ? <Notice tone="error">{error}</Notice> : null}
-    </View>
+    <Modal visible transparent animationType="slide" onRequestClose={blocking ? () => undefined : onClose}>
+      <View style={styles.backdrop}>
+        <View style={styles.sheet}>
+          <Text style={styles.eyebrow}>{t('rtp.title')}</Text>
+          <Text style={styles.amount}>{formatKwacha(amount)}</Text>
+
+          {phase === 'form' || phase === 'sending' ? (
+            <Animated.View entering={FadeIn.duration(160)} style={styles.body}>
+              <Field
+                label={t('rtp.phone')}
+                value={phone}
+                onChangeText={changePhone}
+                placeholder="97 123 4567"
+                keyboardType="phone-pad"
+                prefix="+260"
+                hint={t('rtp.phoneHint')}
+                autoFocus
+              />
+              <View style={styles.providers} accessibilityRole="radiogroup">
+                {PROVIDERS.map((option) => (
+                  <View key={option} style={styles.provider}>
+                    <Choice label={option} selected={provider === option} onPress={() => setProvider(option)} />
+                  </View>
+                ))}
+              </View>
+              {error ? <FormError message={error} /> : null}
+              <Button
+                label={t('rtp.send')}
+                loading={phase === 'sending'}
+                disabled={phone.trim() === ''}
+                onPress={() => void send()}
+              />
+              <View style={styles.links}>
+                <TextLink label={t('rtp.alreadyPaid')} accent onPress={() => setPhase('manual')} />
+                <TextLink label={t('common.cancel')} onPress={onClose} />
+              </View>
+            </Animated.View>
+          ) : null}
+
+          {phase === 'waiting' ? (
+            <Animated.View entering={FadeIn.duration(160)} style={styles.status}>
+              <Pulse />
+              <Text style={styles.statusTitle} accessibilityLiveRegion="polite">
+                {t('rtp.waitingTitle')}
+              </Text>
+              <Text style={styles.statusBody}>
+                {t('rtp.waitingBody', { phone: request?.phone ?? normalisePhone(phone) })}
+              </Text>
+              <View style={styles.actions}>
+                <Button label={t('rtp.cancelRequest')} variant="secondary" onPress={() => setPhase('form')} />
+              </View>
+            </Animated.View>
+          ) : null}
+
+          {phase === 'paid' ? (
+            <Animated.View entering={FadeIn.duration(160)} style={styles.status}>
+              <View style={[styles.badge, styles.badgePaid]}>
+                <Text style={styles.badgeMark}>✓</Text>
+              </View>
+              <Text style={styles.statusTitle} accessibilityLiveRegion="assertive">
+                {t('rtp.paidTitle')}
+              </Text>
+              <Text style={styles.statusBody}>{t('rtp.saving')}</Text>
+            </Animated.View>
+          ) : null}
+
+          {phase === 'failed' ? (
+            <Animated.View entering={FadeIn.duration(160)} style={styles.status}>
+              <View style={[styles.badge, styles.badgeFailed]}>
+                <Text style={[styles.badgeMark, styles.badgeMarkFailed]}>!</Text>
+              </View>
+              <Text style={styles.statusTitle} accessibilityLiveRegion="assertive">
+                {t('rtp.failedTitle')}
+              </Text>
+              <Text style={styles.statusBody}>{failure}</Text>
+              <View style={styles.actions}>
+                <Button label={t('rtp.sendAgain')} onPress={() => setPhase('form')} />
+                <Button label={t('common.cancel')} variant="secondary" onPress={onClose} />
+              </View>
+            </Animated.View>
+          ) : null}
+
+          {phase === 'manual' ? (
+            <Animated.View entering={FadeIn.duration(160)} style={styles.body}>
+              <Text style={styles.statusBody}>{t('rtp.manualBody')}</Text>
+              <View style={styles.providers} accessibilityRole="radiogroup">
+                {PROVIDERS.map((option) => (
+                  <View key={option} style={styles.provider}>
+                    <Choice label={option} selected={provider === option} onPress={() => setProvider(option)} />
+                  </View>
+                ))}
+              </View>
+              <Field
+                label={t('sale.new.reference')}
+                value={reference}
+                onChangeText={setReference}
+                placeholder={t('common.optional')}
+                hint={t('sale.new.referenceHint')}
+              />
+              <Button
+                label={t('rtp.recordSale')}
+                onPress={() => onManual({ provider, reference: reference.trim() })}
+              />
+              <View style={styles.links}>
+                <TextLink label={t('rtp.backToRequest')} accent onPress={() => setPhase('form')} />
+              </View>
+            </Animated.View>
+          ) : null}
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+/** A soft blue ring that breathes while the customer decides. */
+function Pulse() {
+  const reduceMotion = useReducedMotion();
+  const pulse = useSharedValue(1);
+  useEffect(() => {
+    if (reduceMotion) return;
+    pulse.value = withRepeat(withTiming(1.15, { duration: 700 }), -1, true);
+  }, [pulse, reduceMotion]);
+  const style = useAnimatedStyle(() => ({ transform: [{ scale: pulse.value }] }));
+  return (
+    <Animated.View style={[styles.badge, styles.badgeWaiting, style]}>
+      <ActivityIndicator color={colors.primary} />
+    </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
-  box: { gap: spacing.sm },
+  backdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(30, 30, 28, 0.45)' },
+  sheet: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: radii.lg * 1.5,
+    borderTopRightRadius: radii.lg * 1.5,
+    padding: spacing.xl,
+    paddingBottom: spacing.xxl,
+    gap: spacing.xs,
+  },
+  eyebrow: {
+    fontSize: typeScale.label,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    color: colors.primaryInk,
+  },
+  amount: { fontSize: typeScale.display + 6, fontWeight: '800', color: colors.text, fontVariant: ['tabular-nums'] },
+  body: { gap: spacing.md, marginTop: spacing.md },
+  providers: { flexDirection: 'row', gap: spacing.sm },
+  provider: { flex: 1 },
+  links: { alignItems: 'center' },
+  status: { alignItems: 'center', gap: spacing.md, paddingVertical: spacing.lg },
+  actions: { alignSelf: 'stretch', gap: spacing.sm, marginTop: spacing.sm },
+  badge: { width: 72, height: 72, borderRadius: 36, alignItems: 'center', justifyContent: 'center' },
+  badgeWaiting: { backgroundColor: colors.primarySoft },
+  badgePaid: { backgroundColor: colors.success },
+  badgeFailed: { backgroundColor: colors.dangerSoft },
+  badgeMark: { fontSize: 36, fontWeight: '800', color: colors.primaryText },
+  badgeMarkFailed: { color: colors.danger },
+  statusTitle: { fontSize: typeScale.heading, fontWeight: '700', color: colors.text, textAlign: 'center' },
+  statusBody: { fontSize: typeScale.body, color: colors.textMuted, textAlign: 'center', lineHeight: 22 },
 });

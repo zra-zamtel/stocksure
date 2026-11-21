@@ -160,11 +160,7 @@ export function Button({ label, onPress, variant = 'primary', disabled, loading,
         loading && styles.buttonLoading,
       ]}
     >
-      {loading ? (
-        <ActivityIndicator size="small" color={ink} />
-      ) : icon ? (
-        <Icon name={icon} size={20} color={ink} />
-      ) : null}
+      {loading ? <ActivityIndicator size="small" color={ink} /> : null}
       <Text
         style={[
           styles.buttonLabel,
@@ -280,7 +276,6 @@ export function Field({
       </View>
       {error ? (
         <View style={styles.fieldMessage} accessibilityLiveRegion="polite">
-          <Icon name="error" size={16} color={colors.danger} />
           <Text style={[styles.fieldMessageText, styles.fieldErrorText]}>{error}</Text>
         </View>
       ) : hint ? (
@@ -370,11 +365,6 @@ export function EmptyState({
   if (!title && !icon) return <Text style={styles.empty}>{message}</Text>;
   return (
     <Animated.View entering={FadeIn.duration(220)} style={styles.statePanel}>
-      {icon ? (
-        <View style={[styles.stateIcon, tone === 'success' && styles.stateIconSuccess]}>
-          <Icon name={icon} size={32} color={tone === 'success' ? colors.success : colors.primaryInk} />
-        </View>
-      ) : null}
       {title ? (
         <Text style={styles.stateTitle} accessibilityRole="header">
           {title}
@@ -412,9 +402,6 @@ export function ErrorState({
 }) {
   return (
     <Animated.View entering={FadeIn.duration(220)} style={styles.statePanel} accessibilityLiveRegion="polite">
-      <View style={[styles.stateIcon, styles.stateIconDanger]}>
-        <Icon name="cloud_off" size={32} color={colors.danger} />
-      </View>
       <Text style={styles.stateTitle} accessibilityRole="header">
         {title}
       </Text>
@@ -484,7 +471,6 @@ export function LoadingList({ label, count = 3, hero }: { label: string; count?:
 export function FormError({ message }: { message: string }) {
   return (
     <View style={[styles.helpTip, styles.formError]} accessibilityLiveRegion="polite" accessibilityRole="alert">
-      <Icon name="error" size={20} color={colors.danger} />
       <Text style={[styles.helpTipText, styles.formErrorText]}>{message}</Text>
     </View>
   );
@@ -494,7 +480,6 @@ export function FormError({ message }: { message: string }) {
 export function HelpTip({ children, icon = 'lightbulb' }: { children: ReactNode; icon?: AndroidSymbol }) {
   return (
     <View style={styles.helpTip}>
-      <Icon name={icon} size={20} color={colors.info} />
       <Text style={styles.helpTipText}>{children}</Text>
     </View>
   );
@@ -612,17 +597,6 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     backgroundColor: colors.surface,
   },
-  stateIcon: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.primarySoft,
-    marginBottom: spacing.xs,
-  },
-  stateIconSuccess: { backgroundColor: colors.successSoft },
-  stateIconDanger: { backgroundColor: colors.dangerSoft },
   stateTitle: { fontSize: typeScale.heading, fontWeight: '700', color: colors.text, textAlign: 'center' },
   stateMessage: { fontSize: typeScale.body, lineHeight: 22, color: colors.textMuted, textAlign: 'center', maxWidth: 320 },
   stateActions: { alignSelf: 'stretch', gap: spacing.sm, marginTop: spacing.sm },

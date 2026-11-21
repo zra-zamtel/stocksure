@@ -5,8 +5,7 @@ import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { usePermissionGuard } from '@/auth/permissions';
 import { useAuth } from '@/auth/session';
 import { BarcodeScanner } from '@/components/barcode-scanner';
-import { Notice } from '@/components/auth';
-import { RequestToPay, type PaidRequest } from '@/components/request-to-pay';
+import { RequestToPayDialog, type PaidRequest } from '@/components/request-to-pay';
 import {
   Button,
   Card,
@@ -34,7 +33,6 @@ import { useI18n } from '@/i18n';
 import { formatKwacha } from '@/lib/format';
 import { colors, radii, spacing, touch, typeScale } from '@/theme/tokens';
 
-const PROVIDERS: Provider[] = ['MTN', 'Airtel', 'Zamtel'];
 
 function Stepper({ value, onChange }: { value: number; onChange: (next: number) => void }) {
   return (
@@ -82,6 +80,7 @@ export default function NewSaleScreen() {
   const [shortfalls, setShortfalls] = useState<StockShortfall[] | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [paid, setPaid] = useState<PaidRequest | null>(null);
+  const [payOpen, setPayOpen] = useState(false);
 
   const index = useMemo(() => {
     const map = new Map<string, { label: string; sellPrice: number; buyPrice: number; discount?: LineInput['productDiscount'] }>();
@@ -123,19 +122,22 @@ export default function NewSaleScreen() {
   const paidValid = paid && method !== 'cash' && paid.amount === mobileAmount && paid.provider === provider ? paid : null;
   const saleReference = paidValid ? paidValid.reference : reference;
 
-  const payments = useMemo<PaymentInput[]>(() => {
+  const buildPayments = (ref: string, network: Provider): PaymentInput[] => {
     if (priced.total === 0) return [];
     if (method === 'cash') return [{ method: 'cash', amount: priced.total }];
     if (method === 'mobile_money') {
-      return [{ method: 'mobile_money', provider, amount: priced.total, reference: saleReference }];
+      return [{ method: 'mobile_money', provider: network, amount: priced.total, reference: ref }];
     }
     // Split with nothing left for mobile money is just a cash sale.
     if (cashAmount === priced.total) return [{ method: 'cash', amount: priced.total }];
     return [
       { method: 'cash', amount: cashAmount },
-      { method: 'mobile_money', provider, amount: priced.total - cashAmount, reference: saleReference },
+      { method: 'mobile_money', provider: network, amount: priced.total - cashAmount, reference: ref },
     ];
-  }, [method, priced.total, provider, saleReference, cashAmount]);
+  };
+  const payments = buildPayments(saleReference, provider);
+  // Mobile money is collected in the dialog first; the sale saves once it is paid.
+  const needsMobileMoney = method !== 'cash' && mobileAmount > 0 && !paidValid;
 
   // Any basket change voids an override shown for the old basket.
   const setQuantity = (variantId: string, next: number) => {
@@ -168,7 +170,33 @@ export default function NewSaleScreen() {
     }
   }
 
-  async function submit(approved: StockShortfall[] | null) {
+  /** The customer approved the request in the dialog: save the sale with that payment. */
+  function handlePaid(next: PaidRequest) {
+    setPayOpen(false);
+    setPaid(next);
+    setProvider(next.provider);
+    void submit(null, { paid: next });
+  }
+
+  /** Paid without a request (typed reference): save the sale with what was typed. */
+  function handleManual(input: { provider: Provider; reference: string }) {
+    setPayOpen(false);
+    setPaid(null);
+    setProvider(input.provider);
+    setReference(input.reference);
+    void submit(null, { manual: input });
+  }
+
+  function chooseMethod(next: 'cash' | 'mobile_money' | 'split') {
+    setMethod(next);
+    // Mobile money goes straight to the payment dialog once there is something to sell.
+    if (next === 'mobile_money' && lines.length > 0) setPayOpen(true);
+  }
+
+  async function submit(
+    approved: StockShortfall[] | null,
+    via?: { paid?: PaidRequest; manual?: { provider: Provider; reference: string } },
+  ) {
     if (submitting) return;
     if (!user) {
       setError(t('sale.new.signInRequired'));
@@ -188,22 +216,27 @@ export default function NewSaleScreen() {
       const result = await recordSale(db, {
         recordedBy: user.id,
         lines,
-        payments,
+        payments: via?.paid
+          ? buildPayments(via.paid.reference, via.paid.provider)
+          : via?.manual
+            ? buildPayments(via.manual.reference, via.manual.provider)
+            : payments,
         // Only the owner can approve an override; the movement records who did.
         override: approved ? { approvedBy: user.id, shortfalls: approved } : undefined,
       });
-      if (paidValid) {
+      const confirmed = via?.paid ?? paidValid;
+      if (confirmed) {
         // The provider confirmed this payment, so file it as received now:
         // the sale matches at once on its reference, and pasting the same
         // message later is refused as a duplicate.
         try {
           await addPaymentMessage(db, {
-            provider: paidValid.provider,
-            amount: paidValid.amount,
-            reference: paidValid.reference,
-            sender: paidValid.phone,
-            receivedAt: paidValid.at,
-            rawMessage: `Request to pay approved by ${paidValid.phone}. Ref ${paidValid.reference}.`,
+            provider: confirmed.provider,
+            amount: confirmed.amount,
+            reference: confirmed.reference,
+            sender: confirmed.phone,
+            receivedAt: confirmed.at,
+            rawMessage: `Request to pay approved by ${confirmed.phone}. Ref ${confirmed.reference}.`,
             parsed: true,
           });
           await reconcileDay(db);
@@ -235,13 +268,15 @@ export default function NewSaleScreen() {
       footer={
         <Button
           label={
-            priced.total > 0
-              ? `${t('sale.new.confirm')} · ${formatKwacha(priced.total)}`
-              : t('sale.new.confirm')
+            needsMobileMoney
+              ? `${t('sale.new.getPaid')} · ${formatKwacha(mobileAmount)}`
+              : priced.total > 0
+                ? `${t('sale.new.confirm')} · ${formatKwacha(priced.total)}`
+                : t('sale.new.confirm')
           }
           disabled={lines.length === 0}
           loading={submitting}
-          onPress={() => submit(null)}
+          onPress={() => (needsMobileMoney ? setPayOpen(true) : submit(null))}
         />
       }
     >
@@ -367,49 +402,20 @@ export default function NewSaleScreen() {
 
       <SectionTitle>{t('sale.new.paymentMethod')}</SectionTitle>
       <View style={styles.methods}>
-        <Choice label={t('sale.new.cash')} selected={method === 'cash'} onPress={() => setMethod('cash')} />
+        <Choice label={t('sale.new.cash')} selected={method === 'cash'} onPress={() => chooseMethod('cash')} />
         <Choice
           label={t('sale.new.mobileMoney')}
           selected={method === 'mobile_money'}
-          onPress={() => setMethod('mobile_money')}
+          onPress={() => chooseMethod('mobile_money')}
         />
-        <Choice label={t('sale.new.split')} selected={method === 'split'} onPress={() => setMethod('split')} />
+        <Choice label={t('sale.new.split')} selected={method === 'split'} onPress={() => chooseMethod('split')} />
       </View>
 
-      {method !== 'cash' ? (
-        <Card>
-          <Text style={styles.muted}>{t('sale.new.provider')}</Text>
-          <View style={styles.providers}>
-            {PROVIDERS.map((option) => (
-              <Choice
-                key={option}
-                label={option}
-                selected={provider === option}
-                onPress={() => setProvider(option)}
-              />
-            ))}
-          </View>
-          <Text style={styles.subhead}>{t('rtp.title')}</Text>
-          {paid && !paidValid ? <Notice tone="warning">{t('rtp.changed')}</Notice> : null}
-          <RequestToPay
-            provider={provider}
-            amount={mobileAmount}
-            paid={paidValid}
-            onPaid={setPaid}
-            onClear={() => setPaid(null)}
-          />
-          {!paidValid ? (
-            <>
-              <Text style={styles.subhead}>{t('rtp.orReference')}</Text>
-              <Field
-                label={t('sale.new.reference')}
-                value={reference}
-                onChangeText={setReference}
-                placeholder={t('common.optional')}
-              />
-              <Text style={styles.muted}>{t('sale.new.referenceHint')}</Text>
-            </>
-          ) : null}
+      {method !== 'cash' && paidValid ? (
+        <Card style={styles.paidCard}>
+          <Text style={styles.paidText}>
+            {t('rtp.paid', { amount: formatKwacha(paidValid.amount), reference: paidValid.reference })}
+          </Text>
         </Card>
       ) : null}
 
@@ -433,6 +439,16 @@ export default function NewSaleScreen() {
         <Card style={styles.dangerCard}>
           <Text style={styles.warningText}>{error}</Text>
         </Card>
+      ) : null}
+
+      {payOpen ? (
+        <RequestToPayDialog
+          amount={mobileAmount}
+          initialProvider={provider}
+          onClose={() => setPayOpen(false)}
+          onPaid={handlePaid}
+          onManual={handleManual}
+        />
       ) : null}
 
       {scannerOpen ? (
@@ -472,6 +488,6 @@ const styles = StyleSheet.create({
   dangerCard: { backgroundColor: colors.dangerSoft, gap: spacing.xs },
   warningText: { fontSize: typeScale.label, color: colors.text, fontWeight: '600' },
   methods: { gap: spacing.sm },
-  subhead: { fontSize: typeScale.label, fontWeight: '800', color: colors.text, marginTop: spacing.sm },
-  providers: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  paidCard: { backgroundColor: colors.successSoft },
+  paidText: { fontSize: typeScale.body, color: colors.success, fontWeight: '600' },
 });

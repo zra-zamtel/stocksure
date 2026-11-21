@@ -7,7 +7,7 @@ import { useProducts, useSales } from '../db/hooks';
 import { useI18n } from '../i18n';
 import { hasVisited, hideStartList, isStartListHidden } from '../lib/getting-started';
 import { colors, radii, spacing, touch, typeScale } from '../theme/tokens';
-import { Card, Icon, TextLink } from './ui';
+import { Card, TextLink } from './ui';
 
 type Step = { key: string; label: string; hint: string; done: boolean; href: Href };
 
@@ -110,7 +110,7 @@ export function GettingStarted() {
               >
                 <View style={[styles.badge, step.done && styles.badgeDone, isNext && styles.badgeNext]}>
                   {step.done ? (
-                    <Icon name="check" size={18} color={colors.primaryText} />
+                    <Text style={styles.badgeTick}>✓</Text>
                   ) : (
                     <Text style={[styles.badgeText, isNext && styles.badgeTextNext]}>{index + 1}</Text>
                   )}
@@ -119,7 +119,6 @@ export function GettingStarted() {
                   <Text style={[styles.stepLabel, step.done && styles.stepLabelDone]}>{step.label}</Text>
                   <Text style={styles.stepHint}>{step.done ? t('home.start.done') : step.hint}</Text>
                 </View>
-                <Icon name="chevron_right" color={colors.textMuted} />
               </Pressable>
             );
           })}
@@ -167,6 +166,7 @@ const styles = StyleSheet.create({
   badgeNext: { borderColor: colors.primary, backgroundColor: colors.primary },
   badgeDone: { borderColor: colors.success, backgroundColor: colors.success },
   badgeText: { fontSize: typeScale.label, fontWeight: '700', color: colors.textMuted },
+  badgeTick: { fontSize: typeScale.body, fontWeight: '800', color: colors.primaryText },
   badgeTextNext: { color: colors.primaryText },
   stepText: { flex: 1, gap: 2 },
   stepLabel: { fontSize: typeScale.body, fontWeight: '700', color: colors.text },
