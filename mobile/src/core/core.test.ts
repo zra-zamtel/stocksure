@@ -308,13 +308,44 @@ describe('reconciliation matching', () => {
     expect(result.matched).toEqual([{ saleId: 's9', receivedId: 'p9' }]);
   });
 
-  it('refuses to match when only one side has a reference', () => {
+  it('matches when only the message has a reference (the cashier typed none)', () => {
     const result = matchPayments(
       [{ id: 's1', amount: 25200, at: sale.at }],
       [{ ...sale, id: 'r1' }],
       30
     );
+    expect(result.matched).toEqual([{ saleId: 's1', receivedId: 'r1' }]);
+  });
+
+  it('matches when only the sale has a reference (the message had none)', () => {
+    const result = matchPayments([sale], [{ id: 'r1', amount: 25200, at: sale.at }], 30);
+    expect(result.matched).toEqual([{ saleId: 's1', receivedId: 'r1' }]);
+  });
+
+  it('lets a typed reference pick the right one of two equal payments', () => {
+    const result = matchPayments(
+      [sale],
+      [
+        { ...sale, id: 'r1', reference: 'MP2607.9999.ZZZ' },
+        { ...sale, id: 'r2', at: '2026-11-17T09:18:00+02:00' },
+      ],
+      30
+    );
+    expect(result.matched).toEqual([{ saleId: 's1', receivedId: 'r2' }]);
+  });
+
+  it('sends two equal unreferenced payments to the owner instead of guessing', () => {
+    const plain = { id: 's1', amount: 25200, at: sale.at };
+    const result = matchPayments(
+      [plain],
+      [
+        { id: 'r1', amount: 25200, reference: 'A1', at: sale.at },
+        { id: 'r2', amount: 25200, reference: 'B2', at: '2026-11-17T09:20:00+02:00' },
+      ],
+      30
+    );
     expect(result.matched).toHaveLength(0);
+    expect(result.ambiguousSales).toEqual(['s1']);
   });
 
   it('refuses a match across different providers', () => {

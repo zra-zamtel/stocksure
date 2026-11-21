@@ -143,6 +143,10 @@ function RootNavigator() {
         <Stack.Screen name="staff" />
       </Stack.Protected>
 
+      <Stack.Protected guard={ownerOnly && canAccessScreen(user?.role, 'paymentMessage')}>
+        <Stack.Screen name="payment-message" />
+      </Stack.Protected>
+
       <Stack.Protected guard={ownerOnly && canAccessScreen(user?.role, 'insights')}>
         <Stack.Screen name="insights" />
       </Stack.Protected>

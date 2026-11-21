@@ -50,6 +50,7 @@ describe('role permission matrix', () => {
     expect(canAccessScreen('staff', 'tax')).toBe(false);
     expect(canAccessScreen('staff', 'taxPot')).toBe(false);
     expect(canAccessScreen('staff', 'insights')).toBe(false);
+    expect(canAccessScreen('staff', 'paymentMessage')).toBe(false);
     expect(canAccessScreen('staff', 'productNew')).toBe(false);
     expect(canAccessScreen('staff', 'productDetail')).toBe(false);
     expect(canAccessScreen('staff', 'scan')).toBe(false);

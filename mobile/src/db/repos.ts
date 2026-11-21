@@ -2219,3 +2219,73 @@ export async function insightRows(db: SQLiteDatabase, since: string): Promise<In
   );
   return { sales, lines, payments, stock };
 }
+
+export interface PaymentMessageInput {
+  provider: 'MTN' | 'Airtel' | 'Zamtel';
+  amount: Ngwee;
+  reference?: string;
+  sender?: string;
+  /** When the money arrived; defaults to now (the owner pastes it straight away). */
+  receivedAt?: string;
+  /** The text as pasted, kept so the owner can check what was read. */
+  rawMessage: string;
+  /** False when the owner typed the amount because the text could not be read. */
+  parsed: boolean;
+}
+
+export class DuplicateMessageError extends Error {
+  constructor() {
+    super('This payment message was already added.');
+    this.name = 'DuplicateMessageError';
+  }
+}
+
+/**
+ * Saves a provider "you have received" message that the owner pasted, so the
+ * next reconciliation run can pair it with a sale. The same reference pasted
+ * twice is refused, so one payment can never settle two sales.
+ */
+export async function addPaymentMessage(db: SQLiteDatabase, input: PaymentMessageInput): Promise<string> {
+  if (!Number.isInteger(input.amount) || input.amount <= 0) throw new Error('Enter the amount received.');
+  const reference = input.reference?.trim() || null;
+  if (reference) {
+    const existing = await db.getFirstAsync<{ id: string }>(
+      `SELECT id FROM mobile_money_txn WHERE UPPER(REPLACE(reference, ' ', '')) = ? LIMIT 1`,
+      reference.toUpperCase().replace(/\s+/g, '')
+    );
+    if (existing) throw new DuplicateMessageError();
+  }
+
+  const stamp = nowIso();
+  const row = {
+    id: newId('mm'),
+    provider: input.provider,
+    amount: input.amount,
+    sender: input.sender?.trim() || null,
+    reference,
+    receivedAt: input.receivedAt ?? stamp,
+    rawMessage: input.rawMessage.trim(),
+    parsed: input.parsed,
+    status: 'unmatched',
+    createdAt: stamp,
+    updatedAt: stamp,
+  };
+  await db.withTransactionAsync(async () => {
+    await db.runAsync(
+      `INSERT INTO mobile_money_txn (id, provider, amount, sender, reference, received_at, raw_message, parsed, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'unmatched', ?, ?)`,
+      row.id,
+      row.provider,
+      row.amount,
+      row.sender,
+      row.reference,
+      row.receivedAt,
+      row.rawMessage,
+      row.parsed ? 1 : 0,
+      stamp,
+      stamp
+    );
+    await enqueueSync(db, 'mobile_money_txn', row.id, 'create', row);
+  });
+  return row.id;
+}

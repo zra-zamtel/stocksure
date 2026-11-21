@@ -166,15 +166,16 @@ describe('ST-02 a full trading day', () => {
     const airtel = await insertMessage('Airtel', 5000, at(DAY, '11:02'), ' at-778 ');
     const stray = await insertMessage('MTN', 15000, at(DAY, '15:00'), 'MP261117.1500');
 
-    // The MTN message has a reference but the sale does not, so the rule
-    // refuses to pair them; the owner confirms by hand.
+    // The MTN message carries a reference the cashier never typed; amount,
+    // provider and a one-minute gap are enough to pair it. The Airtel pair
+    // also agrees on the typed reference. The Zamtel sale and the stray K150
+    // are left for the owner.
     let day = await reconcileDay(db, DAY);
-    expect(day.matched.map((m) => m.saleId)).toEqual([s3.saleId]);
-    expect(day.salesWithoutPayment.map((s) => s.saleId).sort()).toEqual([s2.saleId, s4.saleId].sort());
-    expect(day.paymentsWithoutSale.map((p) => p.txnId).sort()).toEqual([mtn, stray].sort());
+    expect(day.matched.map((m) => m.saleId).sort()).toEqual([s2.saleId, s3.saleId].sort());
+    expect(day.salesWithoutPayment.map((s) => s.saleId)).toEqual([s4.saleId]);
+    expect(day.paymentsWithoutSale.map((p) => p.txnId)).toEqual([stray]);
+    expect(mtn).toBeTruthy();
 
-    await markSalePaid(db, s2.saleId);
-    await ignorePayment(db, mtn);
     await ignorePayment(db, stray);
     day = await reconcileDay(db, DAY);
     expect(day.matched.map((m) => m.saleId).sort()).toEqual([s2.saleId, s3.saleId].sort());
