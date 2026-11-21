@@ -96,6 +96,42 @@ After the deploy the script prints `ApiUrl`, `HealthUrl` and `DocsUrl`.
 Both invoke the JobFunction directly; they do not redeploy. The same function
 also runs the daily reminder schedule, so there is only one background Lambda.
 
+### Deploy pipeline (GitHub Actions)
+
+[`deploy.yml`](../.github/workflows/deploy.yml) deploys the backend on every push
+to `main` that touches `backend/`, and on manual dispatch from the Actions tab.
+It runs the same checks as `ci.yml`, builds the bundle with
+[`build-lambda.sh`](../scripts/build-lambda.sh), packages the template with
+`aws cloudformation package`, and updates the `stocksure-api` stack with
+`aws cloudformation deploy`.
+
+Authentication uses GitHub OIDC, so no AWS access keys are stored in GitHub.
+Create the provider and role once:
+
+```powershell
+.\scripts\setup-github-oidc.ps1 -ConfigureRepo
+```
+
+The script creates the `token.actions.githubusercontent.com` OIDC provider, the
+`GitHubActionsStockSureDeploy` role (trusted only for `zra-zamtel/stocksure` on
+`main`), and stores its ARN as the `AWS_DEPLOY_ROLE_ARN` repository variable.
+Re-running it is safe.
+
+Stack parameters are deliberately **not** stored in GitHub.
+`aws cloudformation deploy` keeps the value already on the stack for every
+parameter you omit, so the pipeline never touches `DatabaseUrl`, the SMTP
+password, or the other secrets. To change one from CI, add a
+`STACK_PARAMETERS_JSON` repository secret containing a JSON array; only the
+listed parameters are overridden:
+
+```json
+[{ "ParameterKey": "ReminderSchedule", "ParameterValue": "cron(0 5 * * ? *)" }]
+```
+
+Migrations do not run automatically. Trigger the workflow manually with
+**Run database migrations** checked, or keep using
+`.\scripts\deploy-lambda.ps1 -Migrate -SkipBuild`.
+
 ### Current demo deployment
 
 - Stack: `stocksure-api` in `eu-north-1`
