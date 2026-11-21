@@ -13,7 +13,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { SymbolView, type AndroidSymbol } from 'expo-symbols';
+import type { AndroidSymbol } from 'expo-symbols';
 import Animated, {
   Easing,
   FadeIn,
@@ -23,6 +23,7 @@ import Animated, {
   withRepeat,
   withTiming,
 } from 'react-native-reanimated';
+import MATERIAL_SYMBOLS from '../theme/material-symbols.json';
 import { colors, radii, spacing, touch, typeScale } from '../theme/tokens';
 
 type ScreenProps = {
@@ -69,7 +70,16 @@ export function Screen({ title, subtitle, children, scroll = true, footer, actio
   );
 }
 
-/** Material symbol on Android and web. */
+/** The Material Symbols font, loaded once at start-up in the root layout. */
+export const ICON_FONT = 'MaterialSymbols_400Regular';
+const GLYPHS = MATERIAL_SYMBOLS as Record<string, number>;
+
+/**
+ * Material symbol on Android and web, drawn as one glyph of the icon font.
+ * expo-symbols loads the font separately inside every icon and draws nothing
+ * until that finishes, which on some phones is never; the root layout loads it
+ * once before the splash lifts instead, and release builds embed it.
+ */
 export function Icon({
   name,
   size = 24,
@@ -79,7 +89,17 @@ export function Icon({
   size?: number;
   color?: ColorValue;
 }) {
-  return <SymbolView name={{ android: name, web: name }} size={size} tintColor={color} />;
+  const code = GLYPHS[name];
+  return (
+    <Text
+      accessible={false}
+      importantForAccessibility="no"
+      allowFontScaling={false}
+      style={[styles.icon, { width: size, height: size, fontSize: size, lineHeight: size, color }]}
+    >
+      {code ? String.fromCodePoint(code) : ''}
+    </Text>
+  );
 }
 
 /** Icon-only control with a 48dp hit area and a spoken label. */
@@ -498,6 +518,7 @@ export function Stub({ note }: { note: string }) {
 }
 
 const styles = StyleSheet.create({
+  icon: { fontFamily: ICON_FONT, textAlign: 'center', includeFontPadding: false },
   paper: { flex: 1, backgroundColor: colors.bg },
   safe: { flex: 1 },
   scroll: { paddingBottom: spacing.xxl },

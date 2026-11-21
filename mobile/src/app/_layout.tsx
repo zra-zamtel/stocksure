@@ -1,3 +1,4 @@
+import { MaterialSymbols_400Regular } from '@expo-google-fonts/material-symbols/400Regular';
 import { SpaceGrotesk_700Bold, useFonts } from '@expo-google-fonts/space-grotesk';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -35,7 +36,8 @@ export default function RootLayout() {
  */
 function AppShell() {
   const { status } = useAuth();
-  const [fontsLoaded, fontError] = useFonts({ SpaceGrotesk_700Bold });
+  // Both fonts load before the splash lifts, so no icon or heading paints blank.
+  const [fontsLoaded, fontError] = useFonts({ SpaceGrotesk_700Bold, MaterialSymbols_400Regular });
   const [splashDone, setSplashDone] = useState(false);
   const finishSplash = useCallback(() => setSplashDone(true), []);
   const ready = status !== 'loading' && (fontsLoaded || fontError !== null);
