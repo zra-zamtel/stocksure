@@ -55,8 +55,11 @@ class ShopRolePermission(BasePermission):
         if action in getattr(view, "owner_actions", ()):
             return membership.role == "owner"
         if action in getattr(view, "staff_actions", ()) and membership.role == "owner":
-            self.message = "Only staff record sales. The owner manages products and stock."
-            return False
+            from apps.shops.selling import OWNER_SALE_REFUSED, owner_may_record_sale
+
+            if not owner_may_record_sale(request.user):
+                self.message = OWNER_SALE_REFUSED
+                return False
         return True
 
 

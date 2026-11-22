@@ -69,6 +69,7 @@ function RootNavigator() {
     shopRestorePending,
     onboardingComplete,
     refresh,
+    can,
   } = useAuth();
 
   if (status === 'loading') {
@@ -152,7 +153,7 @@ function RootNavigator() {
         <Stack.Screen name="scan" />
       </Stack.Protected>
 
-      <Stack.Protected guard={signedIn && onboardingComplete && canAccessScreen(user?.role, 'saleNew')}>
+      <Stack.Protected guard={signedIn && onboardingComplete && can('sales.record')}>
         <Stack.Screen name="sale/new" />
       </Stack.Protected>
 

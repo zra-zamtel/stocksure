@@ -21,11 +21,13 @@ const OWNER_ONLY: Permission[] = [
 const SHARED: Permission[] = ['sales.view', 'stock.view', 'cash.count'];
 
 describe('role permission matrix', () => {
-  it('keeps recording sales for staff only', () => {
-    expect(can('staff', 'sales.record')).toBe(true);
-    expect(can('owner', 'sales.record')).toBe(false);
-    expect(canAccessScreen('staff', 'saleNew')).toBe(true);
-    expect(canAccessScreen('owner', 'saleNew')).toBe(false);
+  it('lets an owner record sales only while the shop has no staff', () => {
+    expect(can('staff', 'sales.record', { hasStaff: true })).toBe(true);
+    expect(can('owner', 'sales.record')).toBe(true);
+    expect(can('owner', 'sales.record', { hasStaff: false })).toBe(true);
+    expect(can('owner', 'sales.record', { hasStaff: true })).toBe(false);
+    expect(canAccessScreen('owner', 'saleNew', { hasStaff: true })).toBe(false);
+    expect(canAccessScreen('staff', 'saleNew', { hasStaff: true })).toBe(true);
   });
 
   it('lets the owner use every other action and open every owner screen', () => {

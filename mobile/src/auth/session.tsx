@@ -24,6 +24,7 @@ import {
   getOnboardingState,
   getOwner,
   listIdentities,
+  listStaff,
   markStaffFirstSignIn,
   updateOwnerPinHash,
   upsertOwnerFromServer,
@@ -213,6 +214,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [ownerPreview, setOwnerPreview] = useState<AuthValue['ownerPreview']>(null);
   const [hasAccount, setHasAccount] = useState(false);
   const [hasShop, setHasShop] = useState(false);
+  // Whether any staff member exists; an owner with none records their own sales.
+  const [hasStaff, setHasStaff] = useState(false);
   const [shopRestorePending, setShopRestorePending] = useState(false);
   const [pendingOwner, setPendingOwner] = useState<PendingOwner | null>(null);
   const [deviceToken, setDeviceToken] = useState<string | null>(null);
@@ -228,11 +231,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(async () => {
     try {
-      const [owner, identities, state] = await Promise.all([
+      const [owner, identities, state, staff] = await Promise.all([
         getOwner(db),
         listIdentities(db),
         getOnboardingState(db),
+        listStaff(db),
       ]);
+      setHasStaff(staff.some((person) => person.role === 'staff'));
       setOwnerPreview(
         owner ? { name: owner.name, phone: owner.phone, email: owner.email } : null
       );
@@ -550,7 +555,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       deviceToken,
       onboardingComplete: onboarding.onboardingComplete,
       nextOnboardingRoute,
-      can: (permission) => roleCan(user?.role, permission),
+      can: (permission) => roleCan(user?.role, permission, { hasStaff }),
       registerOwner,
       signIn,
       signInStaff,
@@ -578,6 +583,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     error,
     hasAccount,
     hasShop,
+    hasStaff,
     onboarding,
     ownerPreview,
     pendingOwner,

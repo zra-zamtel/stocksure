@@ -3,8 +3,10 @@ tax period. These close the findings from the review of the sync work (#30)."""
 from datetime import date
 
 from django.core.cache import cache
+from django.test import override_settings
 from django.utils import timezone
 
+from apps.shops.models import Membership
 from apps.sync.models import (
     Reconciliation,
     Sale,
@@ -31,10 +33,23 @@ class StaffSyncTests(SyncBase):
         cache.clear()
         self.push_schema()
 
-    def test_the_owner_cannot_record_a_sale(self):
+    @override_settings(SALES_BY_STAFF_ONLY_FROM="2026-01-01T00:00:00+00:00")
+    def test_an_owner_with_staff_cannot_record_a_sale(self):
         response = self.push([self.change("q_sale", "sale", "sale_1", sale_payload())], user=self.owner)
         self.assertEqual(len(response.json()["rejected"]), 1)
         self.assertFalse(Sale.objects.filter(id="sale_1").exists())
+
+    @override_settings(SALES_BY_STAFF_ONLY_FROM="2026-12-01T00:00:00+00:00")
+    def test_an_owner_sale_from_before_the_rule_still_syncs(self):
+        response = self.push([self.change("q_sale", "sale", "sale_1", sale_payload())], user=self.owner)
+        self.assertEqual(response.json()["rejected"], [])
+        self.assertTrue(Sale.objects.filter(id="sale_1").exists())
+
+    @override_settings(SALES_BY_STAFF_ONLY_FROM="2026-01-01T00:00:00+00:00")
+    def test_an_owner_without_staff_records_their_own_sales(self):
+        Membership.objects.filter(user=self.staff).update(is_active=False)
+        response = self.push([self.change("q_sale", "sale", "sale_1", sale_payload())], user=self.owner)
+        self.assertEqual(response.json()["rejected"], [])
 
     def staff_push(self, *changes):
         response = self.push(list(changes), user=self.staff)

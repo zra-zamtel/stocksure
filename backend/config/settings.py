@@ -245,6 +245,9 @@ ZAMTEL_WEBHOOK_SECRET = os.environ.get("ZAMTEL_WEBHOOK_SECRET", "").strip()
 if not ZAMTEL_WEBHOOK_SECRET and not DEBUG and not RUNNING_TESTS:
     raise ImproperlyConfigured("Set ZAMTEL_WEBHOOK_SECRET when DJANGO_DEBUG is off.")
 # A mobile-money payment is matched to a sale of the same amount recorded within this window.
+# From this moment an owner with staff can no longer record sales. Sales the
+# owner made earlier and sync late are still accepted.
+SALES_BY_STAFF_ONLY_FROM = os.environ.get("SALES_BY_STAFF_ONLY_FROM", "2026-11-23T00:00:00+00:00")
 PAYMENT_MATCH_WINDOW_MINUTES = int(os.environ.get("PAYMENT_MATCH_WINDOW_MINUTES", "30"))
 
 # --- Email (codes and notices) ---------------------------------------------

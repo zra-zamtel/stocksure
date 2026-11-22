@@ -50,7 +50,7 @@ class SaleViewSet(ShopScopedMixin, mixins.CreateModelMixin, mixins.RetrieveModel
     queryset = Sale.objects.select_related("recorded_by", "ledger_entry").prefetch_related("lines")
     serializer_class = SaleSerializer
     owner_actions = {"void"}
-    # Staff record sales; the owner manages products and stock.
+    # Staff record sales; an owner only while the shop has no staff.
     staff_actions = {"create", "sync"}
     search_fields = ["payment_reference", "payer_phone", "note"]
     ordering_fields = ["sold_at", "total"]

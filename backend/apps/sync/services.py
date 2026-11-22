@@ -8,6 +8,7 @@ from django.utils.dateparse import parse_date, parse_datetime
 
 from apps.accounts.models import User
 from apps.shops.models import Membership
+from apps.shops.selling import OWNER_SALE_REFUSED, owner_may_record_sale
 
 from .models import (
     MobileMoneyTxn,
@@ -812,8 +813,9 @@ def apply_change(change: dict, user: User, queue_id: str = "") -> Shop:
                 and entity == "sale"
                 and operation == "create"
                 and not Sale.objects.filter(id=entity_id).exists()
+                and not owner_may_record_sale(user, _record(_sale_body(payload, entity_id))["created_at"])
             ):
-                raise SyncError("Only staff record sales. The owner manages products and stock.")
+                raise SyncError(OWNER_SALE_REFUSED)
             if not owner:
                 check_staff_change(entity, operation, payload, entity_id, shop)
             if entity == "product":

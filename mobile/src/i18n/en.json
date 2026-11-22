@@ -269,7 +269,7 @@
   "sale.new.belowCost": "This sale makes a loss on {count} item(s). It will still be recorded.",
   "sale.new.overrideTitle": "Not enough stock",
   "sale.new.overrideLine": "{label}: {onHand} on hand, {requested} requested.",
-  "sale.new.overrideOwner": "Not enough stock. Ask the owner to approve selling this anyway.",
+  "sale.new.overrideOwner": "Not enough stock. Ask the owner to update the stock count, then sell.",
   "sale.new.sellAnyway": "Sell anyway",
   "sale.recordedBy": "Recorded by",
   "permission.denied": "Your role cannot do that.",

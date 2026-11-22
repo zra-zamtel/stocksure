@@ -218,7 +218,7 @@
   "sale.new.belowCost": "Malonda awa ali ndi kutaya pa katundu {count}. Alembedwabe.",
   "sale.new.overrideTitle": "Katundu sakukwanira",
   "sale.new.overrideLine": "{label}: alipo {onHand}, mwapempha {requested}.",
-  "sale.new.overrideOwner": "Katundu sakukwanira. Pemphani mwini shopu kuti avomereze kugulitsabe.",
+  "sale.new.overrideOwner": "Katundu sakukwanira. Funsani mwini sitolo kuti akonze chiwerengero cha katundu, kenako gulitsani.",
   "sale.new.sellAnyway": "Gulitsabe",
   "sale.recordedBy": "Walembedwa ndi",
   "permission.denied": "Udindo wanu sukulolezani kuchita zimenezo.",
