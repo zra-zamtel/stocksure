@@ -31,8 +31,9 @@ from apps.sync.models import (
 from apps.sync.services import period_id_for, resolve_shop, tax_period_payload
 from apps.tax.services import compute_estimate
 
+# Only staff record sales, so the owner menu starts at 2.
 MENU_OWNER = (
-    "CON StockSure\n1. Record a sale\n2. Check stock\n3. Today's summary\n"
+    "CON StockSure\n2. Check stock\n3. Today's summary\n"
     "4. Tax estimate\n5. Save to TaxPot"
 )
 MENU_ASSISTANT = "CON StockSure\n1. Record a sale\n2. Check stock\n3. Today's summary"
@@ -210,6 +211,8 @@ def _registered(user, shop, role, parts):
         return MENU_OWNER if is_owner else MENU_ASSISTANT
     choice = parts[0]
 
+    if choice == "1" and is_owner:
+        return "END Only staff record sales. Ask your staff to record it."
     if choice == "1":  # record a sale
         if len(parts) == 1:
             return "CON Enter sale amount in Kwacha"

@@ -22,8 +22,8 @@ export type Permission =
   | 'staff.manage';
 
 const GRANTS: Record<Role, readonly Permission[]> = {
+  // Staff record sales at the counter; the owner manages products and stock.
   owner: [
-    'sales.record',
     'sales.view',
     'stock.view',
     'cash.count',
@@ -69,6 +69,7 @@ export const SCREEN_PERMISSIONS = {
   productNew: 'products.manage',
   productDetail: 'products.manage',
   scan: 'products.manage',
+  saleNew: 'sales.record',
 } as const satisfies Record<string, Permission>;
 
 export type ProtectedScreen = keyof typeof SCREEN_PERMISSIONS;

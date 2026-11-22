@@ -807,6 +807,13 @@ def apply_change(change: dict, user: User, queue_id: str = "") -> Shop:
             shop = resolve_shop(user, _get(payload, "shopId", "shop_id"))
             shop = _require_shop(shop)
             owner = is_owner(user, shop)
+            if (
+                owner
+                and entity == "sale"
+                and operation == "create"
+                and not Sale.objects.filter(id=entity_id).exists()
+            ):
+                raise SyncError("Only staff record sales. The owner manages products and stock.")
             if not owner:
                 check_staff_change(entity, operation, payload, entity_id, shop)
             if entity == "product":

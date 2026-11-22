@@ -18,10 +18,17 @@ const OWNER_ONLY: Permission[] = [
   'staff.manage',
 ];
 
-const SHARED: Permission[] = ['sales.record', 'sales.view', 'stock.view', 'cash.count'];
+const SHARED: Permission[] = ['sales.view', 'stock.view', 'cash.count'];
 
 describe('role permission matrix', () => {
-  it('lets the owner use every action and open every screen', () => {
+  it('keeps recording sales for staff only', () => {
+    expect(can('staff', 'sales.record')).toBe(true);
+    expect(can('owner', 'sales.record')).toBe(false);
+    expect(canAccessScreen('staff', 'saleNew')).toBe(true);
+    expect(canAccessScreen('owner', 'saleNew')).toBe(false);
+  });
+
+  it('lets the owner use every other action and open every owner screen', () => {
     for (const permission of [...OWNER_ONLY, ...SHARED]) {
       expect(can('owner', permission)).toBe(true);
     }

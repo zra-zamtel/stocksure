@@ -1,3 +1,4 @@
+import { useAuth } from '@/auth/session';
 import { useRouter } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Button, Card, EmptyState, ErrorState, Icon, LoadingList, Pill, Screen, SectionTitle } from '@/components/ui';
@@ -22,6 +23,8 @@ export default function SalesScreen() {
   const router = useRouter();
   const { data: totals, initialLoading: totalsLoading } = useDayTotals();
   const { data: sales, initialLoading, error, reload } = useSales();
+  const { can } = useAuth();
+  const canRecord = can('sales.record');
   const recordSale = () => router.push('/sale/new');
 
   if (initialLoading || totalsLoading || error) {
@@ -48,8 +51,8 @@ export default function SalesScreen() {
         <EmptyState
           icon="receipt_long"
           title={t('sales.empty.title')}
-          message={t('sales.empty.message')}
-          action={{ label: t('sales.new'), icon: 'add', onPress: recordSale }}
+          message={t(canRecord ? 'sales.empty.message' : 'sales.empty.ownerMessage')}
+          action={canRecord ? { label: t('sales.new'), icon: 'add', onPress: recordSale } : undefined}
         />
       </Screen>
     );
@@ -59,7 +62,7 @@ export default function SalesScreen() {
     <Screen
       title={t('sales.title')}
       subtitle={t('common.today')}
-      footer={<Button label={t('sales.new')} onPress={recordSale} />}
+      footer={canRecord ? <Button label={t('sales.new')} onPress={recordSale} /> : undefined}
     >
       <Card>
         <Text style={styles.heroLabel}>{t('sales.total')}</Text>

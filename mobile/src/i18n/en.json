@@ -697,5 +697,6 @@
   "verify.confirmed": "Your email is confirmed.",
   "verify.offline": "Connect to the internet to confirm your email.",
   "profile.open": "Your profile and sign out",
-  "common.close": "Close"
+  "common.close": "Close",
+  "sales.empty.ownerMessage": "Sales your staff record will show here, checked against your mobile money. Add staff in Settings so they can record sales."
 }

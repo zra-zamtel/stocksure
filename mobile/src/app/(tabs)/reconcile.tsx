@@ -184,7 +184,9 @@ export default function ReconcileScreen() {
                   meta={[time(payment.receivedAt), payment.sender, payment.reference].filter(Boolean).join(' · ')}
                   actions={
                     <>
-                      <TextLink accent label={t('reconcile.recordSale')} onPress={() => router.push('/sale/new')} />
+                      {can('sales.record') ? (
+                        <TextLink accent label={t('reconcile.recordSale')} onPress={() => router.push('/sale/new')} />
+                      ) : null}
                       <TextLink
                         label={t('reconcile.ignore')}
                         onPress={() => void perform(() => ignorePayment(db, payment.txnId))}

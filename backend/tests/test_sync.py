@@ -6,6 +6,8 @@ from django.test import TestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.accounts.models import User
+from apps.shops.models import Membership
+from apps.shops.models import Shop as DomainShop
 from apps.sync.models import (
     Payment,
     Product,
@@ -151,13 +153,21 @@ class SyncBase(TestCase):
         self.other = User.objects.create_user(
             "0977000002", "correct horse battery", full_name="Other"
         )
+        # Only staff record sales, so every shop here has one assistant.
+        domain = DomainShop.objects.create(owner=self.owner, name="Test Shop", town="Kabwe")
+        Membership.objects.create(user=self.owner, shop=domain, role="owner")
+        self.staff = User.objects.create_user("0965551122", "staff pass 1234", full_name="Given")
+        Membership.objects.create(user=self.staff, shop=domain, role="assistant")
 
     def push(self, changes, user=None):
+        if user is None:
+            new_sales = all(c["entity"] == "sale" and c["operation"] == "create" for c in changes)
+            user = self.staff if changes and new_sales else self.owner
         return self.client.post(
             "/api/v1/sync/push",
             data=json.dumps({"deviceId": "dev_1", "batchId": "batch_1", "changes": changes}),
             content_type="application/json",
-            **(auth(user or self.owner)),
+            **(auth(user)),
         )
 
     def change(self, queue_id, entity, entity_id, payload, operation="create"):
@@ -217,7 +227,7 @@ class SyncTestCase(SyncBase):
         self.assertEqual(response.json()["rejected"], [])
         sale = Sale.objects.get(id="sale_1")
         self.assertEqual(sale.total, 45000)
-        self.assertEqual(sale.recorded_by, self.owner)
+        self.assertEqual(sale.recorded_by, self.staff)
         self.assertEqual(SaleLine.objects.get(id="line_1").final_price, 45000)
         self.assertEqual(Payment.objects.get(id="pay_1").amount, 45000)
         self.assertEqual(ProductVariant.objects.get(id="var_1").quantity, 9)
@@ -407,7 +417,8 @@ class SyncTestCase(SyncBase):
         self.push_schema()
 
         self.assertTrue(handle("0971234567", "").startswith("CON StockSure"))
-        recorded = handle("0971234567", "1*150*1")
+        self.assertTrue(handle("0971234567", "1*150*1").startswith("END Only staff"))
+        recorded = handle("0965551122", "1*150*1")
         self.assertTrue(recorded.startswith("END Sale of K150.00"), recorded)
         summary = handle("0971234567", "3")
         self.assertIn("K150.00", summary)

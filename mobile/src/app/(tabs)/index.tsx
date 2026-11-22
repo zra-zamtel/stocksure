@@ -35,7 +35,8 @@ export default function HomeScreen() {
   const firstName = user ? displayName(user.name).split(' ')[0] : '';
 
   const shortcuts: Shortcut[] = [
-    ...(can('products.manage')
+    // The owner's main button is Add product, so no duplicate tile.
+    ...(can('products.manage') && can('sales.record')
       ? [
           {
             key: 'add',
@@ -74,7 +75,13 @@ export default function HomeScreen() {
       title={firstName ? `${greeting}, ${firstName}` : greeting}
       subtitle={shopRecord?.name ?? t('app.name')}
       action={<ProfileMenu />}
-      footer={<Button label={t('home.actions.recordSale')} onPress={() => router.push('/sale/new')} />}
+      footer={
+        can('sales.record') ? (
+          <Button label={t('home.actions.recordSale')} onPress={() => router.push('/sale/new')} />
+        ) : can('products.manage') ? (
+          <Button label={t('home.actions.addProduct')} onPress={() => router.push('/product/new')} />
+        ) : undefined
+      }
     >
       <EmailReminder />
 

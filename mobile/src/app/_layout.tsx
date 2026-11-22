@@ -152,9 +152,12 @@ function RootNavigator() {
         <Stack.Screen name="scan" />
       </Stack.Protected>
 
+      <Stack.Protected guard={signedIn && onboardingComplete && canAccessScreen(user?.role, 'saleNew')}>
+        <Stack.Screen name="sale/new" />
+      </Stack.Protected>
+
       <Stack.Protected guard={signedIn && onboardingComplete}>
         <Stack.Screen name="(tabs)" />
-        <Stack.Screen name="sale/new" />
         <Stack.Screen name="sale/[id]" />
       </Stack.Protected>
 
