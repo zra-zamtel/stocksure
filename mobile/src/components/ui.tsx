@@ -56,7 +56,10 @@ export function Screen({ title, subtitle, children, scroll = true, footer, actio
 
   return (
     <ImageBackground source={PAPER} resizeMode="repeat" style={styles.paper}>
-      <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
+      <SafeAreaView
+        style={styles.safe}
+        edges={footer ? ['top', 'left', 'right'] : ['top', 'left', 'right', 'bottom']}
+      >
         {scroll ? (
           <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
             {body}
@@ -64,7 +67,13 @@ export function Screen({ title, subtitle, children, scroll = true, footer, actio
         ) : (
           body
         )}
-        {footer ? <View style={styles.footer}>{footer}</View> : null}
+        {footer ? (
+          // The footer takes the bottom inset itself, so its surface runs under
+          // Android's 3-button bar or the iOS home indicator instead of being covered.
+          <SafeAreaView edges={['bottom']} style={styles.footer}>
+            {footer}
+          </SafeAreaView>
+        ) : null}
       </SafeAreaView>
     </ImageBackground>
   );

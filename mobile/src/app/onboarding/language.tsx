@@ -29,7 +29,6 @@ export default function LanguageScreen() {
 
       <Animated.View entering={FadeInDown.duration(380).delay(120)} style={styles.heading}>
         <Logo />
-        <Text style={styles.eyebrow}>{t('onboarding.language.eyebrow')}</Text>
         <Text style={styles.title} accessibilityRole="header">
           {t('onboarding.language.title')}
         </Text>
@@ -59,13 +58,6 @@ const styles = StyleSheet.create({
   hero: { marginHorizontal: -spacing.lg, marginTop: -spacing.lg },
   heroImage: { width: '100%', aspectRatio: 1200 / 670 },
   heading: { alignItems: 'center', gap: spacing.xs, marginTop: -spacing.lg },
-  eyebrow: {
-    fontSize: typeScale.label,
-    fontWeight: '800',
-    letterSpacing: 0.8,
-    textTransform: 'uppercase',
-    color: colors.primaryInk,
-  },
   title: { fontSize: typeScale.display, fontWeight: '800', color: colors.text, textAlign: 'center', letterSpacing: -0.4 },
   subtitle: { fontSize: typeScale.body, color: colors.textMuted, textAlign: 'center' },
   choices: { gap: spacing.md },
