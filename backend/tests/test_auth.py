@@ -10,7 +10,8 @@ from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from apps.accounts.models import MagicLinkToken, PinResetCode, StaffProfile, User
+from apps.accounts.models import EmailCode, PinResetCode, StaffProfile, User
+from apps.accounts.views import issue_email_code
 from apps.shops.models import Membership, Shop
 
 PIN_HASH = "sha256$" + ("a" * 32) + "$" + ("b" * 64)
@@ -115,7 +116,7 @@ class RegisterOwnerTests(AuthTestCase):
         self.assertNotIn("password", payload)
         self.assertNotIn("pinHash", payload)
 
-    def test_registration_sends_a_verification_link(self):
+    def test_registration_emails_a_confirmation_code(self):
         response = self.post_register()
 
         self.assertEqual(response.status_code, 201)
@@ -123,10 +124,12 @@ class RegisterOwnerTests(AuthTestCase):
         self.assertEqual(len(mail.outbox), 1)
         self.assertEqual(mail.outbox[0].to, ["elton@example.com"])
         self.assertIn("Elton Chiwala", mail.outbox[0].body)
-        match = re.search(r"token=([A-Za-z0-9_\-]+)", mail.outbox[0].body)
+        self.assertNotIn("://", mail.outbox[0].body)
+        match = re.search(r"\b(\d{6})\b", mail.outbox[0].body)
         self.assertIsNotNone(match)
         verify = self.post(
-            "/api/v1/auth/magic-link/verify", {"token": match.group(1)}
+            "/api/v1/auth/email-code/verify",
+            {"email": "elton@example.com", "code": match.group(1)},
         )
         self.assertEqual(verify.status_code, 200)
         self.assertIsNotNone(User.objects.get().email_verified_at)
@@ -325,7 +328,7 @@ class OwnerLoginTests(AuthTestCase):
         self.assertEqual(response.status_code, 403)
         self.assertEqual(response.json()["code"], "email_unverified")
 
-    def test_unverified_login_with_the_right_password_emails_a_verification_link(self):
+    def test_unverified_login_with_the_right_password_emails_a_confirmation_code(self):
         self.owner.email_verified_at = None
         self.owner.save(update_fields=["email_verified_at"])
         mail.outbox.clear()
@@ -334,20 +337,22 @@ class OwnerLoginTests(AuthTestCase):
 
         self.assertEqual(response.status_code, 403)
         self.assertTrue(response.json()["verificationSent"])
-        self.assertNotIn("demoToken", response.json())
+        self.assertNotIn("demoCode", response.json())
         self.assertEqual(len(mail.outbox), 1)
         self.assertEqual(mail.outbox[0].to, ["elton@example.com"])
         self.assertEqual(
-            MagicLinkToken.objects.filter(user=self.owner, used_at__isnull=True).count(), 1
+            EmailCode.objects.filter(user=self.owner, used_at__isnull=True).count(), 1
         )
 
     @override_settings(EXPOSE_EMAIL_TOKEN=True)
-    def test_unverified_login_link_verifies_the_email_and_signs_in(self):
+    def test_unverified_login_code_verifies_the_email_and_signs_in(self):
         self.owner.email_verified_at = None
         self.owner.save(update_fields=["email_verified_at"])
 
-        token = self.login().json()["demoToken"]
-        verified = self.post("/api/v1/auth/magic-link/verify", {"token": token})
+        code = self.login().json()["demoCode"]
+        verified = self.post(
+            "/api/v1/auth/email-code/verify", {"email": "elton@example.com", "code": code}
+        )
 
         self.assertEqual(verified.status_code, 200, verified.content)
         self.owner.refresh_from_db()
@@ -438,114 +443,163 @@ class OwnerLoginTests(AuthTestCase):
 
 
 @override_settings(EXPOSE_EMAIL_TOKEN=True)
-class MagicLinkTests(AuthTestCase):
-    request_url = "/api/v1/auth/magic-link/request"
-    verify_url = "/api/v1/auth/magic-link/verify"
+class EmailCodeTests(AuthTestCase):
+    request_url = "/api/v1/auth/email-code/request"
+    verify_url = "/api/v1/auth/email-code/verify"
 
     def setUp(self):
         super().setUp()
         self.owner, _ = make_owner(verified=False)
 
-    def request_link(self, email="elton@example.com", phone=None):
+    def request_code(self, email="elton@example.com", phone="0971234567"):
         body = {"email": email}
         if phone is not None:
             body["phone"] = phone
         return self.post(self.request_url, body)
 
-    def test_request_sends_a_single_use_link(self):
-        response = self.request_link(phone="0971234567")
+    def verify(self, code, email="elton@example.com"):
+        return self.post(self.verify_url, {"email": email, "code": code})
+
+    def test_request_emails_a_six_digit_code(self):
+        response = self.request_code()
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(mail.outbox), 1)
         self.assertEqual(mail.outbox[0].to, ["elton@example.com"])
-        token = response.json()["demoToken"]
-        verify = self.post(self.verify_url, {"token": token})
-        self.assertEqual(verify.status_code, 200)
-        self.owner.refresh_from_db()
-        self.assertIsNotNone(self.owner.email_verified_at)
+        code = response.json()["demoCode"]
+        self.assertRegex(code, r"^\d{6}$")
+        self.assertIn(code, mail.outbox[0].body)
 
     def test_an_unverified_owner_must_supply_the_phone_number(self):
-        response = self.request_link()
+        response = self.request_code(phone=None)
 
         self.assertEqual(response.status_code, 200)
-        self.assertNotIn("demoToken", response.json())
+        self.assertNotIn("demoCode", response.json())
         self.assertEqual(len(mail.outbox), 0)
 
-    def test_a_wrong_phone_does_not_send_a_link_for_an_unverified_owner(self):
-        response = self.request_link(phone="0970000000")
+    def test_a_wrong_phone_sends_nothing(self):
+        response = self.request_code(phone="0970000000")
 
-        self.assertEqual(response.status_code, 200)
-        self.assertNotIn("demoToken", response.json())
+        self.assertNotIn("demoCode", response.json())
         self.assertEqual(len(mail.outbox), 0)
-
-    def test_the_owner_phone_allows_an_unverified_email_to_be_verified(self):
-        response = self.request_link(phone="0971234567")
-
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("demoToken", response.json())
-        self.assertEqual(len(mail.outbox), 1)
 
     def test_unknown_email_gets_the_same_generic_response_without_sending(self):
-        response = self.request_link(email="nobody@example.com")
+        response = self.request_code(email="nobody@example.com")
 
         self.assertEqual(response.status_code, 200)
-        self.assertNotIn("demoToken", response.json())
+        self.assertNotIn("demoCode", response.json())
         self.assertEqual(len(mail.outbox), 0)
 
-    def test_verify_marks_the_email_and_returns_tokens(self):
-        token = self.request_link(phone="0971234567").json()["demoToken"]
+    def test_a_confirmed_email_is_not_sent_another_code(self):
+        self.owner.email_verified_at = timezone.now()
+        self.owner.save(update_fields=["email_verified_at"])
 
-        response = self.post(self.verify_url, {"token": token})
+        response = self.request_code()
+
+        self.assertNotIn("demoCode", response.json())
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_verify_confirms_the_email_and_returns_tokens(self):
+        code = self.request_code().json()["demoCode"]
+
+        response = self.verify(code)
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("access", response.json())
         self.assertIn("deviceToken", response.json())
         self.owner.refresh_from_db()
         self.assertIsNotNone(self.owner.email_verified_at)
-
-    def test_verifying_the_email_unblocks_password_sign_in(self):
-        token = self.request_link(phone="0971234567").json()["demoToken"]
-        self.post(self.verify_url, {"token": token})
-
-        response = self.post(
+        login = self.post(
             "/api/v1/auth/login",
             {"email": "elton@example.com", "password": "correct horse battery"},
         )
+        self.assertEqual(login.status_code, 200)
 
-        self.assertEqual(response.status_code, 200)
+    def test_code_cannot_be_used_twice(self):
+        code = self.request_code().json()["demoCode"]
+        self.assertEqual(self.verify(code).status_code, 200)
 
-    def test_link_cannot_be_used_twice(self):
-        token = self.request_link(phone="0971234567").json()["demoToken"]
-        self.assertEqual(self.post(self.verify_url, {"token": token}).status_code, 200)
-
-        second = self.post(self.verify_url, {"token": token})
+        second = self.verify(code)
 
         self.assertEqual(second.status_code, 400)
-        self.assertEqual(second.json()["code"], "invalid_token")
+        self.assertEqual(second.json()["code"], "invalid_code")
 
-    def test_expired_link_is_rejected(self):
-        token = self.request_link(phone="0971234567").json()["demoToken"]
-        MagicLinkToken.objects.update(expires_at=timezone.now() - timedelta(minutes=1))
+    def test_expired_code_is_rejected(self):
+        code = self.request_code().json()["demoCode"]
+        EmailCode.objects.update(expires_at=timezone.now() - timedelta(minutes=1))
 
-        response = self.post(self.verify_url, {"token": token})
+        response = self.verify(code)
 
         self.assertEqual(response.status_code, 410)
-        self.assertEqual(response.json()["code"], "expired_token")
+        self.assertEqual(response.json()["code"], "expired_code")
 
-    def test_invalid_token_is_rejected(self):
-        response = self.post(self.verify_url, {"token": "x" * 32})
+    def test_wrong_codes_lock_after_five_tries(self):
+        code = self.request_code().json()["demoCode"]
+        wrong = "000000" if code != "000000" else "111111"
+        for _ in range(4):
+            self.assertEqual(self.verify(wrong).json()["code"], "invalid_code")
+
+        self.assertEqual(self.verify(wrong).status_code, 429)
+        self.assertEqual(self.verify(code).status_code, 429)
+
+    def test_a_new_request_invalidates_the_old_code(self):
+        first = self.request_code().json()["demoCode"]
+        second = self.request_code().json()["demoCode"]
+
+        if first != second:
+            self.assertEqual(self.verify(first).status_code, 400)
+        self.assertEqual(self.verify(second).status_code, 200)
+
+    def test_a_code_for_another_email_is_rejected(self):
+        code = self.request_code().json()["demoCode"]
+
+        self.assertEqual(self.verify(code, email="other@example.com").status_code, 400)
+
+
+@override_settings(EXPOSE_EMAIL_TOKEN=True)
+class PasswordResetTests(AuthTestCase):
+    request_url = "/api/v1/auth/password-reset/request"
+    confirm_url = "/api/v1/auth/password-reset/confirm"
+
+    def setUp(self):
+        super().setUp()
+        self.owner, _ = make_owner()
+
+    def test_reset_sets_the_new_password_and_notifies_the_owner(self):
+        code = self.post(self.request_url, {"email": "elton@example.com"}).json()["demoCode"]
+        mail.outbox.clear()
+
+        response = self.post(
+            self.confirm_url,
+            {"email": "elton@example.com", "code": code, "password": "a brand new pass"},
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertIn("deviceToken", response.json())
+        self.owner.refresh_from_db()
+        self.assertTrue(self.owner.check_password("a brand new pass"))
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("password", mail.outbox[0].subject)
+
+    def test_unconfirmed_email_gets_no_reset_code(self):
+        self.owner.email_verified_at = None
+        self.owner.save(update_fields=["email_verified_at"])
+
+        response = self.post(self.request_url, {"email": "elton@example.com"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("demoCode", response.json())
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_a_confirmation_code_cannot_reset_the_password(self):
+        _, code = issue_email_code(self.owner, EmailCode.Purpose.VERIFY)
+
+        response = self.post(
+            self.confirm_url,
+            {"email": "elton@example.com", "code": code, "password": "a brand new pass"},
+        )
 
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["code"], "invalid_token")
-
-    def test_a_new_request_invalidates_the_old_link(self):
-        self.owner.email_verified_at = timezone.now()
-        self.owner.save(update_fields=["email_verified_at"])
-        first = self.request_link().json()["demoToken"]
-        second = self.request_link().json()["demoToken"]
-
-        self.assertEqual(self.post(self.verify_url, {"token": first}).status_code, 400)
-        self.assertEqual(self.post(self.verify_url, {"token": second}).status_code, 200)
 
 
 @override_settings(EXPOSE_RESET_CODE=True)
@@ -695,6 +749,15 @@ class StaffTests(AuthTestCase):
         self.assertTrue(check_password("1234", user.staff_profile.pin_verifier))
         self.assertEqual(response.json()["role"], "staff")
         self.assertNotIn("pin", response.json())
+
+    def test_adding_staff_emails_the_owner_a_notice(self):
+        mail.outbox.clear()
+
+        self.add_staff()
+
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("staff member was added", mail.outbox[0].subject)
+        self.assertIn("260965551122", mail.outbox[0].body)
 
     def test_owner_must_be_signed_in(self):
         response = self.post(
@@ -953,29 +1016,6 @@ class MoreOwnerLoginTests(AuthTestCase):
             self.client.get("/api/v1/auth/device-pin", **auth(self.owner)).status_code,
             405,
         )
-
-
-class MoreMagicLinkTests(AuthTestCase):
-    request_url = "/api/v1/auth/magic-link/request"
-    verify_url = "/api/v1/auth/magic-link/verify"
-
-    def setUp(self):
-        super().setUp()
-        self.owner, _ = make_owner(verified=False)
-
-    def test_only_accepts_post(self):
-        self.assertEqual(self.client.get(self.request_url).status_code, 405)
-        self.assertEqual(self.client.get(self.verify_url).status_code, 405)
-
-    @override_settings(EXPOSE_EMAIL_TOKEN=True)
-    def test_a_verified_owner_does_not_need_the_phone(self):
-        self.owner.email_verified_at = timezone.now()
-        self.owner.save(update_fields=["email_verified_at"])
-
-        response = self.post(self.request_url, {"email": "elton@example.com"})
-
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("demoToken", response.json())
 
 
 class MorePinResetTests(AuthTestCase):

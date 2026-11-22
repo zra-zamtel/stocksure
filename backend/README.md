@@ -75,7 +75,7 @@ small cross-region hop on each query. The main parameters are:
 
 Set `EmailHost`, `EmailHostUser`, `EmailHostPassword` and `DefaultFromEmail`
 together, or leave `EmailHost` empty to use the console backend. A half-filled
-Gmail block makes every magic-link request fail. `samconfig.toml` is
+Gmail block makes every email send fail. `samconfig.toml` is
 git-ignored and stores the values you enter during the guided deploy, including
 secrets; do not commit or share it.
 
@@ -153,10 +153,6 @@ cd mobile; npx expo start
 
 The same URL is already in `mobile/.env.local`.
 
-If the magic-link email opens in a browser instead of the app (for example in
-Expo Go), copy the link and use **Already have the link?** on the email sign-in
-screen to open it inside the app.
-
 Create an admin user against the same database from your machine:
 
 ```powershell
@@ -227,12 +223,17 @@ callback URL, the demo walk-through and troubleshooting are in
 
 - `POST /api/auth/register` (and `/api/v1/auth/register`) — owner signup, optional
   `shop_name` (a placeholder shop and owner Membership are created when it is
-  omitted), phone-generated `id` for safe retries. A verification magic link
-  is emailed automatically. The phone's PIN hash is validated and discarded.
+  omitted), phone-generated `id` for safe retries. A 6-digit confirmation
+  code is emailed automatically. The phone's PIN hash is validated and discarded.
 - `POST /api/auth/login` — email + password for the app (blocked until the email
   is verified) or phone + password for domain clients.
-- `POST /api/auth/magic-link/request` and `/verify` — single-use, 15-minute link;
-  while the email is unverified the request must also name the account phone.
+- `POST /api/auth/email-code/request` and `/verify` — single-use, 10-minute
+  6-digit code that confirms the email (5 tries); a resend must also name the
+  account phone.
+- `POST /api/auth/password-reset/request` and `/confirm` — emailed 6-digit code
+  to set a new password; only confirmed emails get one.
+- Email is used for nothing else except notices of important account changes:
+  password changed, app PIN reset, staff added, staff PIN reset.
 - `POST /api/auth/refresh`, `/logout` — JWT rotation and refresh-token blacklist.
 - `POST /api/auth/device-pin` — accepts the JWT after an email login; the server
   does not store the phone PIN hash.

@@ -2,11 +2,10 @@ import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useAuth } from '@/auth/session';
-import { Hint, Notice } from '@/components/auth';
-import { Toggle } from '@/components/charts';
+import { Notice } from '@/components/auth';
 import { SetupStep } from '@/components/onboarding';
 import { Button, Field, TextLink } from '@/components/ui';
-import { isValidEmail, isValidPhone, normalisePhone } from '@/core';
+import { isValidEmail } from '@/core';
 import { useI18n } from '@/i18n';
 import { ApiError, type ApiErrorCode } from '@/lib/api';
 import { spacing } from '@/theme/tokens';
@@ -14,50 +13,53 @@ import { spacing } from '@/theme/tokens';
 const API_ERROR_KEYS: Partial<Record<ApiErrorCode, string>> = {
   offline: 'auth.email.error.offline',
   'invalid-credentials': 'auth.email.error.invalidCredentials',
-  'email-unverified': 'auth.email.error.emailUnverified',
+  'invalid-code': 'auth.code.error.invalid',
+  'expired-code': 'auth.code.error.expired',
+  'too-many-attempts': 'auth.code.error.tooMany',
   validation: 'auth.email.error.validation',
   server: 'auth.email.error.server',
 };
 
-type Mode = 'password' | 'link';
+/**
+ * - password: email + password.
+ * - confirm: the password was right but the email is unconfirmed; the server
+ *   emailed a 6-digit code, and entering it signs the owner in.
+ * - reset: forgot password; email a code, then set a new password with it.
+ */
+type Step = 'password' | 'confirm' | 'reset-request' | 'reset-confirm';
 
-/** The phone field shows +260 in front, so it holds the nine local digits. */
-function localDigits(phone: string | undefined): string {
-  if (!phone) return '';
-  const normalised = normalisePhone(phone);
-  return /^0\d{9}$/.test(normalised) ? normalised.slice(1) : phone;
-}
+const MIN_PASSWORD = 8;
 
 export default function EmailSignInScreen() {
   const { t } = useI18n();
   const router = useRouter();
-  const { beginOwnerLogin, ownerPreview, requestOwnerMagicLink } = useAuth();
+  const {
+    beginOwnerLogin,
+    beginOwnerEmailCode,
+    beginOwnerPasswordReset,
+    ownerPreview,
+    requestOwnerPasswordReset,
+  } = useAuth();
 
-  const [mode, setMode] = useState<Mode>('password');
+  const [step, setStep] = useState<Step>('password');
   const [email, setEmail] = useState(ownerPreview?.email ?? '');
   const [password, setPassword] = useState('');
-  // The phone is only required while the email is unverified. Prefill it when
-  // this phone already has the owner, which covers the normal verification
-  // flow; on a brand-new phone the owner types it once.
-  const [phone, setPhone] = useState(localDigits(ownerPreview?.phone));
+  const [newPassword, setNewPassword] = useState('');
+  const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
-  const [demoToken, setDemoToken] = useState<string | null>(null);
-  const [pastedLink, setPastedLink] = useState('');
-  const [showPaste, setShowPaste] = useState(false);
-  // Set when a password sign-in found the email unverified and the server
-  // emailed a verification link instead. Opening that link signs the owner in.
-  const [verifySentTo, setVerifySentTo] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [magicSending, setMagicSending] = useState(false);
+  const [demoCode, setDemoCode] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
-  const busy = submitting || magicSending;
   const reveal = { show: t('common.showTyped'), hide: t('common.hideTyped') };
+  const cleanEmail = email.trim().toLowerCase();
 
-  function switchMode(next: Mode) {
-    setMode(next);
+  function goTo(next: Step) {
+    setStep(next);
     setError(null);
-    setVerifySentTo(null);
+    setInfo(null);
+    setDemoCode(null);
+    setCode('');
   }
 
   function describe(cause: unknown): string {
@@ -75,134 +77,150 @@ export default function EmailSignInScreen() {
     return true;
   }
 
-  async function handlePasswordSignIn() {
+  async function run(task: () => Promise<void>) {
     if (busy) return;
     setError(null);
-    setInfo(null);
+    setBusy(true);
+    try {
+      await task();
+    } catch (cause) {
+      setError(describe(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function handlePasswordSignIn() {
     if (!checkEmail()) return;
     if (!password) {
       setError(t('auth.email.error.passwordRequired'));
       return;
     }
-
-    setSubmitting(true);
-    setVerifySentTo(null);
-    setDemoToken(null);
-    try {
-      await beginOwnerLogin({ email, password });
-      router.replace('/set-phone-pin');
-    } catch (cause) {
-      if (cause instanceof ApiError && cause.code === 'email-unverified') {
-        if (cause.details.verificationSent) {
-          setVerifySentTo(email.trim().toLowerCase());
-          setDemoToken(cause.details.demoToken ?? null);
-        } else {
-          setError(t('auth.email.error.verifyNotSent'));
-        }
-      } else {
-        setError(describe(cause));
-      }
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  async function handleMagicLink() {
-    if (busy) return;
-    setError(null);
-    setInfo(null);
-    setDemoToken(null);
-    if (!checkEmail()) return;
-    const accountPhone = phone.trim() || ownerPreview?.phone || '';
-    if (!accountPhone) {
-      setError(t('auth.email.error.phoneRequired'));
-      return;
-    }
-    if (!isValidPhone(accountPhone)) {
-      setError(t('auth.email.error.phoneInvalid'));
-      return;
-    }
-
-    setMagicSending(true);
-    try {
-      const result = await requestOwnerMagicLink(email, normalisePhone(accountPhone));
-      setInfo(t('auth.email.magicSent'));
-      setDemoToken(result.demoToken ?? null);
-    } catch (cause) {
-      setError(describe(cause));
-    } finally {
-      setMagicSending(false);
-    }
-  }
-
-  function handlePastedLink() {
-    setError(null);
-    const trimmed = pastedLink.trim();
-    if (!trimmed) {
-      setError(t('auth.email.error.pasteInvalid'));
-      return;
-    }
-
-    const match = trimmed.match(/[?&]token=([^&\s]+)/);
-    let token = trimmed;
-    if (match) {
+    void run(async () => {
       try {
-        token = decodeURIComponent(match[1]);
-      } catch {
-        token = match[1];
+        await beginOwnerLogin({ email, password });
+        router.replace('/set-phone-pin');
+      } catch (cause) {
+        if (!(cause instanceof ApiError) || cause.code !== 'email-unverified') throw cause;
+        if (!cause.details.verificationSent) {
+          setError(t('auth.email.error.verifyNotSent'));
+          return;
+        }
+        // Re-entering the password sends a fresh code, so "resend" reuses this.
+        goTo('confirm');
+        setInfo(t('auth.code.sentConfirm', { email: cleanEmail }));
+        setDemoCode(cause.details.demoCode ?? null);
       }
-    } else if (/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)) {
-      setError(t('auth.email.error.pasteInvalid'));
-      return;
-    }
-
-    router.push({ pathname: '/magic-link', params: { token } });
+    });
   }
 
-  const footer =
-    mode === 'password' ? (
+  function handleConfirmCode() {
+    void run(async () => {
+      await beginOwnerEmailCode({ email, code });
+      router.replace('/set-phone-pin');
+    });
+  }
+
+  function handleResetRequest() {
+    if (!checkEmail()) return;
+    void run(async () => {
+      const result = await requestOwnerPasswordReset(email);
+      goTo('reset-confirm');
+      setInfo(t('auth.code.sentReset', { email: cleanEmail }));
+      setDemoCode(result.demoCode ?? null);
+    });
+  }
+
+  function handleResetConfirm() {
+    if (newPassword.length < MIN_PASSWORD) {
+      setError(t('auth.code.error.passwordShort'));
+      return;
+    }
+    void run(async () => {
+      await beginOwnerPasswordReset({ email, code, password: newPassword });
+      router.replace('/set-phone-pin');
+    });
+  }
+
+  const codeReady = code.length === 6;
+  const footer = {
+    password: (
       <Button
-        label={submitting ? t('auth.email.signingIn') : t('auth.email.action')}
+        label={busy ? t('auth.email.signingIn') : t('auth.email.action')}
         disabled={busy || email.trim() === '' || password === ''}
-        onPress={() => void handlePasswordSignIn()}
+        onPress={handlePasswordSignIn}
       />
-    ) : (
+    ),
+    confirm: (
       <Button
-        label={magicSending ? t('auth.email.sendingLink') : t('auth.email.magicAction')}
-        disabled={busy || email.trim() === ''}
-        onPress={() => void handleMagicLink()}
+        label={busy ? t('auth.code.checking') : t('auth.code.confirmAction')}
+        disabled={busy || !codeReady}
+        onPress={handleConfirmCode}
       />
-    );
+    ),
+    'reset-request': (
+      <Button
+        label={busy ? t('auth.code.sending') : t('auth.code.sendReset')}
+        disabled={busy || email.trim() === ''}
+        onPress={handleResetRequest}
+      />
+    ),
+    'reset-confirm': (
+      <Button
+        label={busy ? t('auth.code.checking') : t('auth.code.resetAction')}
+        disabled={busy || !codeReady || newPassword === ''}
+        onPress={handleResetConfirm}
+      />
+    ),
+  }[step];
+
+  const resetting = step === 'reset-request' || step === 'reset-confirm';
+
+  const codeField = (
+    <Field
+      label={t('auth.code.label')}
+      value={code}
+      onChangeText={(value) => setCode(value.replace(/\D/g, ''))}
+      placeholder="123456"
+      keyboardType="numeric"
+      icon="mail"
+      maxLength={6}
+      autoFocus
+      required
+    />
+  );
 
   return (
     <SetupStep
       eyebrow={t('auth.email.eyebrow')}
-      title={t('auth.email.title')}
-      subtitle={t('auth.email.subtitle')}
-      onBack={() => router.back()}
+      title={resetting ? t('auth.code.resetTitle') : t('auth.email.title')}
+      subtitle={resetting ? t('auth.code.resetSubtitle') : t('auth.email.subtitle')}
+      onBack={() => (step === 'password' ? router.back() : goTo('password'))}
       backLabel={t('common.back')}
       footer={footer}
     >
-      <Toggle
-        options={[
-          { value: 'password' as Mode, label: t('auth.email.modePassword') },
-          { value: 'link' as Mode, label: t('auth.email.modeLink') },
-        ]}
-        value={mode}
-        onChange={switchMode}
-      />
+      {info ? <Notice tone="success">{info}</Notice> : null}
+
+      {demoCode ? (
+        <Notice tone="warning">
+          {`${t('auth.reset.demoCode', { code: demoCode })}\n${t('auth.code.demoNote')}`}
+        </Notice>
+      ) : null}
 
       <View style={styles.fields}>
-        <Field
-          label={t('auth.email.email')}
-          value={email}
-          onChangeText={setEmail}
-          placeholder="you@example.com"
-          keyboardType="email-address"
-          icon="mail"
-          required
-        />
-        {mode === 'password' ? (
+        {step === 'password' || step === 'reset-request' ? (
+          <Field
+            label={t('auth.email.email')}
+            value={email}
+            onChangeText={setEmail}
+            placeholder="you@example.com"
+            keyboardType="email-address"
+            icon="mail"
+            required
+          />
+        ) : null}
+
+        {step === 'password' ? (
           <Field
             label={t('auth.email.password')}
             value={password}
@@ -213,92 +231,48 @@ export default function EmailSignInScreen() {
             revealLabels={reveal}
             required
           />
-        ) : (
-          <>
-            <Field
-              label={t('auth.email.phone')}
-              value={phone}
-              onChangeText={setPhone}
-              placeholder="97 123 4567"
-              keyboardType="phone-pad"
-              prefix="🇿🇲 +260"
-            />
-            <Hint icon="info">{t('auth.email.phoneHint')}</Hint>
-          </>
-        )}
+        ) : null}
+
+        {step === 'confirm' || step === 'reset-confirm' ? codeField : null}
+
+        {step === 'reset-confirm' ? (
+          <Field
+            label={t('auth.code.newPassword')}
+            value={newPassword}
+            onChangeText={setNewPassword}
+            placeholder="••••••••"
+            icon="lock"
+            secureTextEntry
+            revealLabels={reveal}
+            required
+          />
+        ) : null}
       </View>
 
-      {mode === 'password' ? (
-        <View style={styles.forgot}>
-          <TextLink accent label={t('auth.email.forgotPassword')} onPress={() => switchMode('link')} />
+      {step === 'password' ? (
+        <View style={styles.end}>
+          <TextLink accent label={t('auth.email.forgotPassword')} onPress={() => goTo('reset-request')} />
+        </View>
+      ) : null}
+
+      {step === 'confirm' || step === 'reset-confirm' ? (
+        <View style={styles.center}>
+          <TextLink
+            accent
+            lead={t('auth.reset.noCode')}
+            label={t('auth.reset.resend')}
+            onPress={step === 'confirm' ? handlePasswordSignIn : handleResetRequest}
+          />
         </View>
       ) : null}
 
       {error ? <Notice tone="error">{error}</Notice> : null}
-
-      {mode === 'password' && verifySentTo ? (
-        <Notice tone="success">{t('auth.email.verifySent', { email: verifySentTo })}</Notice>
-      ) : null}
-
-      {mode === 'link' || verifySentTo ? (
-        <>
-          {mode === 'link' && info ? <Notice tone="success">{info}</Notice> : null}
-
-          {demoToken ? (
-            <Notice
-              tone="warning"
-              action={
-                <Button
-                  label={t('auth.email.openDemoLink')}
-                  onPress={() =>
-                    router.push({
-                      pathname: '/magic-link',
-                      params: { token: demoToken },
-                    })
-                  }
-                />
-              }
-            >
-              {t('auth.email.demoNote')}
-            </Notice>
-          ) : null}
-
-          {!showPaste ? (
-            <View style={styles.center}>
-              <TextLink
-                lead={t('auth.email.haveLink')}
-                label={t('auth.email.pasteIt')}
-                accent
-                onPress={() => setShowPaste(true)}
-              />
-            </View>
-          ) : (
-            <View style={styles.fields}>
-              <Field
-                label={t('auth.email.pasteLabel')}
-                value={pastedLink}
-                onChangeText={setPastedLink}
-                placeholder={t('auth.email.pastePlaceholder')}
-                autoCapitalize="none"
-                icon="link"
-              />
-              <Hint icon="info">{t('auth.email.pasteHint')}</Hint>
-              <Button
-                label={t('auth.email.pasteAction')}
-                variant="secondary"
-                disabled={pastedLink.trim() === ''}
-                onPress={handlePastedLink}
-              />
-            </View>
-          )}
-        </>
-      ) : null}
     </SetupStep>
   );
 }
 
 const styles = StyleSheet.create({
   fields: { gap: spacing.md },
-  forgot: { alignItems: 'flex-end', marginTop: -spacing.sm },
+  end: { alignItems: 'flex-end', marginTop: -spacing.sm },
   center: { alignItems: 'center' },
 });

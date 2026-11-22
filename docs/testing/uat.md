@@ -43,7 +43,7 @@ Write amounts exactly as shown on screen. "K" means Zambian Kwacha.
 | UAT-19 | Works with no internet all day | | | | |
 | UAT-20 | Chichewa (Nyanja) language | | | | |
 | UAT-21 | Staff add, first sign-in and owner-only screens | | | | |
-| UAT-22 | Owner email sign-in and magic link on a new phone | | | | |
+| UAT-22 | Owner email sign-in and email code on a new phone | | | | |
 
 Sign-off: the build is accepted when every script passes, or when the product
 owner has accepted each failure in writing as a known issue.
@@ -248,19 +248,19 @@ owner has accepted each failure in writing as a known issue.
 | 9 | On the owner's phone, with internet on, open Settings → Staff, tap **Change PIN** next to Given, enter `9042` twice and save. | "Given's PIN was changed." appears. |
 | 10 | Sign out. Try `7315`, then sign in with `9042`. | `7315` is rejected. `9042` opens Home as Given. The owner's phone now uses the new PIN offline too. |
 
-## UAT-22 Owner email sign-in and magic link on a new phone
+## UAT-22 Owner email sign-in and email code on a new phone
 
 **Start:** UAT-03 completed on the owner's phone, a second phone with the app installed, internet on, and the backend running.
 
 | Step | Do this | Expected result |
 | --- | --- | --- |
 | 1 | On the second phone, choose English. On "Create your account", tap **Already registered? Sign in with email**. | The email sign-in screen opens. |
-| 2 | Enter `elton@example.com` and password `stocksure-demo`. Tap **Sign in**. | The app asks you to verify your email first. The password alone cannot sign in. |
-| 3 | On the first phone, sign out. Tap **Sign in with email or a magic link**. Enter `elton@example.com`; the account phone `0971234567` is already filled. Tap **Email me a magic link**. | A demo magic-link card appears (development build). The phone is what lets an unverified account prove it owns the number. |
-| 4 | Tap **Open demo link**. | The set-PIN screen opens. Setting `4821` returns to the existing shop with all data and verifies the email. |
-| 5 | On the second phone, enter `elton@example.com` and password `stocksure-demo` again. | The "Set your phone PIN" screen opens. |
-| 6 | Enter PIN `4821` twice and save. | The app says shop data is not on this phone yet. |
-| 7 | Turn airplane mode on, force-close and reopen. Enter `4821`. | The waiting screen opens offline. |
-| 8 | Try the same magic link again. | It is rejected as already used. |
+| 2 | Enter `elton@example.com` and password `stocksure-demo`. Tap **Sign in**. | The app says the email isn't confirmed yet and that a 6-digit code was sent. A code box appears (a demo code card shows it in a development build). |
+| 3 | Type a wrong code, e.g. `000000`. Tap **Confirm and sign in**. | "That code is not correct." The app stays on the code step. |
+| 4 | Type the real code. Tap **Confirm and sign in**. | The "Set your phone PIN" screen opens; the email is now confirmed. |
+| 5 | Enter PIN `4821` twice and save. | The app says shop data is not on this phone yet. |
+| 6 | Turn airplane mode on, force-close and reopen. Enter `4821`. | The waiting screen opens offline. |
+| 7 | Try the same code again from another sign-in. | It is rejected; each code works once. |
+| 8 | Check the inbox. | Only code emails arrived; no email contains a sign-in link. |
 
-**Note:** in a real deployment the link arrives by email and the demo card is hidden.
+**Note:** in a real deployment the code arrives by email and the demo card is hidden.

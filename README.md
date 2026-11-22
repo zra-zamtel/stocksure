@@ -120,7 +120,7 @@ Other entry points:
 ```
 
 `setup.ps1` only creates `backend/.env` when it is missing. That generated file
-uses the **local-demo profile**: debug on, and magic-link tokens and PIN reset
+uses the **local-demo profile**: debug on, and email codes and PIN reset
 codes shown in API responses. Never use it on a deployed server; see
 `backend/.env.example` for SMTP, Postgres and safe defaults.
 
@@ -162,7 +162,7 @@ A fresh install starts at the language and account screens. Account creation
 needs one online moment so the backend can register the owner's email and
 password; the phone PIN is then set for fast offline sign-in and the rest of the
 app works offline. The owner can sign in on a new phone, or recover a forgotten
-PIN, with email/password or a magic link. Adding staff also needs one online
+PIN, with email and password. Adding staff also needs one online
 moment, and so does that staff member's first sign-in on a phone. The shop,
 products and sales are stored in SQLite, and the remaining sync work is still
 being wired up. The demo-shop seed remains in `mobile/src/db/seed.ts` for #41
@@ -171,7 +171,7 @@ and is not loaded automatically.
 ### Registration backend
 
 The online identity calls are a minimal Django + DRF service in `backend/`:
-owner registration, magic-link email sign-in, staff sign-in and PIN resets.
+owner registration, email sign-in with a confirmation code, staff sign-in and PIN resets.
 Everything else stays on the phone.
 
 ```bash
@@ -188,8 +188,8 @@ python manage.py runserver 0.0.0.0:8000
 ```
 
 `.env.example` is safe by default: set `DJANGO_SECRET_KEY`, or uncomment its
-local-demo block to turn on `DJANGO_DEBUG`, the magic-link token and the PIN
-reset code for a throwaway machine. To send real magic-link email, fill in the
+local-demo block to turn on `DJANGO_DEBUG`, the email code and the PIN
+reset code for a throwaway machine. To send real email, fill in the
 Gmail SMTP block; to use Supabase Postgres, set `DATABASE_URL`. Both are
 optional for local work; the backend README has the steps.
 
@@ -216,11 +216,11 @@ To host the backend on AWS Lambda for the demo, follow
 
 ## Status
 
-The demo path is being built. Owner email/password registration, magic-link
-sign-in, staff registration, a staff member's first sign-in, owner and staff PIN
+The demo path is being built. Owner email/password registration, emailed-code
+confirmation, staff registration, a staff member's first sign-in, owner and staff PIN
 resets run against the local Django API. Password sign-in requires a verified
-email; the magic link is the verification step, so register then open a sign-in
-link once before using the password on a new phone. Onboarding, products, sales, reconciliation
+email; type the 6-digit code emailed at sign-up (or at the first password
+sign-in) to confirm it. Onboarding, products, sales, reconciliation
 and TaxPot run against SQLite, with staff roles gated by the same permission
 matrix in the app and on the routes. The rest of sync, USSD and the remaining
 demo steps are in flight — see the board for what is next.

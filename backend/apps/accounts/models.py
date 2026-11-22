@@ -42,7 +42,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     lives on shops.Membership.
 
     Email is the online identity used by the mobile app. Password sign-in stays blocked
-    until a magic link proves the owner controls the inbox. The phone PIN never reaches
+    until an emailed code proves the owner controls the inbox. The phone PIN never reaches
     this model: it is an offline unlock checked on the phone.
     """
 
@@ -100,16 +100,23 @@ class StaffProfile(models.Model):
         return f"Staff credentials for {self.user}"
 
 
-class MagicLinkToken(models.Model):
-    """A single-use, short-lived link sent to the user's email.
+class EmailCode(models.Model):
+    """A short-lived 6-digit code emailed to the owner.
 
-    Only the SHA-256 hash is stored. Requesting a new link marks the previous
-    one used, so there is never more than one live link per user.
+    ``verify`` codes confirm the address after sign-up; ``password_reset`` codes
+    let a verified owner set a new password. Only the hash is stored, and
+    sending a new code marks earlier live codes of the same purpose used.
     """
 
-    user = models.ForeignKey("accounts.User", on_delete=models.CASCADE, related_name="magic_links")
-    token_hash = models.CharField(max_length=64, unique=True)
+    class Purpose(models.TextChoices):
+        VERIFY = "verify", "Verify email"
+        PASSWORD_RESET = "password_reset", "Reset password"
+
+    user = models.ForeignKey("accounts.User", on_delete=models.CASCADE, related_name="email_codes")
+    purpose = models.CharField(max_length=20, choices=Purpose.choices)
+    code_hash = models.CharField(max_length=255)
     expires_at = models.DateTimeField()
+    attempts = models.PositiveSmallIntegerField(default=0)
     used_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 

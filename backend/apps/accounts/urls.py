@@ -2,6 +2,7 @@ from django.urls import path
 from rest_framework_simplejwt.views import TokenRefreshView
 
 from .views import (
+    ConfirmPasswordResetView,
     ConfirmPinResetView,
     ConfirmStaffSignInView,
     LoginView,
@@ -9,11 +10,12 @@ from .views import (
     MeView,
     RegisterOwnerView,
     RegisterStaffView,
-    RequestMagicLinkView,
+    RequestEmailCodeView,
+    RequestPasswordResetView,
     RequestPinResetView,
     ResetStaffPinView,
     SetDevicePinView,
-    VerifyMagicLinkView,
+    VerifyEmailCodeView,
 )
 
 # Both spellings are registered because the mobile app uses no trailing slash
@@ -29,10 +31,14 @@ urlpatterns = [
     path("refresh/", TokenRefreshView.as_view(), name="token-refresh-slash"),
     path("me", MeView.as_view(), name="me"),
     path("me/", MeView.as_view(), name="me-slash"),
-    path("magic-link/request", RequestMagicLinkView.as_view(), name="magic-link-request"),
-    path("magic-link/request/", RequestMagicLinkView.as_view(), name="magic-link-request-slash"),
-    path("magic-link/verify", VerifyMagicLinkView.as_view(), name="magic-link-verify"),
-    path("magic-link/verify/", VerifyMagicLinkView.as_view(), name="magic-link-verify-slash"),
+    path("email-code/request", RequestEmailCodeView.as_view(), name="email-code-request"),
+    path("email-code/request/", RequestEmailCodeView.as_view(), name="email-code-request-slash"),
+    path("email-code/verify", VerifyEmailCodeView.as_view(), name="email-code-verify"),
+    path("email-code/verify/", VerifyEmailCodeView.as_view(), name="email-code-verify-slash"),
+    path("password-reset/request", RequestPasswordResetView.as_view(), name="password-reset-request"),
+    path("password-reset/request/", RequestPasswordResetView.as_view(), name="password-reset-request-slash"),
+    path("password-reset/confirm", ConfirmPasswordResetView.as_view(), name="password-reset-confirm"),
+    path("password-reset/confirm/", ConfirmPasswordResetView.as_view(), name="password-reset-confirm-slash"),
     path("device-pin", SetDevicePinView.as_view(), name="device-pin"),
     path("device-pin/", SetDevicePinView.as_view(), name="device-pin-slash"),
     path("pin-reset/request", RequestPinResetView.as_view(), name="pin-reset-request"),

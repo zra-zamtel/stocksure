@@ -35,12 +35,14 @@ import {
   confirmPinResetOnServer,
   loginOwnerOnServer,
   registerOwnerOnServer,
-  requestMagicLinkOnServer,
+  confirmPasswordResetOnServer,
+  requestEmailCodeOnServer,
+  requestPasswordResetOnServer,
   requestPinResetOnServer,
   setOwnerDevicePinOnServer,
-  verifyMagicLinkOnServer,
+  verifyEmailCodeOnServer,
   verifyStaffSignInOnServer,
-  type MagicLinkRequestResult,
+  type EmailCodeRequestResult,
   type OwnerSession,
   type PinResetRequestResult,
 } from '@/lib/api';
@@ -103,9 +105,14 @@ type AuthValue = {
   /** A staff member's first sign-in on a phone that does not know them yet. */
   signInStaff: (input: { phone: string; pin: string }) => Promise<void>;
   beginOwnerLogin: (input: { email: string; password: string }) => Promise<void>;
-  /** Verifies the link and returns whose account it opened. */
-  beginOwnerMagicLink: (token: string) => Promise<{ id: string }>;
-  requestOwnerMagicLink: (email: string, phone?: string) => Promise<MagicLinkRequestResult>;
+  /** Signs in with the emailed confirmation code; this phone then needs a PIN. */
+  beginOwnerEmailCode: (input: { email: string; code: string }) => Promise<void>;
+  /** Confirms the email of the owner already signed in on this phone. */
+  confirmOwnerEmail: (input: { email: string; code: string }) => Promise<void>;
+  requestOwnerEmailCode: (email: string, phone?: string) => Promise<EmailCodeRequestResult>;
+  requestOwnerPasswordReset: (email: string) => Promise<EmailCodeRequestResult>;
+  /** Sets a new password with the emailed code; this phone then needs a PIN. */
+  beginOwnerPasswordReset: (input: { email: string; code: string; password: string }) => Promise<void>;
   completeDeviceSetup: (input: { pin: string }) => Promise<void>;
   cancelOwnerLogin: () => void;
   requestPinResetCode: () => Promise<PinResetRequestResult>;
@@ -395,21 +402,49 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     []
   );
 
-  const requestOwnerMagicLink = useCallback(
-    async (email: string, phone?: string) =>
-      requestMagicLinkOnServer(email.trim().toLowerCase(), phone),
-    []
-  );
-
-  const beginOwnerMagicLink = useCallback(async (token: string) => {
-    const session = await verifyMagicLinkOnServer(token);
-    // Opening any link proves the inbox, so the email is confirmed now.
+  const startOwnerSession = useCallback((session: OwnerSession) => {
+    // Any accepted code proves the inbox, so the email is confirmed now.
     clearEmailPending();
     setPendingOwner({ owner: session.owner, deviceToken: session.deviceToken });
     setStatus('ready');
     setError(null);
-    return { id: session.owner.id };
   }, []);
+
+  const requestOwnerEmailCode = useCallback(
+    async (email: string, phone?: string) =>
+      requestEmailCodeOnServer(email.trim().toLowerCase(), phone),
+    []
+  );
+
+  const beginOwnerEmailCode = useCallback(
+    async (input: { email: string; code: string }) => {
+      startOwnerSession(await verifyEmailCodeOnServer(input.email.trim().toLowerCase(), input.code));
+    },
+    [startOwnerSession]
+  );
+
+  const confirmOwnerEmail = useCallback(async (input: { email: string; code: string }) => {
+    await verifyEmailCodeOnServer(input.email.trim().toLowerCase(), input.code);
+    clearEmailPending();
+  }, []);
+
+  const requestOwnerPasswordReset = useCallback(
+    async (email: string) => requestPasswordResetOnServer(email.trim().toLowerCase()),
+    []
+  );
+
+  const beginOwnerPasswordReset = useCallback(
+    async (input: { email: string; code: string; password: string }) => {
+      startOwnerSession(
+        await confirmPasswordResetOnServer({
+          email: input.email.trim().toLowerCase(),
+          code: input.code,
+          password: input.password,
+        })
+      );
+    },
+    [startOwnerSession]
+  );
 
   const completeDeviceSetup = useCallback(
     async (input: { pin: string }) => {
@@ -520,8 +555,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       signIn,
       signInStaff,
       beginOwnerLogin,
-      beginOwnerMagicLink,
-      requestOwnerMagicLink,
+      beginOwnerEmailCode,
+      confirmOwnerEmail,
+      requestOwnerEmailCode,
+      requestOwnerPasswordReset,
+      beginOwnerPasswordReset,
       completeDeviceSetup,
       cancelOwnerLogin,
       requestPinResetCode,
@@ -531,8 +569,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [
     beginOwnerLogin,
-    beginOwnerMagicLink,
+    beginOwnerEmailCode,
+    beginOwnerPasswordReset,
     cancelOwnerLogin,
+    confirmOwnerEmail,
     completeDeviceSetup,
     deviceToken,
     error,
@@ -543,7 +583,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     pendingOwner,
     refresh,
     registerOwner,
-    requestOwnerMagicLink,
+    requestOwnerEmailCode,
+    requestOwnerPasswordReset,
     requestPinResetCode,
     resetPin,
     shopRestorePending,

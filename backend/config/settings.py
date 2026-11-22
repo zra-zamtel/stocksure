@@ -204,7 +204,7 @@ REST_FRAMEWORK = {
         "anon": "300/min",
         "register": "60/min",
         "login": "60/min",
-        "magic": "60/min",
+        "email-code": "60/min",
         "staff-signin": "60/min",
         "staff-register": "60/min",
         "staff-pin-reset": "60/min",
@@ -247,8 +247,8 @@ if not ZAMTEL_WEBHOOK_SECRET and not DEBUG and not RUNNING_TESTS:
 # A mobile-money payment is matched to a sale of the same amount recorded within this window.
 PAYMENT_MATCH_WINDOW_MINUTES = int(os.environ.get("PAYMENT_MATCH_WINDOW_MINUTES", "30"))
 
-# --- Email (magic links) ---------------------------------------------------
-# With EMAIL_HOST empty, Django prints the message and link to the server
+# --- Email (codes and notices) ---------------------------------------------
+# With EMAIL_HOST empty, Django prints the message to the server
 # console, which is enough for local work. Set EMAIL_HOST for real delivery.
 EMAIL_HOST = os.environ.get("EMAIL_HOST", "")
 EMAIL_USE_SSL = env_bool("EMAIL_USE_SSL", False)
@@ -271,7 +271,6 @@ else:
 DEFAULT_FROM_EMAIL = os.environ.get(
     "DJANGO_DEFAULT_FROM_EMAIL", "StockSure <no-reply@stocksure.local>"
 )
-MAGIC_LINK_BASE_URL = os.environ.get("MAGIC_LINK_BASE_URL", "stocksure://magic-link")
 
 # Never enable these on a deployed server: they return one-time codes and
 # tokens in API responses instead of sending them by email or SMS.

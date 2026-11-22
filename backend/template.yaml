@@ -34,7 +34,7 @@ Parameters:
   EmailHost:
     Type: String
     Default: ""
-    Description: SMTP host. Leave empty to print magic links to CloudWatch Logs.
+    Description: SMTP host. Leave empty to print emails to CloudWatch Logs.
   EmailPort:
     Type: String
     Default: "587"
@@ -59,9 +59,6 @@ Parameters:
   DefaultFromEmail:
     Type: String
     Default: "StockSure <no-reply@example.com>"
-  MagicLinkBaseUrl:
-    Type: String
-    Default: "stocksure://magic-link"
   CorsAllowedOrigins:
     Type: String
     Default: ""
@@ -118,7 +115,6 @@ Globals:
         EMAIL_HOST_USER: !Ref EmailHostUser
         EMAIL_HOST_PASSWORD: !Ref EmailHostPassword
         DJANGO_DEFAULT_FROM_EMAIL: !Ref DefaultFromEmail
-        MAGIC_LINK_BASE_URL: !Ref MagicLinkBaseUrl
         ZAMTEL_WEBHOOK_SECRET: !Ref ZamtelWebhookSecret
         USSD_SHARED_SECRET: !Ref UssdSharedSecret
         SMS_BACKEND: !Ref SmsBackend
