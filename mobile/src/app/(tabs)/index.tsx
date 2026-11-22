@@ -5,7 +5,8 @@ import { useAuth } from '@/auth/session';
 import { displayName } from '@/components/auth';
 import { EmailReminder } from '@/components/email-reminder';
 import { GettingStarted } from '@/components/getting-started';
-import { Button, Card, IconButton, Pill, Screen, SectionTitle, Skeleton } from '@/components/ui';
+import { ProfileMenu } from '@/components/profile-menu';
+import { Button, Card, Pill, Screen, SectionTitle, Skeleton } from '@/components/ui';
 import { useDayTotals, useLowStock, useProducts, useShop } from '@/db/hooks';
 import { useI18n } from '@/i18n';
 import { formatKwacha } from '@/lib/format';
@@ -21,7 +22,7 @@ type Shortcut = { key: string; icon: AndroidSymbol; label: string; href: Href };
 export default function HomeScreen() {
   const { t } = useI18n();
   const router = useRouter();
-  const { user, can, signOut } = useAuth();
+  const { user, can } = useAuth();
   const { data: totals, initialLoading: totalsLoading } = useDayTotals();
   const { data: alerts, initialLoading: alertsLoading } = useLowStock();
   const { data: products } = useProducts();
@@ -68,17 +69,11 @@ export default function HomeScreen() {
       : []),
   ];
 
-  const headerAction = can('settings.view') ? (
-    <IconButton name="settings" label={t('nav.settings')} onPress={() => router.push('/settings')} />
-  ) : (
-    <IconButton name="logout" label={t('settings.signOut')} onPress={signOut} />
-  );
-
   return (
     <Screen
       title={firstName ? `${greeting}, ${firstName}` : greeting}
       subtitle={shopRecord?.name ?? t('app.name')}
-      action={headerAction}
+      action={<ProfileMenu />}
       footer={<Button label={t('home.actions.recordSale')} onPress={() => router.push('/sale/new')} />}
     >
       <EmailReminder />

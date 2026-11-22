@@ -695,5 +695,7 @@
   "auth.code.error.passwordShort": "Use at least 8 characters for the password.",
   "verify.confirm": "Confirm email",
   "verify.confirmed": "Your email is confirmed.",
-  "verify.offline": "Connect to the internet to confirm your email."
+  "verify.offline": "Connect to the internet to confirm your email.",
+  "profile.open": "Your profile and sign out",
+  "common.close": "Close"
 }

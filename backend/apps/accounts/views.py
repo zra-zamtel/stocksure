@@ -6,7 +6,6 @@ from datetime import timedelta
 
 from django.conf import settings
 from django.contrib.auth.hashers import check_password, make_password
-from django.core.mail import send_mail
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 from rest_framework import generics, status
@@ -19,6 +18,7 @@ from rest_framework_simplejwt.tokens import RefreshToken, TokenError
 from apps.shops.models import Membership, Shop
 from apps.sync.models import Shop as SyncShop
 
+from .emails import send_branded
 from .models import EmailCode, PinResetCode, StaffProfile, User
 from .serializers import (
     DevicePinSerializer,
@@ -91,21 +91,22 @@ def issue_email_code(user: User, purpose: str) -> tuple[EmailCode, str]:
 def send_email_code(user: User, code: str, purpose: str) -> None:
     if purpose == EmailCode.Purpose.PASSWORD_RESET:
         subject = "Your StockSure password reset code"
-        lead = "Use this code in the StockSure app to set a new password:"
+        heading = "Reset your password"
+        lead = "Enter this code in the StockSure app to set a new password:"
     else:
         subject = "Your StockSure confirmation code"
-        lead = "Use this code in the StockSure app to confirm your email address:"
-    send_mail(
+        heading = "Confirm your email"
+        lead = "Enter this code in the StockSure app to confirm your email address:"
+    send_branded(
+        to=user.email,
         subject=subject,
-        message=(
-            f"{lead}\n\n    {code}\n\n"
-            f"This code is for the account of {user.full_name or user.phone} "
-            f"({user.phone}). It works once and expires in 10 minutes.\n\n"
-            "If you did not ask for it, ignore this email. Never share this code."
+        heading=heading,
+        paragraphs=[f"Hello {user.full_name or 'there'},", lead],
+        code=code,
+        note=(
+            f"This code is for the account {user.phone}. It works once and expires in "
+            "10 minutes. If you did not ask for it, ignore this email. Never share this code."
         ),
-        from_email=settings.DEFAULT_FROM_EMAIL,
-        recipient_list=[user.email],
-        fail_silently=False,
     )
 
 
@@ -117,18 +118,19 @@ def notify_account_change(user: User, subject: str, what: str) -> None:
     if not user.email or user.email_verified_at is None:
         return
     try:
-        send_mail(
+        send_branded(
+            to=user.email,
             subject=f"StockSure: {subject}",
-            message=(
-                f"Hello {user.full_name or 'there'},\n\n"
-                f"{what}\n\n"
-                f"When: {timezone.now():%d %b %Y, %H:%M} UTC\n\n"
-                "If this was you, there is nothing to do. If it was not, change "
-                "your password in the StockSure app straight away."
+            heading=subject[:1].upper() + subject[1:],
+            paragraphs=[
+                f"Hello {user.full_name or 'there'},",
+                what,
+                f"When: {timezone.now():%d %b %Y, %H:%M} UTC",
+            ],
+            note=(
+                "If this was you, there is nothing to do. If it was not, change your "
+                "password in the StockSure app straight away."
             ),
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=[user.email],
-            fail_silently=False,
         )
     except Exception as exc:  # noqa: BLE001 - a notice must never block the change
         logger.warning("Could not send the account notice to %s: %s", user.id, exc)

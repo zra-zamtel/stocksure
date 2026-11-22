@@ -677,5 +677,7 @@
   "auth.code.error.passwordShort": "Gwiritsani ntchito zilembo 8 kapena kuposa pa password.",
   "verify.confirm": "Tsimikizani imelo",
   "verify.confirmed": "Imelo yanu yatsimikizidwa.",
-  "verify.offline": "Lumikizani ku intaneti kuti mutsimikize imelo yanu."
+  "verify.offline": "Lumikizani ku intaneti kuti mutsimikize imelo yanu.",
+  "profile.open": "Mbiri yanu ndi kutuluka",
+  "common.close": "Tsekani"
 }

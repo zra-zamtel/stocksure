@@ -125,6 +125,10 @@ class RegisterOwnerTests(AuthTestCase):
         self.assertEqual(mail.outbox[0].to, ["elton@example.com"])
         self.assertIn("Elton Chiwala", mail.outbox[0].body)
         self.assertNotIn("://", mail.outbox[0].body)
+        html, mimetype = mail.outbox[0].alternatives[0]
+        self.assertEqual(mimetype, "text/html")
+        self.assertIn("StockSure", html)
+        self.assertNotIn("<a ", html)
         match = re.search(r"\b(\d{6})\b", mail.outbox[0].body)
         self.assertIsNotNone(match)
         verify = self.post(
@@ -134,7 +138,7 @@ class RegisterOwnerTests(AuthTestCase):
         self.assertEqual(verify.status_code, 200)
         self.assertIsNotNone(User.objects.get().email_verified_at)
 
-    @patch("apps.accounts.views.send_mail", side_effect=Exception("smtp down"))
+    @patch("apps.accounts.emails.send_mail", side_effect=Exception("smtp down"))
     def test_registration_succeeds_when_email_delivery_fails(self, _send_mail):
         response = self.post_register()
 
