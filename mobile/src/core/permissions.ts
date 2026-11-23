@@ -22,8 +22,8 @@ export type Permission =
   | 'staff.manage';
 
 const GRANTS: Record<Role, readonly Permission[]> = {
+  // Staff record sales at the counter; the owner manages products and stock.
   owner: [
-    'sales.record',
     'sales.view',
     'stock.view',
     'cash.count',
@@ -46,8 +46,19 @@ export class PermissionError extends Error {
   }
 }
 
-export function can(role: Role | null | undefined, permission: Permission): boolean {
-  return role ? GRANTS[role].includes(permission) : false;
+/** Facts about the shop that change what a role may do. */
+export type ShopContext = { hasStaff?: boolean };
+
+export function can(
+  role: Role | null | undefined,
+  permission: Permission,
+  shop: ShopContext = {}
+): boolean {
+  if (!role) return false;
+  // An owner working alone records their own sales. Once the shop has staff,
+  // selling is the staff's job and the owner manages products and stock.
+  if (role === 'owner' && permission === 'sales.record') return !shop.hasStaff;
+  return GRANTS[role].includes(permission);
 }
 
 /** Throws instead of silently continuing when an action bypasses the UI. */
@@ -69,13 +80,15 @@ export const SCREEN_PERMISSIONS = {
   productNew: 'products.manage',
   productDetail: 'products.manage',
   scan: 'products.manage',
+  saleNew: 'sales.record',
 } as const satisfies Record<string, Permission>;
 
 export type ProtectedScreen = keyof typeof SCREEN_PERMISSIONS;
 
 export function canAccessScreen(
   role: Role | null | undefined,
-  screen: ProtectedScreen
+  screen: ProtectedScreen,
+  shop: ShopContext = {}
 ): boolean {
-  return can(role, SCREEN_PERMISSIONS[screen]);
+  return can(role, SCREEN_PERMISSIONS[screen], shop);
 }

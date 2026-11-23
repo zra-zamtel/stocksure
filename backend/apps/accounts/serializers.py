@@ -122,12 +122,10 @@ class LoginSerializer(serializers.Serializer):
         return attrs
 
 
-class MagicLinkRequestSerializer(serializers.Serializer):
+class EmailCodeRequestSerializer(serializers.Serializer):
     email = serializers.EmailField(max_length=254)
-    # Required only while the email is unverified. The owner knows the phone
-    # number on their own account; someone who merely received the email does
-    # not. This stops an unverified address from handing a stranger's account
-    # to the inbox owner.
+    # Required while the email is unverified. The owner knows the phone number
+    # on their own account; someone who merely received the email does not.
     phone = serializers.CharField(max_length=32, required=False, allow_blank=True)
 
     def validate_email(self, value: str) -> str:
@@ -137,8 +135,23 @@ class MagicLinkRequestSerializer(serializers.Serializer):
         return validate_phone_value(value) if value.strip() else ""
 
 
-class MagicLinkVerifySerializer(serializers.Serializer):
-    token = serializers.CharField(min_length=20, max_length=128)
+class EmailCodeVerifySerializer(serializers.Serializer):
+    email = serializers.EmailField(max_length=254)
+    code = serializers.RegexField(r"^\d{6}$")
+
+    def validate_email(self, value: str) -> str:
+        return value.strip().lower()
+
+
+class PasswordResetRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField(max_length=254)
+
+    def validate_email(self, value: str) -> str:
+        return value.strip().lower()
+
+
+class PasswordResetConfirmSerializer(EmailCodeVerifySerializer):
+    password = serializers.CharField(min_length=8, max_length=128, trim_whitespace=False, write_only=True)
 
 
 class DevicePinSerializer(serializers.Serializer):
@@ -214,9 +227,23 @@ class StaffSignInConfirmSerializer(serializers.Serializer):
         write_only=True,
         error_messages={"invalid": "Enter the 4 to 6 digit PIN."},
     )
+    # Sent on the second step, once the server has asked for a new PIN.
+    newPin = serializers.RegexField(
+        r"^\d{4,6}$",
+        required=False,
+        write_only=True,
+        error_messages={"invalid": "Choose a 4 to 6 digit PIN."},
+    )
 
     def validate_phone(self, value: str) -> str:
         return validate_phone_value(value)
+
+    def validate(self, attrs):
+        if attrs.get("newPin") and attrs["newPin"] == attrs["pin"]:
+            raise serializers.ValidationError(
+                {"newPin": "Choose a PIN different from the one the owner gave you."}
+            )
+        return attrs
 
 
 class StaffSerializer(serializers.ModelSerializer):

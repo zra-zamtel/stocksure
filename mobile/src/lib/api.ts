@@ -3,8 +3,10 @@ import { Platform } from 'react-native';
 
 const REGISTER_PATH = '/api/v1/auth/register';
 const LOGIN_PATH = '/api/v1/auth/login';
-const MAGIC_LINK_REQUEST_PATH = '/api/v1/auth/magic-link/request';
-const MAGIC_LINK_VERIFY_PATH = '/api/v1/auth/magic-link/verify';
+const EMAIL_CODE_REQUEST_PATH = '/api/v1/auth/email-code/request';
+const EMAIL_CODE_VERIFY_PATH = '/api/v1/auth/email-code/verify';
+const PASSWORD_RESET_REQUEST_PATH = '/api/v1/auth/password-reset/request';
+const PASSWORD_RESET_CONFIRM_PATH = '/api/v1/auth/password-reset/confirm';
 const DEVICE_PIN_PATH = '/api/v1/auth/device-pin';
 const PIN_RESET_REQUEST_PATH = '/api/v1/auth/pin-reset/request';
 const PIN_RESET_CONFIRM_PATH = '/api/v1/auth/pin-reset/confirm';
@@ -37,7 +39,7 @@ export type ServerOwner = {
 export type OwnerSession = {
   owner: ServerOwner;
   deviceToken: string;
-  /** Sign-up only: whether the server managed to email the confirmation link. */
+  /** Sign-up only: whether the server managed to email the confirmation code. */
   verificationSent?: boolean;
 };
 
@@ -65,8 +67,8 @@ export class ApiError extends Error {
   constructor(
     public readonly code: ApiErrorCode,
     message: string,
-    /** Extra facts the server sent with the refusal, e.g. that a link was emailed. */
-    public readonly details: { verificationSent?: boolean; demoToken?: string } = {}
+    /** Extra facts the server sent with the refusal, e.g. that a code was emailed. */
+    public readonly details: { verificationSent?: boolean; demoCode?: string } = {}
   ) {
     super(message);
     this.name = 'ApiError';
@@ -142,7 +144,7 @@ async function getJson(
   }
 }
 
-type ErrorPayload = { code?: string; detail?: string; verificationSent?: boolean; demoToken?: string };
+type ErrorPayload = { code?: string; detail?: string; verificationSent?: boolean; demoCode?: string };
 
 async function readErrorPayload(response: Response): Promise<ErrorPayload | null> {
   try {
@@ -199,8 +201,8 @@ export async function loginOwnerOnServer(input: {
   if (response.status === 403 && payload?.code === 'email_unverified') {
     throw new ApiError(
       'email-unverified',
-      payload.detail ?? 'Verify your email with a sign-in link before using your password.',
-      { verificationSent: payload.verificationSent === true, demoToken: payload.demoToken }
+      payload.detail ?? 'Confirm your email with the emailed code before using your password.',
+      { verificationSent: payload.verificationSent === true, demoCode: payload.demoCode }
     );
   }
   if (response.status === 401) {
@@ -212,55 +214,72 @@ export async function loginOwnerOnServer(input: {
   throw new ApiError('server', payload?.detail ?? 'The sign-in service could not be reached.');
 }
 
-export type MagicLinkRequestResult = {
+export type EmailCodeRequestResult = {
   expiresAt: string;
-  demoToken?: string;
-  demoUrl?: string;
+  /** Local demo servers only. */
+  demoCode?: string;
 };
 
-/**
- * Ask for a single-use email link. The response is generic for unknown emails.
- * While an email is unverified the server also needs the account phone number,
- * so an inbox owner cannot be handed a stranger's account.
- */
-export async function requestMagicLinkOnServer(
-  email: string,
-  phone?: string
-): Promise<MagicLinkRequestResult> {
-  const body = phone ? { email, phone } : { email };
-  const response = await postJson(MAGIC_LINK_REQUEST_PATH, body);
+async function readCodeRequest(response: Response): Promise<EmailCodeRequestResult> {
   if (response.ok) {
-    const payload = (await response.json()) as Partial<MagicLinkRequestResult>;
-    return {
-      expiresAt: payload.expiresAt ?? '',
-      demoToken: payload.demoToken,
-      demoUrl: payload.demoUrl,
-    };
+    const payload = (await response.json()) as Partial<EmailCodeRequestResult>;
+    return { expiresAt: payload.expiresAt ?? '', demoCode: payload.demoCode };
   }
-
   const payload = await readErrorPayload(response);
   if (response.status === 400) {
     throw new ApiError('validation', payload?.detail ?? 'Check the email address.');
   }
-  throw new ApiError('server', payload?.detail ?? 'The link service could not send an email.');
+  throw new ApiError('server', payload?.detail ?? 'The account service could not send an email.');
 }
 
-/** Verify a magic link and receive a device token for this phone. */
-export async function verifyMagicLinkOnServer(token: string): Promise<OwnerSession> {
-  const response = await postJson(MAGIC_LINK_VERIFY_PATH, { token });
+async function readCodeSession(response: Response): Promise<OwnerSession> {
   if (response.ok) return (await response.json()) as OwnerSession;
-
   const payload = await readErrorPayload(response);
-  if (response.status === 400 && payload?.code === 'invalid_token') {
-    throw new ApiError('invalid-token', payload?.detail ?? 'That sign-in link is not valid.');
+  if (response.status === 400 && payload?.code === 'invalid_code') {
+    throw new ApiError('invalid-code', payload.detail ?? 'That code is not correct.');
   }
   if (response.status === 410) {
-    throw new ApiError('expired-token', payload?.detail ?? 'That sign-in link has expired.');
+    throw new ApiError('expired-code', payload?.detail ?? 'That code has expired.');
+  }
+  if (response.status === 429) {
+    throw new ApiError('too-many-attempts', payload?.detail ?? 'Too many tries. Request a new code.');
   }
   if (response.status === 400) {
-    throw new ApiError('validation', payload?.detail ?? 'That sign-in link is not valid.');
+    throw new ApiError('validation', payload?.detail ?? 'Check the code and try again.');
   }
-  throw new ApiError('server', payload?.detail ?? 'The link service could not sign you in.');
+  throw new ApiError('server', payload?.detail ?? 'The account service could not check the code.');
+}
+
+/**
+ * Email a fresh 6-digit code to confirm the address. The response is generic
+ * for unknown emails. The server also needs the account phone number, so an
+ * inbox owner cannot be handed a stranger's account.
+ */
+export async function requestEmailCodeOnServer(
+  email: string,
+  phone?: string
+): Promise<EmailCodeRequestResult> {
+  const body = phone ? { email, phone } : { email };
+  return readCodeRequest(await postJson(EMAIL_CODE_REQUEST_PATH, body));
+}
+
+/** Check the emailed code; the email is confirmed and this phone gets a session. */
+export async function verifyEmailCodeOnServer(email: string, code: string): Promise<OwnerSession> {
+  return readCodeSession(await postJson(EMAIL_CODE_VERIFY_PATH, { email, code }));
+}
+
+/** Email a code for setting a new password. Generic for unknown emails. */
+export async function requestPasswordResetOnServer(email: string): Promise<EmailCodeRequestResult> {
+  return readCodeRequest(await postJson(PASSWORD_RESET_REQUEST_PATH, { email }));
+}
+
+/** Set a new password with the emailed code; this phone gets a session. */
+export async function confirmPasswordResetOnServer(input: {
+  email: string;
+  code: string;
+  password: string;
+}): Promise<OwnerSession> {
+  return readCodeSession(await postJson(PASSWORD_RESET_CONFIRM_PATH, input));
 }
 
 /** Store the local PIN hash on the server against a verified device session. */
@@ -352,6 +371,8 @@ export type ServerStaff = {
 export type StaffSignInResult = {
   staff: ServerStaff;
   owner: { name: string; phone: string };
+  /** The owner's PIN was one-time: ask the staff member to choose their own. */
+  mustChangePin?: boolean;
 };
 
 /**
@@ -425,6 +446,7 @@ export async function resetStaffPinOnServer(input: {
 export async function confirmStaffSignInOnServer(input: {
   phone: string;
   pin: string;
+  newPin?: string;
 }): Promise<StaffSignInResult> {
   const response = await postJson(STAFF_SIGN_IN_CONFIRM_PATH, input);
   if (response.ok) return (await response.json()) as StaffSignInResult;
@@ -445,9 +467,10 @@ export async function confirmStaffSignInOnServer(input: {
 /** Completes a staff member's first sign-in and caches the local PIN hash. */
 export async function verifyStaffSignInOnServer(
   phone: string,
-  pin: string
+  pin: string,
+  newPin?: string
 ): Promise<StaffSignInResult> {
-  return confirmStaffSignInOnServer({ phone, pin });
+  return confirmStaffSignInOnServer(newPin ? { phone, pin, newPin } : { phone, pin });
 }
 
 export type SyncOperation = 'create' | 'update';
@@ -591,4 +614,79 @@ export async function paymentRequestStatusOnServer(input: {
   });
   if (response.ok) return (await response.json()) as PaymentRequest;
   throw paymentRequestError(response, await readErrorPayload(response));
+}
+
+// ---- Smart Invoice (simulated ZRA bridge) ----------------------------------
+
+export type SmartInvoiceStatus =
+  | { connected: false }
+  | {
+      connected: true;
+      simulated: boolean;
+      tpin: string;
+      branchId: string;
+      taxpayerName: string;
+      sdcId: string;
+      mrcNo: string;
+      connectedAt: string;
+      sentCount: number;
+      refundCount: number;
+      failedCount: number;
+      waitingCount: number;
+      lastSentAt: string | null;
+    };
+
+async function readSmartInvoice(response: Response): Promise<SmartInvoiceStatus> {
+  if (response.ok) return (await response.json()) as SmartInvoiceStatus;
+  const payload = await readErrorPayload(response);
+  if (response.status === 400) {
+    throw new ApiError('validation', payload?.detail ?? 'Check the TPIN.');
+  }
+  if (response.status === 401) throw new ApiError('unauthorized', payload?.detail ?? 'Sign in again.');
+  if (response.status === 403) throw new ApiError('forbidden', payload?.detail ?? 'Only the owner can do this.');
+  throw new ApiError('server', payload?.detail ?? 'Smart Invoice could not be reached.');
+}
+
+export async function getSmartInvoiceStatusOnServer(input: {
+  deviceToken: string;
+  shopId: string;
+}): Promise<SmartInvoiceStatus> {
+  return readSmartInvoice(
+    await getJson(`/api/v1/smart-invoice/status?shopId=${encodeURIComponent(input.shopId)}`, {
+      Authorization: `Bearer ${input.deviceToken}`,
+    })
+  );
+}
+
+/** The one step the trader takes: StockSure registers the shop and sends every sale. */
+export async function connectSmartInvoiceOnServer(input: {
+  deviceToken: string;
+  shopId: string;
+  tpin: string;
+}): Promise<SmartInvoiceStatus> {
+  return readSmartInvoice(
+    await postJson(
+      '/api/v1/smart-invoice/connect',
+      { shopId: input.shopId, tpin: input.tpin },
+      { Authorization: `Bearer ${input.deviceToken}` }
+    )
+  );
+}
+
+export type SmartInvoiceSent = {
+  receiptType: 'S' | 'R';
+  invoiceNo: number;
+  request: Record<string, unknown>;
+};
+
+/** What was sent to ZRA for one sale, field by field. */
+export async function getSmartInvoiceSaleOnServer(input: {
+  deviceToken: string;
+  saleId: string;
+}): Promise<SmartInvoiceSent[]> {
+  const response = await getJson(`/api/v1/smart-invoice/sales/${encodeURIComponent(input.saleId)}`, {
+    Authorization: `Bearer ${input.deviceToken}`,
+  });
+  if (response.ok) return ((await response.json()) as { receipts: SmartInvoiceSent[] }).receipts;
+  throw new ApiError('server', 'Smart Invoice could not be reached.');
 }

@@ -40,7 +40,8 @@ def resolve_shop(request):
 
 
 class ShopRolePermission(BasePermission):
-    """Views set ``owner_only = True`` or list restricted actions in ``owner_actions``."""
+    """Views set ``owner_only = True``, or list owner-only actions in ``owner_actions``
+    and staff-only actions in ``staff_actions``."""
 
     message = "This action is only available to the shop owner."
 
@@ -53,6 +54,12 @@ class ShopRolePermission(BasePermission):
         action = getattr(view, "action", None) or request.method.lower()
         if action in getattr(view, "owner_actions", ()):
             return membership.role == "owner"
+        if action in getattr(view, "staff_actions", ()) and membership.role == "owner":
+            from apps.shops.selling import OWNER_SALE_REFUSED, owner_may_record_sale
+
+            if not owner_may_record_sale(request.user):
+                self.message = OWNER_SALE_REFUSED
+                return False
         return True
 
 
@@ -62,6 +69,7 @@ class ShopScopedMixin:
     permission_classes = [IsAuthenticated, ShopRolePermission]
     owner_only = False
     owner_actions = ()
+    staff_actions = ()
     shop = None
     membership = None
 

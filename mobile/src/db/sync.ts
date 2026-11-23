@@ -206,6 +206,25 @@ function mapPayment(p: JsonRecord, fallbackSale?: string): JsonRecord {
   };
 }
 
+function mapSmartInvoiceReceipt(p: JsonRecord): JsonRecord {
+  return {
+    id: text(p.id),
+    sale_id: text(p.saleId),
+    receipt_type: text(p.receiptType),
+    invoice_no: integer(p.invoiceNo),
+    original_invoice_no: integer(p.originalInvoiceNo),
+    result_code: text(p.resultCode),
+    result_message: text(p.resultMessage),
+    receipt_no: integer(p.receiptNo),
+    receipt_signature: text(p.receiptSignature),
+    internal_data: text(p.internalData),
+    sdc_id: text(p.sdcId),
+    mrc_no: text(p.mrcNo),
+    published_at: text(p.publishedAt),
+    simulated: p.simulated === false ? 0 : 1,
+  };
+}
+
 function mapTxn(p: JsonRecord): JsonRecord {
   return {
     id: text(p.id),
@@ -336,6 +355,9 @@ export async function applyPulledChange(
       break;
     case 'tax_pot_entry':
       await upsert(db, 'tax_pot_entry', mapTaxPotEntry(payload));
+      break;
+    case 'smart_invoice_receipt':
+      await upsert(db, 'smart_invoice_receipt', mapSmartInvoiceReceipt(payload));
       break;
     default:
       throw new Error(`Unknown sync entity '${change.entity}'.`);

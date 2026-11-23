@@ -85,6 +85,7 @@ INSTALLED_APPS = [
     "apps.integrations",
     "apps.sync",
     "apps.collections",
+    "apps.smartinvoice",
 ]
 
 MIDDLEWARE = [
@@ -204,7 +205,7 @@ REST_FRAMEWORK = {
         "anon": "300/min",
         "register": "60/min",
         "login": "60/min",
-        "magic": "60/min",
+        "email-code": "60/min",
         "staff-signin": "60/min",
         "staff-register": "60/min",
         "staff-pin-reset": "60/min",
@@ -245,10 +246,18 @@ ZAMTEL_WEBHOOK_SECRET = os.environ.get("ZAMTEL_WEBHOOK_SECRET", "").strip()
 if not ZAMTEL_WEBHOOK_SECRET and not DEBUG and not RUNNING_TESTS:
     raise ImproperlyConfigured("Set ZAMTEL_WEBHOOK_SECRET when DJANGO_DEBUG is off.")
 # A mobile-money payment is matched to a sale of the same amount recorded within this window.
+# The VSDC bridge. The simulator is a sandbox; a real, ZRA-certified VSDC
+# client replaces it with this one setting.
+SMART_INVOICE_BACKEND = os.environ.get(
+    "SMART_INVOICE_BACKEND", "apps.smartinvoice.vsdc.SimulatedVsdc"
+)
+# From this moment an owner with staff can no longer record sales. Sales the
+# owner made earlier and sync late are still accepted.
+SALES_BY_STAFF_ONLY_FROM = os.environ.get("SALES_BY_STAFF_ONLY_FROM", "2026-11-23T00:00:00+00:00")
 PAYMENT_MATCH_WINDOW_MINUTES = int(os.environ.get("PAYMENT_MATCH_WINDOW_MINUTES", "30"))
 
-# --- Email (magic links) ---------------------------------------------------
-# With EMAIL_HOST empty, Django prints the message and link to the server
+# --- Email (codes and notices) ---------------------------------------------
+# With EMAIL_HOST empty, Django prints the message to the server
 # console, which is enough for local work. Set EMAIL_HOST for real delivery.
 EMAIL_HOST = os.environ.get("EMAIL_HOST", "")
 EMAIL_USE_SSL = env_bool("EMAIL_USE_SSL", False)
@@ -271,7 +280,6 @@ else:
 DEFAULT_FROM_EMAIL = os.environ.get(
     "DJANGO_DEFAULT_FROM_EMAIL", "StockSure <no-reply@stocksure.local>"
 )
-MAGIC_LINK_BASE_URL = os.environ.get("MAGIC_LINK_BASE_URL", "stocksure://magic-link")
 
 # Never enable these on a deployed server: they return one-time codes and
 # tokens in API responses instead of sending them by email or SMS.

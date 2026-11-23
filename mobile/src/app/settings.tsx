@@ -8,7 +8,7 @@ import { Toggle } from '@/components/charts';
 import { Button, Choice, Field, Icon, IconButton, Screen, SectionTitle, TextLink } from '@/components/ui';
 import { isValidTpin, trialDaysLeft, type ShopType } from '@/core';
 import { taxRules } from '@/data/fake';
-import { useShop } from '@/db/hooks';
+import { useShop, useSmartInvoiceLink } from '@/db/hooks';
 import { saveMoneySettings, saveShopDetails } from '@/db/repos';
 import { useSync } from '@/db/use-sync';
 import { readPlanChoice } from '@/lib/plan-store';
@@ -36,6 +36,7 @@ export default function SettingsScreen() {
   const db = useSQLiteContext();
   const { ownerPreview, signOut, refresh } = useAuth();
   const { data: shop, reload } = useShop();
+  const { data: smartInvoice } = useSmartInvoiceLink();
   const sync = useSync();
 
   const [editing, setEditing] = useState(false);
@@ -227,6 +228,11 @@ export default function SettingsScreen() {
             value={shop && shop.providers.length > 0 ? shop.providers.join(', ') : t('common.notYet')}
           />
           <ListRow label={t('onboarding.money.tpin')} value={shop?.tpin ?? t('common.notYet')} />
+          <ListRow
+            label={t('si.title')}
+            value={smartInvoice ? t('si.settings.connected') : t('si.settings.connect')}
+            onPress={() => router.push('/smart-invoice')}
+          />
           <ListRow
             label={t('settings.barcodes')}
             value={shop ? (shop.usesBarcodes ? t('common.yes') : t('common.no')) : t('common.notYet')}

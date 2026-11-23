@@ -8,6 +8,7 @@ from django.utils.dateparse import parse_date, parse_datetime
 
 from apps.accounts.models import User
 from apps.shops.models import Membership
+from apps.shops.selling import OWNER_SALE_REFUSED, owner_may_record_sale
 
 from .models import (
     MobileMoneyTxn,
@@ -807,6 +808,14 @@ def apply_change(change: dict, user: User, queue_id: str = "") -> Shop:
             shop = resolve_shop(user, _get(payload, "shopId", "shop_id"))
             shop = _require_shop(shop)
             owner = is_owner(user, shop)
+            if (
+                owner
+                and entity == "sale"
+                and operation == "create"
+                and not Sale.objects.filter(id=entity_id).exists()
+                and not owner_may_record_sale(user, _record(_sale_body(payload, entity_id))["created_at"])
+            ):
+                raise SyncError(OWNER_SALE_REFUSED)
             if not owner:
                 check_staff_change(entity, operation, payload, entity_id, shop)
             if entity == "product":
@@ -818,7 +827,11 @@ def apply_change(change: dict, user: User, queue_id: str = "") -> Shop:
                     raise SyncError("Stock movements are append-only.")
                 insert_movement(payload, shop, existing_is_ok=True)
             elif entity == "sale":
-                upsert_sale(payload, shop, entity_id, user, owner=owner)
+                sale = upsert_sale(payload, shop, entity_id, user, owner=owner)
+                # Sent to Smart Invoice once the sale is safely stored.
+                from apps.smartinvoice.services import send_sale
+
+                transaction.on_commit(lambda sale=sale: send_sale(sale))
             elif entity == "payment":
                 upsert_payment(payload, shop, partial=operation == "update")
             elif entity == "mobile_money_txn":

@@ -20,11 +20,13 @@ const {
   requestToPayOnServer,
   registerOwnerOnServer,
   registerStaffOnServer,
-  requestMagicLinkOnServer,
+  requestEmailCodeOnServer,
+  requestPasswordResetOnServer,
+  confirmPasswordResetOnServer,
   resetStaffPinOnServer,
   requestPinResetOnServer,
   setOwnerDevicePinOnServer,
-  verifyMagicLinkOnServer,
+  verifyEmailCodeOnServer,
   verifyStaffSignInOnServer,
 } = await import('./api');
 
@@ -264,58 +266,70 @@ describe('UT-API owner email client', () => {
     expect(error.code).toBe('email-unverified');
   });
 
-  it('UT-API-17c passes on that the server emailed a verification link', async () => {
-    respond(403, { code: 'email_unverified', verificationSent: true, demoToken: 'tok_123' });
+  it('UT-API-17c passes on that the server emailed a confirmation code', async () => {
+    respond(403, { code: 'email_unverified', verificationSent: true, demoCode: '123456' });
     const error = await authFailure(() =>
       loginOwnerOnServer({ email: 'elton@example.com', password: 'correct horse battery' })
     );
     expect(error.code).toBe('email-unverified');
-    expect(error.details).toEqual({ verificationSent: true, demoToken: 'tok_123' });
+    expect(error.details).toEqual({ verificationSent: true, demoCode: '123456' });
   });
 
-  it('UT-API-18 requests a magic link and returns the demo token', async () => {
-    const fetchMock = respond(200, {
-      expiresAt: '2026-11-17T10:15:00Z',
-      demoToken: 'demo-token',
-      demoUrl: 'stocksure://magic-link?token=demo-token',
-    });
+  it('UT-API-18 requests a confirmation code and returns the demo code', async () => {
+    const fetchMock = respond(200, { expiresAt: '2026-11-17T10:15:00Z', demoCode: '123456' });
 
-    const result = await requestMagicLinkOnServer('elton@example.com');
+    const result = await requestEmailCodeOnServer('elton@example.com', '0971234567');
 
-    expect(result.demoToken).toBe('demo-token');
+    expect(result.demoCode).toBe('123456');
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toBe('http://192.168.1.20:8000/api/v1/auth/magic-link/request');
-    expect(JSON.parse(init.body as string)).toEqual({ email: 'elton@example.com' });
-  });
-
-  it('UT-API-18b sends the account phone while the email is unverified', async () => {
-    const fetchMock = respond(200, { expiresAt: '2026-11-17T10:15:00Z' });
-
-    await requestMagicLinkOnServer('elton@example.com', '0971234567');
-
-    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('http://192.168.1.20:8000/api/v1/auth/email-code/request');
     expect(JSON.parse(init.body as string)).toEqual({
       email: 'elton@example.com',
       phone: '0971234567',
     });
   });
 
-  it('UT-API-19 verifies a magic link into a device session', async () => {
+  it('UT-API-19 verifies an email code into a device session', async () => {
     const fetchMock = respond(200, sessionPayload);
 
-    const result = await verifyMagicLinkOnServer('demo-token');
+    const result = await verifyEmailCodeOnServer('elton@example.com', '123456');
 
     expect(result.owner.email).toBe('elton@example.com');
-    const [url] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toBe('http://192.168.1.20:8000/api/v1/auth/magic-link/verify');
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('http://192.168.1.20:8000/api/v1/auth/email-code/verify');
+    expect(JSON.parse(init.body as string)).toEqual({ email: 'elton@example.com', code: '123456' });
   });
 
-  it('UT-API-20 maps invalid and expired magic links', async () => {
-    respond(400, { code: 'invalid_token' });
-    expect((await authFailure(() => verifyMagicLinkOnServer('bad'))).code).toBe('invalid-token');
+  it('UT-API-20 maps wrong, expired and exhausted codes', async () => {
+    respond(400, { code: 'invalid_code' });
+    expect((await authFailure(() => verifyEmailCodeOnServer('e@x.com', '000000'))).code).toBe('invalid-code');
 
-    respond(410, { code: 'expired_token' });
-    expect((await authFailure(() => verifyMagicLinkOnServer('old'))).code).toBe('expired-token');
+    respond(410, { code: 'expired_code' });
+    expect((await authFailure(() => verifyEmailCodeOnServer('e@x.com', '000000'))).code).toBe('expired-code');
+
+    respond(429, { code: 'too_many_attempts' });
+    expect((await authFailure(() => verifyEmailCodeOnServer('e@x.com', '000000'))).code).toBe(
+      'too-many-attempts'
+    );
+  });
+
+  it('UT-API-20b resets the password with an emailed code', async () => {
+    const fetchMock = respond(200, { expiresAt: '2026-11-17T10:15:00Z' });
+    await requestPasswordResetOnServer('elton@example.com');
+    expect((fetchMock.mock.calls[0] as unknown as [string])[0]).toBe(
+      'http://192.168.1.20:8000/api/v1/auth/password-reset/request'
+    );
+
+    const confirmMock = respond(200, sessionPayload);
+    const result = await confirmPasswordResetOnServer({
+      email: 'elton@example.com',
+      code: '123456',
+      password: 'a brand new pass',
+    });
+    expect(result.owner.email).toBe('elton@example.com');
+    expect((confirmMock.mock.calls[0] as unknown as [string])[0]).toBe(
+      'http://192.168.1.20:8000/api/v1/auth/password-reset/confirm'
+    );
   });
 
   it('UT-API-21 sets the device PIN with the bearer token', async () => {
@@ -395,6 +409,20 @@ describe('UT-API staff identity client', () => {
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe('http://192.168.1.20:8000/api/v1/auth/staff-sign-in/confirm');
     expect(JSON.parse(init.body as string)).toEqual({ phone: '0965551122', pin: '7315' });
+  });
+
+  it('UT-API-25b sends the staff member\'s own PIN on the second step', async () => {
+    const fetchMock = respond(200, {
+      staff: { id: 'staff_1', name: 'Given', phone: '0965551122', role: 'staff' },
+      owner: { name: 'Elton', phone: '0971234567' },
+      mustChangePin: false,
+    });
+
+    const result = await verifyStaffSignInOnServer('0965551122', '7315', '8642');
+
+    expect(result.mustChangePin).toBe(false);
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({ phone: '0965551122', pin: '7315', newPin: '8642' });
   });
 
   it('UT-API-26 maps a wrong PIN and a lockout', async () => {

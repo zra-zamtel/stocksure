@@ -19,6 +19,7 @@ from rest_framework.exceptions import APIException
 
 from apps.accounts.models import User
 from apps.core.utils import local_today, month_bounds, normalize_phone
+from apps.shops.selling import owner_may_record_sale
 from apps.sync.models import (
     Payment,
     ProductVariant,
@@ -31,8 +32,13 @@ from apps.sync.models import (
 from apps.sync.services import period_id_for, resolve_shop, tax_period_payload
 from apps.tax.services import compute_estimate
 
-MENU_OWNER = (
+MENU_OWNER_SOLO = (
     "CON StockSure\n1. Record a sale\n2. Check stock\n3. Today's summary\n"
+    "4. Tax estimate\n5. Save to TaxPot"
+)
+# An owner with staff leaves selling to them, so this menu starts at 2.
+MENU_OWNER = (
+    "CON StockSure\n2. Check stock\n3. Today's summary\n"
     "4. Tax estimate\n5. Save to TaxPot"
 )
 MENU_ASSISTANT = "CON StockSure\n1. Record a sale\n2. Check stock\n3. Today's summary"
@@ -207,9 +213,13 @@ def _period(shop, today):
 def _registered(user, shop, role, parts):
     is_owner = role == "owner"
     if not parts:
-        return MENU_OWNER if is_owner else MENU_ASSISTANT
+        if not is_owner:
+            return MENU_ASSISTANT
+        return MENU_OWNER_SOLO if owner_may_record_sale(user) else MENU_OWNER
     choice = parts[0]
 
+    if choice == "1" and is_owner and not owner_may_record_sale(user):
+        return "END Only staff record sales. Ask your staff to record it."
     if choice == "1":  # record a sale
         if len(parts) == 1:
             return "CON Enter sale amount in Kwacha"
@@ -277,6 +287,9 @@ def _registered(user, shop, role, parts):
             client_created_at=now,
         )
         label = "Cash" if method == Payment.Method.CASH else "Mobile money"
+        from apps.smartinvoice.services import send_sale
+
+        transaction.on_commit(lambda: send_sale(sale))
         return f"END Sale of {_k(amount)} recorded ({label})."
 
     if choice == "2":  # check stock

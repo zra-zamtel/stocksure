@@ -3,11 +3,10 @@ tax period. These close the findings from the review of the sync work (#30)."""
 from datetime import date
 
 from django.core.cache import cache
+from django.test import override_settings
 from django.utils import timezone
 
-from apps.accounts.models import User
 from apps.shops.models import Membership
-from apps.shops.models import Shop as DomainShop
 from apps.sync.models import (
     Reconciliation,
     Sale,
@@ -32,11 +31,25 @@ class StaffSyncTests(SyncBase):
     def setUp(self):
         super().setUp()
         cache.clear()
-        domain = DomainShop.objects.create(owner=self.owner, name="Test Shop", town="Kabwe")
-        Membership.objects.create(user=self.owner, shop=domain, role="owner")
-        self.staff = User.objects.create_user("0965551122", "staff pass 1234", full_name="Given")
-        Membership.objects.create(user=self.staff, shop=domain, role="assistant")
         self.push_schema()
+
+    @override_settings(SALES_BY_STAFF_ONLY_FROM="2026-01-01T00:00:00+00:00")
+    def test_an_owner_with_staff_cannot_record_a_sale(self):
+        response = self.push([self.change("q_sale", "sale", "sale_1", sale_payload())], user=self.owner)
+        self.assertEqual(len(response.json()["rejected"]), 1)
+        self.assertFalse(Sale.objects.filter(id="sale_1").exists())
+
+    @override_settings(SALES_BY_STAFF_ONLY_FROM="2026-12-01T00:00:00+00:00")
+    def test_an_owner_sale_from_before_the_rule_still_syncs(self):
+        response = self.push([self.change("q_sale", "sale", "sale_1", sale_payload())], user=self.owner)
+        self.assertEqual(response.json()["rejected"], [])
+        self.assertTrue(Sale.objects.filter(id="sale_1").exists())
+
+    @override_settings(SALES_BY_STAFF_ONLY_FROM="2026-01-01T00:00:00+00:00")
+    def test_an_owner_without_staff_records_their_own_sales(self):
+        Membership.objects.filter(user=self.staff).update(is_active=False)
+        response = self.push([self.change("q_sale", "sale", "sale_1", sale_payload())], user=self.owner)
+        self.assertEqual(response.json()["rejected"], [])
 
     def staff_push(self, *changes):
         response = self.push(list(changes), user=self.staff)
@@ -129,9 +142,9 @@ class StaffSyncTests(SyncBase):
         self.assertEqual(Reconciliation.objects.get(id="rec_1").counted_cash, 5000)
 
     def test_staff_pull_hides_buy_prices_and_tax(self):
+        self.push([self.change("q_sale", "sale", "sale_1", sale_payload())])
         self.push(
             [
-                self.change("q_sale", "sale", "sale_1", sale_payload()),
                 self.change(
                     "q_tax",
                     "tax_period",
@@ -234,7 +247,7 @@ class PlaceholderAndUssdTests(SyncBase):
     def test_ussd_sale_before_phone_sync_is_kept(self):
         from apps.ussd.services import handle
 
-        self.assertTrue(handle("0971234567", "1*150*1").startswith("END Sale of K150.00"))
+        self.assertTrue(handle("0965551122", "1*150*1").startswith("END Sale of K150.00"))
         response = self.push_schema()
 
         self.assertEqual(response.json()["rejected"], [])

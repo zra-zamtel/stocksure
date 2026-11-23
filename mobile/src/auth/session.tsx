@@ -24,6 +24,7 @@ import {
   getOnboardingState,
   getOwner,
   listIdentities,
+  listStaff,
   markStaffFirstSignIn,
   updateOwnerPinHash,
   upsertOwnerFromServer,
@@ -35,12 +36,14 @@ import {
   confirmPinResetOnServer,
   loginOwnerOnServer,
   registerOwnerOnServer,
-  requestMagicLinkOnServer,
+  confirmPasswordResetOnServer,
+  requestEmailCodeOnServer,
+  requestPasswordResetOnServer,
   requestPinResetOnServer,
   setOwnerDevicePinOnServer,
-  verifyMagicLinkOnServer,
+  verifyEmailCodeOnServer,
   verifyStaffSignInOnServer,
-  type MagicLinkRequestResult,
+  type EmailCodeRequestResult,
   type OwnerSession,
   type PinResetRequestResult,
 } from '@/lib/api';
@@ -64,7 +67,12 @@ type SignInResult =
   | 'no-account'
   | 'ambiguous-pin'
   | 'first-sign-in-offline'
-  | 'locked-out';
+  | 'locked-out'
+  /** The owner's PIN was one-time; the staff member must choose their own. */
+  | 'choose-pin';
+
+/** A staff member who signed in with the owner's one-time PIN. */
+export type StaffPinChange = { phone: string; pin: string; name: string };
 
 export type PendingOwner = {
   owner: OwnerSession['owner'];
@@ -101,11 +109,19 @@ type AuthValue = {
   }) => Promise<void>;
   signIn: (pin: string) => Promise<SignInResult>;
   /** A staff member's first sign-in on a phone that does not know them yet. */
-  signInStaff: (input: { phone: string; pin: string }) => Promise<void>;
+  signInStaff: (input: { phone: string; pin: string; newPin?: string }) => Promise<'ok' | 'choose-pin'>;
+  /** Set while a staff member must replace the owner's one-time PIN. */
+  staffPinChange: StaffPinChange | null;
+  cancelStaffPinChange: () => void;
   beginOwnerLogin: (input: { email: string; password: string }) => Promise<void>;
-  /** Verifies the link and returns whose account it opened. */
-  beginOwnerMagicLink: (token: string) => Promise<{ id: string }>;
-  requestOwnerMagicLink: (email: string, phone?: string) => Promise<MagicLinkRequestResult>;
+  /** Signs in with the emailed confirmation code; this phone then needs a PIN. */
+  beginOwnerEmailCode: (input: { email: string; code: string }) => Promise<void>;
+  /** Confirms the email of the owner already signed in on this phone. */
+  confirmOwnerEmail: (input: { email: string; code: string }) => Promise<void>;
+  requestOwnerEmailCode: (email: string, phone?: string) => Promise<EmailCodeRequestResult>;
+  requestOwnerPasswordReset: (email: string) => Promise<EmailCodeRequestResult>;
+  /** Sets a new password with the emailed code; this phone then needs a PIN. */
+  beginOwnerPasswordReset: (input: { email: string; code: string; password: string }) => Promise<void>;
   completeDeviceSetup: (input: { pin: string }) => Promise<void>;
   cancelOwnerLogin: () => void;
   requestPinResetCode: () => Promise<PinResetRequestResult>;
@@ -206,6 +222,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [ownerPreview, setOwnerPreview] = useState<AuthValue['ownerPreview']>(null);
   const [hasAccount, setHasAccount] = useState(false);
   const [hasShop, setHasShop] = useState(false);
+  // Whether any staff member exists; an owner with none records their own sales.
+  const [hasStaff, setHasStaff] = useState(false);
+  const [staffPinChange, setStaffPinChange] = useState<StaffPinChange | null>(null);
   const [shopRestorePending, setShopRestorePending] = useState(false);
   const [pendingOwner, setPendingOwner] = useState<PendingOwner | null>(null);
   const [deviceToken, setDeviceToken] = useState<string | null>(null);
@@ -221,11 +240,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(async () => {
     try {
-      const [owner, identities, state] = await Promise.all([
+      const [owner, identities, state, staff] = await Promise.all([
         getOwner(db),
         listIdentities(db),
         getOnboardingState(db),
+        listStaff(db),
       ]);
+      setHasStaff(staff.some((person) => person.role === 'staff'));
       setOwnerPreview(
         owner ? { name: owner.name, phone: owner.phone, email: owner.email } : null
       );
@@ -327,7 +348,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // The scope sheet makes this the one online moment for a staff
           // member. After it succeeds the local flag lets later sign-ins work
           // in airplane mode.
-          await verifyStaffSignInOnServer(matched.phone, pin);
+          const server = await verifyStaffSignInOnServer(matched.phone, pin);
+          if (server.mustChangePin) {
+            setStaffPinChange({ phone: matched.phone, pin, name: matched.name });
+            return 'choose-pin';
+          }
           await markStaffFirstSignIn(db, matched.id);
         } catch (cause) {
           if (cause instanceof ApiError && cause.code === 'offline') {
@@ -351,20 +376,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const signInStaff = useCallback(
-    async (input: { phone: string; pin: string }) => {
+    async (input: { phone: string; pin: string; newPin?: string }): Promise<'ok' | 'choose-pin'> => {
       const phone = normalisePhone(input.phone);
-      const server = await verifyStaffSignInOnServer(phone, input.pin);
+      // The PIN this phone will keep: the staff member's own once chosen.
+      const finalPin = input.newPin ?? input.pin;
 
       // Two people on one phone must have different PINs, or a later PIN-only
-      // sign-in cannot tell them apart.
+      // sign-in cannot tell them apart. Checked before the server changes it.
+      if (input.newPin) {
+        const identities = await listIdentities(db);
+        for (const identity of identities) {
+          if (identity.phone !== phone && (await verifyPin(finalPin, identity.pinHash))) {
+            throw new Error('That PIN already unlocks someone else on this phone. Choose another.');
+          }
+        }
+      }
+
+      const server = await verifyStaffSignInOnServer(phone, input.pin, input.newPin);
+      if (server.mustChangePin) {
+        setStaffPinChange({ phone, pin: input.pin, name: server.staff.name });
+        return 'choose-pin';
+      }
+
       const identities = await listIdentities(db);
       for (const identity of identities) {
-        if (identity.id !== server.staff.id && (await verifyPin(input.pin, identity.pinHash))) {
+        if (identity.id !== server.staff.id && (await verifyPin(finalPin, identity.pinHash))) {
           throw new Error('That PIN already unlocks someone else on this phone. Choose another.');
         }
       }
 
-      const pinHash = await hashPin(input.pin);
+      const pinHash = await hashPin(finalPin);
       const staff = await upsertStaffFromServer(db, {
         id: server.staff.id,
         name: server.staff.name,
@@ -372,10 +413,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         pinHash,
       });
       await markStaffFirstSignIn(db, staff.id);
+      setStaffPinChange(null);
       setUser({ id: staff.id, name: staff.name, phone: staff.phone, role: 'staff' });
       setStatus('ready');
       setError(null);
       await refresh();
+      return 'ok';
     },
     [db, refresh]
   );
@@ -395,21 +438,49 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     []
   );
 
-  const requestOwnerMagicLink = useCallback(
-    async (email: string, phone?: string) =>
-      requestMagicLinkOnServer(email.trim().toLowerCase(), phone),
-    []
-  );
-
-  const beginOwnerMagicLink = useCallback(async (token: string) => {
-    const session = await verifyMagicLinkOnServer(token);
-    // Opening any link proves the inbox, so the email is confirmed now.
+  const startOwnerSession = useCallback((session: OwnerSession) => {
+    // Any accepted code proves the inbox, so the email is confirmed now.
     clearEmailPending();
     setPendingOwner({ owner: session.owner, deviceToken: session.deviceToken });
     setStatus('ready');
     setError(null);
-    return { id: session.owner.id };
   }, []);
+
+  const requestOwnerEmailCode = useCallback(
+    async (email: string, phone?: string) =>
+      requestEmailCodeOnServer(email.trim().toLowerCase(), phone),
+    []
+  );
+
+  const beginOwnerEmailCode = useCallback(
+    async (input: { email: string; code: string }) => {
+      startOwnerSession(await verifyEmailCodeOnServer(input.email.trim().toLowerCase(), input.code));
+    },
+    [startOwnerSession]
+  );
+
+  const confirmOwnerEmail = useCallback(async (input: { email: string; code: string }) => {
+    await verifyEmailCodeOnServer(input.email.trim().toLowerCase(), input.code);
+    clearEmailPending();
+  }, []);
+
+  const requestOwnerPasswordReset = useCallback(
+    async (email: string) => requestPasswordResetOnServer(email.trim().toLowerCase()),
+    []
+  );
+
+  const beginOwnerPasswordReset = useCallback(
+    async (input: { email: string; code: string; password: string }) => {
+      startOwnerSession(
+        await confirmPasswordResetOnServer({
+          email: input.email.trim().toLowerCase(),
+          code: input.code,
+          password: input.password,
+        })
+      );
+    },
+    [startOwnerSession]
+  );
 
   const completeDeviceSetup = useCallback(
     async (input: { pin: string }) => {
@@ -515,13 +586,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       deviceToken,
       onboardingComplete: onboarding.onboardingComplete,
       nextOnboardingRoute,
-      can: (permission) => roleCan(user?.role, permission),
+      can: (permission) => roleCan(user?.role, permission, { hasStaff }),
       registerOwner,
       signIn,
       signInStaff,
+      staffPinChange,
+      cancelStaffPinChange: () => setStaffPinChange(null),
       beginOwnerLogin,
-      beginOwnerMagicLink,
-      requestOwnerMagicLink,
+      beginOwnerEmailCode,
+      confirmOwnerEmail,
+      requestOwnerEmailCode,
+      requestOwnerPasswordReset,
+      beginOwnerPasswordReset,
       completeDeviceSetup,
       cancelOwnerLogin,
       requestPinResetCode,
@@ -531,25 +607,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [
     beginOwnerLogin,
-    beginOwnerMagicLink,
+    beginOwnerEmailCode,
+    beginOwnerPasswordReset,
     cancelOwnerLogin,
+    confirmOwnerEmail,
     completeDeviceSetup,
     deviceToken,
     error,
     hasAccount,
     hasShop,
+    hasStaff,
     onboarding,
     ownerPreview,
     pendingOwner,
     refresh,
     registerOwner,
-    requestOwnerMagicLink,
+    requestOwnerEmailCode,
+    requestOwnerPasswordReset,
     requestPinResetCode,
     resetPin,
     shopRestorePending,
     signIn,
     signInStaff,
     signOut,
+    staffPinChange,
     status,
     user,
   ]);

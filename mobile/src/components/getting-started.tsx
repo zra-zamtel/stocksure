@@ -45,13 +45,17 @@ export function GettingStarted() {
           },
         ]
       : []),
-    {
-      key: 'sale',
-      label: t('home.start.sale'),
-      hint: t('home.start.sale.hint'),
-      done: sales.length > 0,
-      href: '/sale/new',
-    },
+    ...(can('sales.record')
+      ? [
+          {
+            key: 'sale',
+            label: t('home.start.sale'),
+            hint: t('home.start.sale.hint'),
+            done: sales.length > 0,
+            href: '/sale/new' as Href,
+          },
+        ]
+      : []),
     ...(can('cash.count')
       ? [
           {

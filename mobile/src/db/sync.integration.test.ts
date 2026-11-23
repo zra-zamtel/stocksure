@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { enqueueSync } from './repos';
+import { enqueueSync, getSmartInvoiceLink, listSmartInvoiceReceipts } from './repos';
 import { applyPulledChange, pullChanges, pushOutbox } from './sync';
 import { count, openTestDb, type TestDb } from '@/test/sqlite';
 
@@ -259,5 +259,40 @@ describe('IT-SYNC pull and apply', () => {
       'var_1'
     );
     expect(stock?.quantity).toBe(-1);
+  });
+});
+
+describe('IT-SYNC Smart Invoice receipts', () => {
+  it('stores the ZRA receipt for a sale and marks the shop as connected', async () => {
+    expect(await getSmartInvoiceLink(db)).toBeNull();
+
+    await applyPulledChange(db, {
+      entity: 'smart_invoice_receipt',
+      entityId: 'sale_1:S',
+      operation: 'create',
+      cursor: '9',
+      clientCreatedAt: '2026-11-23T10:00:00+02:00',
+      payload: {
+        id: 'sale_1:S',
+        saleId: 'sale_1',
+        receiptType: 'S',
+        invoiceNo: 1,
+        originalInvoiceNo: 0,
+        resultCode: '000',
+        resultMessage: 'It is succeeded',
+        receiptNo: 1,
+        receiptSignature: 'TQZMKL57AGBMSTPO',
+        internalData: 'X',
+        sdcId: 'SDC-SIM-ABC123',
+        mrcNo: 'SIM1234',
+        publishedAt: '2026-11-23T10:00:00+02:00',
+        simulated: true,
+      },
+    });
+
+    const receipts = await listSmartInvoiceReceipts(db, 'sale_1');
+    expect(receipts).toHaveLength(1);
+    expect(receipts[0]).toMatchObject({ receiptType: 'S', receiptNo: 1, simulated: true });
+    expect((await getSmartInvoiceLink(db))?.sdcId).toBe('SDC-SIM-ABC123');
   });
 });

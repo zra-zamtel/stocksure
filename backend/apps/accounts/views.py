@@ -3,11 +3,9 @@ import logging
 import secrets
 import uuid
 from datetime import timedelta
-from urllib.parse import urlencode
 
 from django.conf import settings
 from django.contrib.auth.hashers import check_password, make_password
-from django.core.mail import send_mail
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 from rest_framework import generics, status
@@ -20,15 +18,18 @@ from rest_framework_simplejwt.tokens import RefreshToken, TokenError
 from apps.shops.models import Membership, Shop
 from apps.sync.models import Shop as SyncShop
 
-from .models import MagicLinkToken, PinResetCode, StaffProfile, User
+from .emails import send_branded
+from .models import EmailCode, PinResetCode, StaffProfile, User
 from .serializers import (
     DevicePinSerializer,
+    EmailCodeRequestSerializer,
+    EmailCodeVerifySerializer,
     LoginSerializer,
-    MagicLinkRequestSerializer,
-    MagicLinkVerifySerializer,
     MeSerializer,
     OwnerRegistrationSerializer,
     OwnerSerializer,
+    PasswordResetConfirmSerializer,
+    PasswordResetRequestSerializer,
     PinResetConfirmSerializer,
     PinResetRequestSerializer,
     StaffPinResetSerializer,
@@ -41,7 +42,8 @@ logger = logging.getLogger(__name__)
 
 RESET_CODE_TTL = timedelta(minutes=10)
 RESET_MAX_ATTEMPTS = 5
-MAGIC_LINK_TTL = timedelta(minutes=15)
+EMAIL_CODE_TTL = timedelta(minutes=10)
+EMAIL_CODE_MAX_ATTEMPTS = 5
 REGISTRATION_RETRY_WINDOW = timedelta(minutes=10)
 STAFF_LOCK_AFTER = 5
 STAFF_LOCK_FOR = timedelta(minutes=15)
@@ -72,38 +74,116 @@ def auth_payload(user: User) -> dict:
     }
 
 
-def issue_magic_link(user: User) -> tuple[MagicLinkToken, str, str]:
-    """Create a single-use link and return the row, raw token and URL."""
+def issue_email_code(user: User, purpose: str) -> tuple[EmailCode, str]:
+    """Create a 6-digit code, retiring earlier live codes of the same purpose."""
     now = timezone.now()
-    user.magic_links.filter(used_at__isnull=True).update(used_at=now)
-
-    token = secrets.token_urlsafe(32)
-    link_row = MagicLinkToken.objects.create(
+    user.email_codes.filter(purpose=purpose, used_at__isnull=True).update(used_at=now)
+    code = f"{secrets.randbelow(900000) + 100000}"
+    row = EmailCode.objects.create(
         user=user,
-        token_hash=hash_token(token),
-        expires_at=now + MAGIC_LINK_TTL,
+        purpose=purpose,
+        code_hash=make_password(code),
+        expires_at=now + EMAIL_CODE_TTL,
     )
-
-    base = settings.MAGIC_LINK_BASE_URL
-    separator = "&" if "?" in base else "?"
-    link = f"{base}{separator}{urlencode({'token': token})}"
-    return link_row, token, link
+    return row, code
 
 
-def send_magic_link_email(user: User, link: str) -> None:
-    send_mail(
-        subject="Your StockSure sign-in link",
-        message=(
-            "Open this link on your phone to sign in to StockSure:\n\n"
-            f"{link}\n\n"
-            f"This link signs in to the account for {user.full_name or user.phone} "
-            f"({user.phone}). If that is not your account, ignore this email.\n\n"
-            "The link works once and expires in 15 minutes."
+def send_email_code(user: User, code: str, purpose: str) -> None:
+    if purpose == EmailCode.Purpose.PASSWORD_RESET:
+        subject = "Your StockSure password reset code"
+        heading = "Reset your password"
+        lead = "Enter this code in the StockSure app to set a new password:"
+    else:
+        subject = "Your StockSure confirmation code"
+        heading = "Confirm your email"
+        lead = "Enter this code in the StockSure app to confirm your email address:"
+    send_branded(
+        to=user.email,
+        subject=subject,
+        heading=heading,
+        paragraphs=[f"Hello {user.full_name or 'there'},", lead],
+        code=code,
+        note=(
+            f"This code is for the account {user.phone}. It works once and expires in "
+            "10 minutes. If you did not ask for it, ignore this email. Never share this code."
         ),
-        from_email=settings.DEFAULT_FROM_EMAIL,
-        recipient_list=[user.email],
-        fail_silently=False,
     )
+
+
+def notify_account_change(user: User, subject: str, what: str) -> None:
+    """Tell the owner by email that something important changed on the account.
+
+    Only a confirmed address is used, and a mail failure never undoes the change.
+    """
+    if not user.email or user.email_verified_at is None:
+        return
+    try:
+        send_branded(
+            to=user.email,
+            subject=f"StockSure: {subject}",
+            heading=subject[:1].upper() + subject[1:],
+            paragraphs=[
+                f"Hello {user.full_name or 'there'},",
+                what,
+                f"When: {timezone.now():%d %b %Y, %H:%M} UTC",
+            ],
+            note=(
+                "If this was you, there is nothing to do. If it was not, change your "
+                "password in the StockSure app straight away."
+            ),
+        )
+    except Exception as exc:  # noqa: BLE001 - a notice must never block the change
+        logger.warning("Could not send the account notice to %s: %s", user.id, exc)
+
+
+def check_email_code(user: User | None, purpose: str, code: str) -> Response | None:
+    """Use up the user's live code if ``code`` matches it; otherwise an error.
+
+    Must run inside a transaction. Returns None on success.
+    """
+    if user is None:
+        return error("invalid_code", "That code is not correct.", status.HTTP_400_BAD_REQUEST)
+    now = timezone.now()
+    row = (
+        EmailCode.objects.select_for_update()
+        .filter(user=user, purpose=purpose, used_at__isnull=True)
+        .order_by("-created_at")
+        .first()
+    )
+    if row is None:
+        return error("invalid_code", "Request a new code.", status.HTTP_400_BAD_REQUEST)
+    if row.expires_at <= now:
+        row.used_at = now
+        row.save(update_fields=["used_at"])
+        return error("expired_code", "That code has expired. Request a new one.", status.HTTP_410_GONE)
+    if row.attempts >= EMAIL_CODE_MAX_ATTEMPTS:
+        return error(
+            "too_many_attempts", "Too many tries. Request a new code.", status.HTTP_429_TOO_MANY_REQUESTS
+        )
+    if not check_password(code, row.code_hash):
+        row.attempts += 1
+        row.save(update_fields=["attempts"])
+        if row.attempts >= EMAIL_CODE_MAX_ATTEMPTS:
+            return error(
+                "too_many_attempts", "Too many tries. Request a new code.", status.HTTP_429_TOO_MANY_REQUESTS
+            )
+        return error("invalid_code", "That code is not correct.", status.HTTP_400_BAD_REQUEST)
+    row.used_at = now
+    row.save(update_fields=["used_at"])
+    return None
+
+
+def send_verify_code(user: User, payload: dict) -> None:
+    """Email a confirmation code and record in ``payload`` whether it went out."""
+    payload["verificationSent"] = False
+    try:
+        _, code = issue_email_code(user, EmailCode.Purpose.VERIFY)
+        send_email_code(user, code, EmailCode.Purpose.VERIFY)
+        payload["verificationSent"] = True
+        if settings.EXPOSE_EMAIL_TOKEN:
+            payload["demoCode"] = code
+    except Exception as exc:  # noqa: BLE001 - report it; the owner can resend
+        logger.warning("Could not send the confirmation code to %s: %s", user.id, exc)
 
 
 def owner_shop(user: User, shop_id=None) -> Membership | None:
@@ -251,19 +331,11 @@ class RegisterOwnerView(APIView):
                 status.HTTP_409_CONFLICT,
             )
 
-        # Verify the address while the registration is fresh, so a real owner's
-        # claim becomes protected within minutes. A mail outage must not lose
-        # the account that was just created; the owner can request another link.
+        # Confirm the address while the registration is fresh, so a real
+        # owner's claim becomes protected within minutes. A mail outage must not
+        # lose the account that was just created; the owner can resend the code.
         payload = auth_payload(user)
-        # Tell the app whether the email went out, so it can tell the owner to
-        # check their inbox, or offer to resend.
-        payload["verificationSent"] = False
-        try:
-            _, _, link = issue_magic_link(user)
-            send_magic_link_email(user, link)
-            payload["verificationSent"] = True
-        except Exception as exc:  # noqa: BLE001 - a mail failure must not undo the sign-up
-            logger.warning("Could not send the verification email for %s: %s", user.id, exc)
+        send_verify_code(user, payload)
 
         return Response(payload, status=status.HTTP_201_CREATED)
 
@@ -272,7 +344,7 @@ class LoginView(APIView):
     """POST /api/auth/login
 
     Email + password for the app, or phone + password for the domain clients.
-    Email sign-in stays blocked until a magic link proves the inbox; phone
+    Email sign-in stays blocked until an emailed code proves the inbox; phone
     sign-in has no email step.
     """
 
@@ -305,27 +377,13 @@ class LoginView(APIView):
             )
         if check_verified and user.email_verified_at is None:
             # A password proves the secret, not that the owner controls the
-            # inbox. The magic link is the verification step; only reveal this
-            # after the password is correct so the endpoint cannot be used to
-            # discover account state.
-            #
-            # The correct password already proves this is the person who
-            # registered, the same proof registration had when it sent the
-            # first link. So send a fresh verification link now instead of
-            # making the owner go and ask for one: opening it signs them in.
+            # inbox. Only reveal this after the password is correct, and email
+            # a fresh code straight away: entering it signs the owner in.
             payload = {
                 "code": "email_unverified",
-                "detail": "We emailed you a link to verify your address. Open it to sign in.",
-                "verificationSent": False,
+                "detail": "We emailed you a 6-digit code. Enter it to confirm your email.",
             }
-            try:
-                _, token, link = issue_magic_link(user)
-                send_magic_link_email(user, link)
-                payload["verificationSent"] = True
-                if settings.EXPOSE_EMAIL_TOKEN:
-                    payload["demoToken"] = token
-            except Exception as exc:  # noqa: BLE001 - report it; the owner can retry
-                logger.warning("Could not send the verification email for %s: %s", user.id, exc)
+            send_verify_code(user, payload)
             return Response(payload, status=status.HTTP_403_FORBIDDEN)
 
         return Response(auth_payload(user), status=status.HTTP_200_OK)
@@ -349,91 +407,124 @@ class LogoutView(APIView):
         return Response({"revoked": True}, status=status.HTTP_200_OK)
 
 
-class RequestMagicLinkView(APIView):
-    """POST /api/auth/magic-link/request
+class RequestEmailCodeView(APIView):
+    """POST /api/auth/email-code/request
 
-    Send a single-use link to the user's email. Unknown addresses get the same
-    generic response, so the endpoint cannot be used to discover accounts.
+    Send a fresh 6-digit code to confirm an unverified email. Unknown or already
+    confirmed addresses get the same generic response, so the endpoint cannot
+    be used to discover accounts.
     """
 
     authentication_classes = []
     permission_classes = [AllowAny]
     throttle_classes = [ScopedRateThrottle]
-    throttle_scope = "magic"
+    throttle_scope = "email-code"
 
     def post(self, request):
-        serializer = MagicLinkRequestSerializer(data=request.data)
+        serializer = EmailCodeRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
-        expires_at = timezone.now() + MAGIC_LINK_TTL
-        payload = {"expiresAt": expires_at.isoformat()}
+        payload = {"expiresAt": (timezone.now() + EMAIL_CODE_TTL).isoformat()}
 
         user = User.objects.filter(email=data["email"]).first()
-        if not user:
-            return Response(payload, status=status.HTTP_200_OK)
-        if user.email_verified_at is None and data.get("phone") != user.phone:
-            # A provisional claim is not enough to send a sign-in link. The
-            # real owner can still verify because they know their own phone;
-            # an inbox owner who never registered this account cannot.
+        # The phone number proves this is the person who registered the claim;
+        # an inbox owner who never registered this account cannot know it.
+        if user is None or user.email_verified_at is not None or data.get("phone") != user.phone:
             return Response(payload, status=status.HTTP_200_OK)
 
-        link_row, token, link = issue_magic_link(user)
-        send_magic_link_email(user, link)
-        payload["expiresAt"] = link_row.expires_at.isoformat()
-
+        row, code = issue_email_code(user, EmailCode.Purpose.VERIFY)
+        send_email_code(user, code, EmailCode.Purpose.VERIFY)
+        payload["expiresAt"] = row.expires_at.isoformat()
         if settings.EXPOSE_EMAIL_TOKEN:
-            payload["demoToken"] = token
-            payload["demoUrl"] = link
-
+            payload["demoCode"] = code
         return Response(payload, status=status.HTTP_200_OK)
 
 
-class VerifyMagicLinkView(APIView):
-    """POST /api/auth/magic-link/verify
+class VerifyEmailCodeView(APIView):
+    """POST /api/auth/email-code/verify
 
-    A magic link is proof that the owner controls the email address. Mark it
-    used, verify the email and issue JWT tokens for this phone.
+    The code proves the owner controls the email address. Confirm it and issue
+    JWT tokens for this phone.
     """
 
     authentication_classes = []
     permission_classes = [AllowAny]
     throttle_classes = [ScopedRateThrottle]
-    throttle_scope = "magic"
+    throttle_scope = "email-code"
 
     def post(self, request):
-        serializer = MagicLinkVerifySerializer(data=request.data)
+        serializer = EmailCodeVerifySerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
 
-        now = timezone.now()
+        user = User.objects.filter(email=data["email"]).first()
         with transaction.atomic():
-            link = (
-                MagicLinkToken.objects.select_for_update()
-                .select_related("user")
-                .filter(token_hash=hash_token(serializer.validated_data["token"]))
-                .first()
-            )
-            if link is None or link.used_at is not None:
-                return error(
-                    "invalid_token",
-                    "That sign-in link is not valid. Request a new one.",
-                    status.HTTP_400_BAD_REQUEST,
-                )
-            if link.expires_at <= now:
-                link.used_at = now
-                link.save(update_fields=["used_at"])
-                return error(
-                    "expired_token",
-                    "That sign-in link has expired. Request a new one.",
-                    status.HTTP_410_GONE,
-                )
+            refused = check_email_code(user, EmailCode.Purpose.VERIFY, data["code"])
+            if refused:
+                return refused
+            if user.email_verified_at is None:
+                user.email_verified_at = timezone.now()
+                user.save(update_fields=["email_verified_at"])
 
-            link.used_at = now
-            link.save(update_fields=["used_at"])
-            if link.user.email_verified_at is None:
-                link.user.email_verified_at = now
-                link.user.save(update_fields=["email_verified_at"])
+        return Response(auth_payload(user), status=status.HTTP_200_OK)
 
-        return Response(auth_payload(link.user), status=status.HTTP_200_OK)
+
+class RequestPasswordResetView(APIView):
+    """POST /api/auth/password-reset/request
+
+    Email a 6-digit code to a confirmed address. Unknown and unconfirmed
+    addresses get the same response without sending anything.
+    """
+
+    authentication_classes = []
+    permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "email-code"
+
+    def post(self, request):
+        serializer = PasswordResetRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payload = {"expiresAt": (timezone.now() + EMAIL_CODE_TTL).isoformat()}
+
+        user = User.objects.filter(email=serializer.validated_data["email"]).first()
+        if user is None or user.email_verified_at is None:
+            return Response(payload, status=status.HTTP_200_OK)
+
+        row, code = issue_email_code(user, EmailCode.Purpose.PASSWORD_RESET)
+        send_email_code(user, code, EmailCode.Purpose.PASSWORD_RESET)
+        payload["expiresAt"] = row.expires_at.isoformat()
+        if settings.EXPOSE_EMAIL_TOKEN:
+            payload["demoCode"] = code
+        return Response(payload, status=status.HTTP_200_OK)
+
+
+class ConfirmPasswordResetView(APIView):
+    """POST /api/auth/password-reset/confirm
+
+    Check the emailed code, set the new password and sign this phone in. The
+    owner is told by email that the password changed.
+    """
+
+    authentication_classes = []
+    permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "email-code"
+
+    def post(self, request):
+        serializer = PasswordResetConfirmSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        user = User.objects.filter(email=data["email"]).first()
+        with transaction.atomic():
+            refused = check_email_code(user, EmailCode.Purpose.PASSWORD_RESET, data["code"])
+            if refused:
+                return refused
+            user.set_password(data["password"])
+            user.save(update_fields=["password"])
+
+        notify_account_change(user, "your password was changed", "The password for your StockSure account was changed.")
+        return Response(auth_payload(user), status=status.HTTP_200_OK)
 
 
 class SetDevicePinView(APIView):
@@ -563,6 +654,9 @@ class ConfirmPinResetView(APIView):
             reset.used_at = now
             reset.save(update_fields=["used_at"])
 
+        notify_account_change(
+            user, "your app PIN was reset", "The PIN for the StockSure app on your phone was reset."
+        )
         return Response(OwnerSerializer(user).data, status=status.HTTP_200_OK)
 
 
@@ -656,6 +750,11 @@ class RegisterStaffView(APIView):
                 status.HTTP_409_CONFLICT,
             )
 
+        notify_account_change(
+            request.user,
+            "a staff member was added",
+            f"{user.full_name} ({user.phone}) was added as staff to {membership.shop.name}.",
+        )
         return Response(StaffSerializer(user).data, status=status.HTTP_201_CREATED)
 
 
@@ -694,10 +793,22 @@ class ResetStaffPinView(APIView):
         profile.pin_verifier = make_password(serializer.validated_data["pin"])
         profile.failed_sign_ins = 0
         profile.locked_until = None
+        profile.must_change_pin = True
         profile.save(
-            update_fields=["pin_verifier", "failed_sign_ins", "locked_until", "updated_at"]
+            update_fields=[
+                "pin_verifier",
+                "failed_sign_ins",
+                "locked_until",
+                "must_change_pin",
+                "updated_at",
+            ]
         )
 
+        notify_account_change(
+            request.user,
+            "a staff PIN was reset",
+            f"The PIN for {staff.full_name} ({staff.phone}) was reset.",
+        )
         return Response(StaffSerializer(staff).data, status=status.HTTP_200_OK)
 
 
@@ -768,16 +879,17 @@ class ConfirmStaffSignInView(APIView):
 
             profile.failed_sign_ins = 0
             profile.locked_until = None
-            if profile.first_signed_in_at is None:
+            update_fields = ["failed_sign_ins", "locked_until", "updated_at"]
+            if data.get("newPin"):
+                # The staff member's own PIN replaces the one the owner gave.
+                profile.pin_verifier = make_password(data["newPin"])
+                profile.must_change_pin = False
+                update_fields += ["pin_verifier", "must_change_pin"]
+            if profile.first_signed_in_at is None and not profile.must_change_pin:
                 profile.first_signed_in_at = now
-            profile.save(
-                update_fields=[
-                    "failed_sign_ins",
-                    "locked_until",
-                    "first_signed_in_at",
-                    "updated_at",
-                ]
-            )
+                update_fields.append("first_signed_in_at")
+            profile.save(update_fields=update_fields)
+            must_change_pin = profile.must_change_pin
 
         membership = (
             Membership.objects.select_related("shop__owner")
@@ -801,6 +913,9 @@ class ConfirmStaffSignInView(APIView):
             {
                 "staff": StaffSerializer(staff).data,
                 "owner": {"name": owner.full_name, "phone": owner.phone},
+                # True until the staff member chooses their own PIN; the app
+                # then sends the same request again with newPin.
+                "mustChangePin": must_change_pin,
             },
             status=status.HTTP_200_OK,
         )

@@ -69,6 +69,7 @@ function RootNavigator() {
     shopRestorePending,
     onboardingComplete,
     refresh,
+    can,
   } = useAuth();
 
   if (status === 'loading') {
@@ -98,7 +99,6 @@ function RootNavigator() {
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="index" />
       {/* Open in every state: a signed-in owner taps the link to confirm their email. */}
-      <Stack.Screen name="magic-link" />
 
       <Stack.Protected guard={!hasAccount && pendingOwner === null}>
         <Stack.Screen name="onboarding/language" />
@@ -153,14 +153,18 @@ function RootNavigator() {
         <Stack.Screen name="scan" />
       </Stack.Protected>
 
+      <Stack.Protected guard={signedIn && onboardingComplete && can('sales.record')}>
+        <Stack.Screen name="sale/new" />
+      </Stack.Protected>
+
       <Stack.Protected guard={signedIn && onboardingComplete}>
         <Stack.Screen name="(tabs)" />
-        <Stack.Screen name="sale/new" />
         <Stack.Screen name="sale/[id]" />
       </Stack.Protected>
 
       <Stack.Protected guard={ownerOnly && canAccessScreen(user?.role, 'settings')}>
         <Stack.Screen name="settings" />
+        <Stack.Screen name="smart-invoice" />
       </Stack.Protected>
 
       <Stack.Protected guard={ownerOnly && canAccessScreen(user?.role, 'staff')}>

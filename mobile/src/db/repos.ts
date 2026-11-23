@@ -2289,3 +2289,101 @@ export async function addPaymentMessage(db: SQLiteDatabase, input: PaymentMessag
   });
   return row.id;
 }
+
+// ---- Smart Invoice (simulated ZRA bridge) ----------------------------------
+
+export type SmartInvoiceReceipt = {
+  id: string;
+  saleId: string;
+  receiptType: 'S' | 'R';
+  invoiceNo: number;
+  originalInvoiceNo: number;
+  resultCode: string;
+  resultMessage?: string;
+  receiptNo?: number;
+  receiptSignature?: string;
+  sdcId?: string;
+  mrcNo?: string;
+  publishedAt?: string;
+  simulated: boolean;
+};
+
+export type SmartInvoiceLinkInfo = {
+  tpin: string;
+  sdcId: string;
+  connectedAt: string;
+  simulated: boolean;
+};
+
+const SMART_INVOICE_LINK_KEY = 'smartInvoice.link';
+
+export async function listSmartInvoiceReceipts(
+  db: SQLiteDatabase,
+  saleId: string
+): Promise<SmartInvoiceReceipt[]> {
+  const rows = await db.getAllAsync<{
+    id: string;
+    saleId: string;
+    receiptType: 'S' | 'R';
+    invoiceNo: number;
+    originalInvoiceNo: number;
+    resultCode: string;
+    resultMessage: string | null;
+    receiptNo: number | null;
+    receiptSignature: string | null;
+    sdcId: string | null;
+    mrcNo: string | null;
+    publishedAt: string | null;
+    simulated: number;
+  }>(
+    `SELECT id, sale_id AS saleId, receipt_type AS receiptType, invoice_no AS invoiceNo,
+            original_invoice_no AS originalInvoiceNo, result_code AS resultCode,
+            result_message AS resultMessage, receipt_no AS receiptNo,
+            receipt_signature AS receiptSignature, sdc_id AS sdcId, mrc_no AS mrcNo,
+            published_at AS publishedAt, simulated
+       FROM smart_invoice_receipt
+      WHERE sale_id = ?
+      ORDER BY receipt_type DESC`,
+    saleId
+  );
+  return rows.map((row) => ({
+    ...row,
+    resultMessage: row.resultMessage ?? undefined,
+    receiptNo: row.receiptNo ?? undefined,
+    receiptSignature: row.receiptSignature ?? undefined,
+    sdcId: row.sdcId ?? undefined,
+    mrcNo: row.mrcNo ?? undefined,
+    publishedAt: row.publishedAt ?? undefined,
+    simulated: row.simulated === 1,
+  }));
+}
+
+/** Connected when the owner linked the shop on this phone, or any receipt has arrived. */
+export async function getSmartInvoiceLink(db: SQLiteDatabase): Promise<SmartInvoiceLinkInfo | null> {
+  const row = await db.getFirstAsync<{ value: string }>(
+    'SELECT value FROM sync_meta WHERE key = ?',
+    SMART_INVOICE_LINK_KEY
+  );
+  if (row) {
+    try {
+      return JSON.parse(row.value) as SmartInvoiceLinkInfo;
+    } catch {
+      // Fall through to the receipts check.
+    }
+  }
+  const receipt = await db.getFirstAsync<{ sdcId: string | null; publishedAt: string | null; simulated: number }>(
+    'SELECT sdc_id AS sdcId, published_at AS publishedAt, simulated FROM smart_invoice_receipt LIMIT 1'
+  );
+  return receipt
+    ? { tpin: '', sdcId: receipt.sdcId ?? '', connectedAt: receipt.publishedAt ?? '', simulated: receipt.simulated === 1 }
+    : null;
+}
+
+export async function saveSmartInvoiceLink(db: SQLiteDatabase, link: SmartInvoiceLinkInfo): Promise<void> {
+  await db.runAsync(
+    `INSERT INTO sync_meta (key, value) VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    SMART_INVOICE_LINK_KEY,
+    JSON.stringify(link)
+  );
+}

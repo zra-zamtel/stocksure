@@ -52,7 +52,7 @@ const API_ERROR_KEYS: Partial<Record<ApiErrorCode, string>> = {
 export default function StaffScreen() {
   const { t } = useI18n();
   const db = useSQLiteContext();
-  const { ownerPreview, deviceToken } = useAuth();
+  const { ownerPreview, deviceToken, refresh } = useAuth();
   const { data: staff, reload } = useStaff();
 
   const [adding, setAdding] = useState(false);
@@ -154,6 +154,8 @@ export default function StaffScreen() {
       setAdding(false);
       setMessage(t('staff.added', { name: name.trim() }));
       reload();
+      // The owner stops recording sales once the shop has staff.
+      void refresh();
     } catch (cause) {
       setError(describeApiError(cause));
     } finally {

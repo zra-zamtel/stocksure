@@ -5,6 +5,7 @@ from rest_framework.test import APIClient
 
 from apps.inventory.models import Item
 from apps.sales.views import MAX_SYNC_ROWS
+from apps.shops.models import Membership
 
 from .helpers import client_for, make_shop
 
@@ -128,25 +129,25 @@ class OversellTests(TestCase):
         response = self.sell(self.assistant, 2, allow_oversell=True)
         self.assertEqual(response.status_code, 400)
 
-    def test_the_owner_can_approve_an_override(self):
-        response = self.sell(self.owner, 2, allow_oversell=True)
-        self.assertEqual(response.status_code, 201, response.content)
-        self.assertTrue(response.data["warnings"])
+    def test_an_owner_with_staff_cannot_record_a_sale(self):
+        response = self.sell(self.owner, 1)
+        self.assertEqual(response.status_code, 403)
         self.item.refresh_from_db()
-        self.assertEqual(self.item.quantity, -1)
+        self.assertEqual(self.item.quantity, 1)
 
-    def test_the_owner_still_needs_the_flag(self):
-        response = self.sell(self.owner, 2)
-        self.assertEqual(response.status_code, 400)
+    def test_an_owner_without_staff_can_record_a_sale(self):
+        Membership.objects.filter(user=self.assistant).update(is_active=False)
+        response = self.sell(self.owner, 1)
+        self.assertEqual(response.status_code, 201, response.content)
 
 
 class SyncBatchTests(TestCase):
     def setUp(self):
-        self.shop, self.owner, _ = make_shop()
+        self.shop, self.owner, self.assistant = make_shop()
 
     def test_rows_beyond_the_limit_are_reported_not_dropped(self):
         rows = [{"client_id": None} for _ in range(MAX_SYNC_ROWS + 2)]
-        response = client_for(self.owner).post(
+        response = client_for(self.assistant).post(
             "/api/sales/sync/", {"sales": rows}, format="json"
         )
         self.assertEqual(response.status_code, 200)
