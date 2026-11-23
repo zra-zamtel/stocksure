@@ -164,6 +164,7 @@ function RootNavigator() {
 
       <Stack.Protected guard={ownerOnly && canAccessScreen(user?.role, 'settings')}>
         <Stack.Screen name="settings" />
+        <Stack.Screen name="smart-invoice" />
       </Stack.Protected>
 
       <Stack.Protected guard={ownerOnly && canAccessScreen(user?.role, 'staff')}>

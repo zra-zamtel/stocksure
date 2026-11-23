@@ -85,6 +85,7 @@ INSTALLED_APPS = [
     "apps.integrations",
     "apps.sync",
     "apps.collections",
+    "apps.smartinvoice",
 ]
 
 MIDDLEWARE = [
@@ -245,6 +246,11 @@ ZAMTEL_WEBHOOK_SECRET = os.environ.get("ZAMTEL_WEBHOOK_SECRET", "").strip()
 if not ZAMTEL_WEBHOOK_SECRET and not DEBUG and not RUNNING_TESTS:
     raise ImproperlyConfigured("Set ZAMTEL_WEBHOOK_SECRET when DJANGO_DEBUG is off.")
 # A mobile-money payment is matched to a sale of the same amount recorded within this window.
+# The VSDC bridge. The simulator is a sandbox; a real, ZRA-certified VSDC
+# client replaces it with this one setting.
+SMART_INVOICE_BACKEND = os.environ.get(
+    "SMART_INVOICE_BACKEND", "apps.smartinvoice.vsdc.SimulatedVsdc"
+)
 # From this moment an owner with staff can no longer record sales. Sales the
 # owner made earlier and sync late are still accepted.
 SALES_BY_STAFF_ONLY_FROM = os.environ.get("SALES_BY_STAFF_ONLY_FROM", "2026-11-23T00:00:00+00:00")

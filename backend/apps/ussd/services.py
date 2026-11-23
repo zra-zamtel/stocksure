@@ -287,6 +287,9 @@ def _registered(user, shop, role, parts):
             client_created_at=now,
         )
         label = "Cash" if method == Payment.Method.CASH else "Mobile money"
+        from apps.smartinvoice.services import send_sale
+
+        transaction.on_commit(lambda: send_sale(sale))
         return f"END Sale of {_k(amount)} recorded ({label})."
 
     if choice == "2":  # check stock

@@ -26,6 +26,10 @@ import {
   type StaffRecord,
   type TaxPotView,
   type TaxSnapshot,
+  getSmartInvoiceLink,
+  listSmartInvoiceReceipts,
+  type SmartInvoiceLinkInfo,
+  type SmartInvoiceReceipt,
 } from './repos';
 
 /**
@@ -95,6 +99,21 @@ export function useSales() {
 
 export function useStaff() {
   return useQuery<StaffRecord[]>([], (db) => listStaff(db));
+}
+
+export function useSmartInvoice(saleId: string) {
+  return useQuery<{ link: SmartInvoiceLinkInfo | null; receipts: SmartInvoiceReceipt[] }>(
+    { link: null, receipts: [] },
+    async (db) => ({
+      link: await getSmartInvoiceLink(db),
+      receipts: saleId ? await listSmartInvoiceReceipts(db, saleId) : [],
+    }),
+    [saleId]
+  );
+}
+
+export function useSmartInvoiceLink() {
+  return useQuery<SmartInvoiceLinkInfo | null>(null, (db) => getSmartInvoiceLink(db));
 }
 
 export function useSaleDetail(saleId: string) {

@@ -232,6 +232,13 @@ callback URL, the demo walk-through and troubleshooting are in
   account phone.
 - `POST /api/auth/password-reset/request` and `/confirm` — emailed 6-digit code
   to set a new password; only confirmed emails get one.
+- `POST /api/v1/smart-invoice/connect` `{shopId, tpin}`, `GET /smart-invoice/status?shopId=`
+  and `GET /smart-invoice/sales/<saleId>` — the simulated ZRA Smart Invoice
+  bridge. The owner gives a TPIN once; every synced sale (and USSD sale) is then
+  sent as a VSDC `saveSales` request (turnover tax `TOT`), a void sends a refund
+  receipt, and ZRA's receipt number and signature come back to phones as the
+  `smart_invoice_receipt` sync entity. `SMART_INVOICE_BACKEND` defaults to
+  `apps.smartinvoice.vsdc.SimulatedVsdc`; a certified VSDC client replaces it.
 - Email is used for nothing else except notices of important account changes:
   password changed, app PIN reset, staff added, staff PIN reset.
 - `POST /api/auth/refresh`, `/logout` — JWT rotation and refresh-token blacklist.

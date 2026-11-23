@@ -264,4 +264,27 @@ export const migrations: string[] = [
     value TEXT NOT NULL
   );
   `,
+
+  // v9 - what ZRA Smart Invoice returned for each sale StockSure sent on the
+  // trader's behalf (receipt type S = sale, R = refund after a void). The
+  // server writes these; the phone only stores them to show on the sale.
+  `
+  CREATE TABLE smart_invoice_receipt (
+    id TEXT PRIMARY KEY NOT NULL,
+    sale_id TEXT NOT NULL,
+    receipt_type TEXT NOT NULL CHECK (receipt_type IN ('S', 'R')),
+    invoice_no INTEGER NOT NULL,
+    original_invoice_no INTEGER NOT NULL DEFAULT 0,
+    result_code TEXT NOT NULL,
+    result_message TEXT,
+    receipt_no INTEGER,
+    receipt_signature TEXT,
+    internal_data TEXT,
+    sdc_id TEXT,
+    mrc_no TEXT,
+    published_at TEXT,
+    simulated INTEGER NOT NULL DEFAULT 1 CHECK (simulated IN (0, 1))
+  );
+  CREATE INDEX idx_smart_invoice_sale ON smart_invoice_receipt (sale_id);
+  `,
 ];

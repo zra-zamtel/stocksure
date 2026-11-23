@@ -7,6 +7,7 @@ import { useAuth } from '@/auth/session';
 import { Button, Card, EmptyState, ErrorState, Field, LoadingList, Pill, Row, Screen, SectionTitle } from '@/components/ui';
 import { useSaleDetail } from '@/db/hooks';
 import { voidSale } from '@/db/repos';
+import { SmartInvoiceCard } from '@/components/smart-invoice-card';
 import { useI18n } from '@/i18n';
 import { formatKwacha } from '@/lib/format';
 import { colors, typeScale } from '@/theme/tokens';
@@ -130,6 +131,8 @@ export default function SaleScreen() {
         ))}
         {sale.payments.length === 0 ? <EmptyState message={t('reconcile.saleNoPayment')} /> : null}
       </Card>
+
+      <SmartInvoiceCard saleId={sale.id} />
 
       {sale.status === 'active' && canVoid ? (
         <>

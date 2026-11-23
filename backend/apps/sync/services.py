@@ -827,7 +827,11 @@ def apply_change(change: dict, user: User, queue_id: str = "") -> Shop:
                     raise SyncError("Stock movements are append-only.")
                 insert_movement(payload, shop, existing_is_ok=True)
             elif entity == "sale":
-                upsert_sale(payload, shop, entity_id, user, owner=owner)
+                sale = upsert_sale(payload, shop, entity_id, user, owner=owner)
+                # Sent to Smart Invoice once the sale is safely stored.
+                from apps.smartinvoice.services import send_sale
+
+                transaction.on_commit(lambda sale=sale: send_sale(sale))
             elif entity == "payment":
                 upsert_payment(payload, shop, partial=operation == "update")
             elif entity == "mobile_money_txn":

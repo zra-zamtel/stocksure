@@ -615,3 +615,78 @@ export async function paymentRequestStatusOnServer(input: {
   if (response.ok) return (await response.json()) as PaymentRequest;
   throw paymentRequestError(response, await readErrorPayload(response));
 }
+
+// ---- Smart Invoice (simulated ZRA bridge) ----------------------------------
+
+export type SmartInvoiceStatus =
+  | { connected: false }
+  | {
+      connected: true;
+      simulated: boolean;
+      tpin: string;
+      branchId: string;
+      taxpayerName: string;
+      sdcId: string;
+      mrcNo: string;
+      connectedAt: string;
+      sentCount: number;
+      refundCount: number;
+      failedCount: number;
+      waitingCount: number;
+      lastSentAt: string | null;
+    };
+
+async function readSmartInvoice(response: Response): Promise<SmartInvoiceStatus> {
+  if (response.ok) return (await response.json()) as SmartInvoiceStatus;
+  const payload = await readErrorPayload(response);
+  if (response.status === 400) {
+    throw new ApiError('validation', payload?.detail ?? 'Check the TPIN.');
+  }
+  if (response.status === 401) throw new ApiError('unauthorized', payload?.detail ?? 'Sign in again.');
+  if (response.status === 403) throw new ApiError('forbidden', payload?.detail ?? 'Only the owner can do this.');
+  throw new ApiError('server', payload?.detail ?? 'Smart Invoice could not be reached.');
+}
+
+export async function getSmartInvoiceStatusOnServer(input: {
+  deviceToken: string;
+  shopId: string;
+}): Promise<SmartInvoiceStatus> {
+  return readSmartInvoice(
+    await getJson(`/api/v1/smart-invoice/status?shopId=${encodeURIComponent(input.shopId)}`, {
+      Authorization: `Bearer ${input.deviceToken}`,
+    })
+  );
+}
+
+/** The one step the trader takes: StockSure registers the shop and sends every sale. */
+export async function connectSmartInvoiceOnServer(input: {
+  deviceToken: string;
+  shopId: string;
+  tpin: string;
+}): Promise<SmartInvoiceStatus> {
+  return readSmartInvoice(
+    await postJson(
+      '/api/v1/smart-invoice/connect',
+      { shopId: input.shopId, tpin: input.tpin },
+      { Authorization: `Bearer ${input.deviceToken}` }
+    )
+  );
+}
+
+export type SmartInvoiceSent = {
+  receiptType: 'S' | 'R';
+  invoiceNo: number;
+  request: Record<string, unknown>;
+};
+
+/** What was sent to ZRA for one sale, field by field. */
+export async function getSmartInvoiceSaleOnServer(input: {
+  deviceToken: string;
+  saleId: string;
+}): Promise<SmartInvoiceSent[]> {
+  const response = await getJson(`/api/v1/smart-invoice/sales/${encodeURIComponent(input.saleId)}`, {
+    Authorization: `Bearer ${input.deviceToken}`,
+  });
+  if (response.ok) return ((await response.json()) as { receipts: SmartInvoiceSent[] }).receipts;
+  throw new ApiError('server', 'Smart Invoice could not be reached.');
+}
