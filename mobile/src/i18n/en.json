@@ -760,5 +760,6 @@
   "si.card.paymentCode": "Payment",
   "si.card.items": "Items",
   "si.card.total": "Total",
-  "si.openDetails": "See connection details"
+  "si.openDetails": "See connection details",
+  "si.error.signIn": "Sign in with your email and password once more, then connect."
 }

@@ -742,5 +742,6 @@
   "si.card.paymentCode": "Kulipira",
   "si.card.items": "Katundu",
   "si.card.total": "Zonse",
-  "si.openDetails": "Onani zambiri za kulumikizana"
+  "si.openDetails": "Onani zambiri za kulumikizana",
+  "si.error.signIn": "Lowaninso ndi imelo ndi password yanu, kenako lumikizani."
 }

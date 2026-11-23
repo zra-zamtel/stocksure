@@ -69,7 +69,12 @@ export function SmartInvoicePanel({ compact = false }: { compact?: boolean }) {
   );
 
   async function connect() {
-    if (!deviceToken || !shop || busy) return;
+    if (busy) return;
+    if (!deviceToken || !shop) {
+      // Without a session the server cannot be asked; say so instead of doing nothing.
+      setError(t('si.error.signIn'));
+      return;
+    }
     const digits = tpin.replace(/\D/g, '');
     if (digits.length !== 10) {
       setError(t('si.error.tpin'));
@@ -100,7 +105,11 @@ export function SmartInvoicePanel({ compact = false }: { compact?: boolean }) {
   }
 
   async function sendNow() {
-    if (!deviceToken || busy) return;
+    if (busy) return;
+    if (!deviceToken) {
+      setError(t('si.error.signIn'));
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
