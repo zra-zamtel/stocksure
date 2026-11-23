@@ -90,6 +90,71 @@ Nyanja or other local languages, USSD.
    traders, and from when? Can a non-VAT app become a certified VSDC system?
    Does the mobile app's stock data come from the same records as the portal?
 
+## 6. The VSDC API in detail (from ZRA_VSDC_DOC v1.0.2, 28 Jan 2024)
+
+Read from the PDF the team supplied. ZRA has published later versions
+(1.0.7/1.0.8 seen online); fields may have changed since.
+
+### How it works
+
+- **It is not a cloud API.** After registering on the Smart Invoice portal and
+  applying for a VSDC service, ZRA verifies the applicant and hands over the
+  VSDC as a **WAR file** that the taxpayer runs on their own server. The
+  business's software talks to that local VSDC; the VSDC talks to ZRA.
+- **One device per taxpayer branch.** `POST /initializer/selectInitInfo` with
+  `tpin`, `bhfId` (branch, e.g. `000`) and `dvcSrlNo` registers the device and
+  creates its security key. Every later call carries the TPIN and branch.
+- Every call is `POST` with JSON. Responses carry `resultCd` (`000` = success)
+  and a message; codes like `901` (invalid device) and `994` (duplicate data)
+  are listed in section 4.14.
+- Eight service groups: device setup, code lists, branch (customers, users),
+  items, imports, **sales**, purchases, **stock**.
+
+### How StockSure's data maps onto it
+
+| StockSure | VSDC call | Key fields and codes |
+| --- | --- | --- |
+| Shop | `initializer/selectInitInfo` | Shop's TPIN, branch `000`, a device serial |
+| Product / variant | `items/saveItems` | `itemCd` (format `ZM` + product type + packaging + unit + running number, e.g. `ZM2NTU0000012`), `itemClsCd` (ZRA classification code), `bcd` barcode, units, price |
+| Sale | `trnsSales/saveSales` | `invcNo` (a **number**), `salesTyCd` `N`, `rcptTyCd` `S`, line items, `taxTyCd` **`TOT`** ("all transactions for taxpayers registered under Turnover Tax", no tax charged on the invoice) |
+| Payment method | inside the sale, `pmtTyCd` | `01` cash, **`06` mobile money**, `07` other |
+| Voided sale | `saveSales` with `rcptTyCd` `R` (refund after sale) | `orgInvcNo` = the original, `rfdRsnCd` e.g. `09` wrong amount, `11` wrong items, `13` other |
+| Stock received / adjusted | `stock/saveStockItems` | `sarTyCd` `02` purchase, `06` adjustment in, `16` adjustment out, `15` discarded, `11` sale out |
+| Stock level after a change | `stockMaster/saveStockMaster` | `itemCd`, `rsdQty` (quantity left) |
+| Staff member | `branches/saveBrancheUsers` (optional) | Every sale also carries `regrId`/`regrNm` (who recorded it) |
+
+**What ZRA returns for each sale:** `rcptNo`, `totRcptNo`, `intrlData`,
+`rcptSign`, `sdcId`, `mrcNo` and a publish date. These are what make a receipt
+a Smart Invoice; StockSure would print or show them on the receipt (the
+desktop app turns them into a QR code; the exact receipt layout is in ZRA's
+separate CIS specification).
+
+### What StockSure would need to change
+
+1. **Shop TPIN and branch.** Not captured today. Add to shop setup.
+2. **Sequential invoice numbers.** VSDC wants a numeric `invcNo` per branch;
+   StockSure uses text ids. Add a per-shop counter assigned when a sale is
+   recorded (works offline, since each phone owns its shop's sequence, but two
+   staff phones would need separate ranges or branch ids).
+3. **Item codes and classifications.** Each product needs a ZRA `itemCd` and
+   `itemClsCd` (fetched from `itemClass/selectItemsClass`), plus packaging and
+   quantity unit codes. A default "finished product, each" covers most shops.
+4. **Kwacha with two decimals.** StockSure stores ngwee as integers; convert
+   when sending.
+5. **Voids become refund receipts.** StockSure already keeps voided sales with
+   a reason; map its reasons to ZRA refund codes.
+6. **Stock adjustments by type.** StockSure's movement reasons map cleanly to
+   the in/out codes above.
+
+### The big open question
+
+The VSDC is designed as **one installed device per taxpayer**. StockSure
+serves many small shops from one backend. Either StockSure runs one VSDC
+instance per shop (heavy), or ZRA allows a certified multi-taxpayer
+intermediary. This is the first thing to ask ZRA, alongside the questions in
+section 5. It is also a strong pitch point: a shared, certified bridge would
+let thousands of small traders reach Smart Invoice without installing anything.
+
 ## Sources
 
 - [ZRA Smart Invoice — App Store (UK)](https://apps.apple.com/gb/app/zra-smart-invoice/id6758915176)
@@ -99,7 +164,7 @@ Nyanja or other local languages, USSD.
 - [ZRA: Smart Invoice FAQs (PDF)](https://www.zra.org.zm/wp-content/uploads/2024/08/Smart-Invoice-FAQs.pdf)
 - [ZRA: Smart Invoice Desktop and Tablet User Manual (PDF)](https://www.zra.org.zm/wp-content/uploads/2024/01/Smart-Invoice-Desktop-Laptop-Tablet-User-Manual.pdf)
 - [ZRA: Smart Invoice Online Portal User Manual (PDF)](https://www.zra.org.zm/wp-content/uploads/2024/01/Smart-Invoice-Online-Portal-User-Manual.pdf)
-- [ZRA: VSDC API Documentation (PDF)](https://www.zra.org.zm/wp-content/uploads/2024/02/ZRA-VSDC-API-Documentation.pdf)
+- [ZRA: VSDC API Documentation v1.0.2 (PDF)](https://www.zra.org.zm/wp-content/uploads/2024/02/ZRA-VSDC-API-Documentation.pdf) — read in full from the copy supplied by the team
 - [ZRA: Specification of CIS for VSDC (PDF)](https://www.zra.org.zm/wp-content/uploads/2024/04/Smart-Invoice-Specification-of-CIS-for-VSDC.pdf)
 - [ZRA: Smart Invoice Deadline](https://www.zra.org.zm/smart-invoice-deadline/)
 - [Zambia Monitor: no extension to 30 Sept deadline](https://www.zambiamonitor.com/zra-insists-no-extension-in-september-30-deadline-for-implementation-of-smart-invoice-system/)
