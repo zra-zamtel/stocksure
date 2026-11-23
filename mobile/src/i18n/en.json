@@ -759,5 +759,6 @@
   "si.card.turnoverTax": "Turnover tax",
   "si.card.paymentCode": "Payment",
   "si.card.items": "Items",
-  "si.card.total": "Total"
+  "si.card.total": "Total",
+  "si.openDetails": "See connection details"
 }

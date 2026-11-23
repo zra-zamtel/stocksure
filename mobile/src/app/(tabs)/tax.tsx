@@ -1,6 +1,7 @@
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { SmartInvoicePanel } from '@/components/smart-invoice-panel';
 import { Button, Card, HelpTip, LoadingList, Pill, Row, Screen, SectionTitle } from '@/components/ui';
 import { estimateTurnoverTax, potStatus } from '@/core';
 import { useTaxSnapshot } from '@/db/hooks';
@@ -86,6 +87,9 @@ export default function TaxScreen() {
         <Button label={t('tax.pot.payZra')} onPress={() => router.push('/tax/pot')} />
         <Text style={styles.disclaimer}>{t('tax.pot.simulated')}</Text>
       </Card>
+
+      <SectionTitle>{t('si.title')}</SectionTitle>
+      <SmartInvoicePanel compact />
     </Screen>
   );
 }

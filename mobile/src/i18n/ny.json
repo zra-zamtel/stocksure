@@ -741,5 +741,6 @@
   "si.card.turnoverTax": "Turnover tax",
   "si.card.paymentCode": "Kulipira",
   "si.card.items": "Katundu",
-  "si.card.total": "Zonse"
+  "si.card.total": "Zonse",
+  "si.openDetails": "Onani zambiri za kulumikizana"
 }
