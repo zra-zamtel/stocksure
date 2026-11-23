@@ -793,8 +793,15 @@ class ResetStaffPinView(APIView):
         profile.pin_verifier = make_password(serializer.validated_data["pin"])
         profile.failed_sign_ins = 0
         profile.locked_until = None
+        profile.must_change_pin = True
         profile.save(
-            update_fields=["pin_verifier", "failed_sign_ins", "locked_until", "updated_at"]
+            update_fields=[
+                "pin_verifier",
+                "failed_sign_ins",
+                "locked_until",
+                "must_change_pin",
+                "updated_at",
+            ]
         )
 
         notify_account_change(
@@ -872,16 +879,17 @@ class ConfirmStaffSignInView(APIView):
 
             profile.failed_sign_ins = 0
             profile.locked_until = None
-            if profile.first_signed_in_at is None:
+            update_fields = ["failed_sign_ins", "locked_until", "updated_at"]
+            if data.get("newPin"):
+                # The staff member's own PIN replaces the one the owner gave.
+                profile.pin_verifier = make_password(data["newPin"])
+                profile.must_change_pin = False
+                update_fields += ["pin_verifier", "must_change_pin"]
+            if profile.first_signed_in_at is None and not profile.must_change_pin:
                 profile.first_signed_in_at = now
-            profile.save(
-                update_fields=[
-                    "failed_sign_ins",
-                    "locked_until",
-                    "first_signed_in_at",
-                    "updated_at",
-                ]
-            )
+                update_fields.append("first_signed_in_at")
+            profile.save(update_fields=update_fields)
+            must_change_pin = profile.must_change_pin
 
         membership = (
             Membership.objects.select_related("shop__owner")
@@ -905,6 +913,9 @@ class ConfirmStaffSignInView(APIView):
             {
                 "staff": StaffSerializer(staff).data,
                 "owner": {"name": owner.full_name, "phone": owner.phone},
+                # True until the staff member chooses their own PIN; the app
+                # then sends the same request again with newPin.
+                "mustChangePin": must_change_pin,
             },
             status=status.HTTP_200_OK,
         )

@@ -371,6 +371,8 @@ export type ServerStaff = {
 export type StaffSignInResult = {
   staff: ServerStaff;
   owner: { name: string; phone: string };
+  /** The owner's PIN was one-time: ask the staff member to choose their own. */
+  mustChangePin?: boolean;
 };
 
 /**
@@ -444,6 +446,7 @@ export async function resetStaffPinOnServer(input: {
 export async function confirmStaffSignInOnServer(input: {
   phone: string;
   pin: string;
+  newPin?: string;
 }): Promise<StaffSignInResult> {
   const response = await postJson(STAFF_SIGN_IN_CONFIRM_PATH, input);
   if (response.ok) return (await response.json()) as StaffSignInResult;
@@ -464,9 +467,10 @@ export async function confirmStaffSignInOnServer(input: {
 /** Completes a staff member's first sign-in and caches the local PIN hash. */
 export async function verifyStaffSignInOnServer(
   phone: string,
-  pin: string
+  pin: string,
+  newPin?: string
 ): Promise<StaffSignInResult> {
-  return confirmStaffSignInOnServer({ phone, pin });
+  return confirmStaffSignInOnServer(newPin ? { phone, pin, newPin } : { phone, pin });
 }
 
 export type SyncOperation = 'create' | 'update';

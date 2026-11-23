@@ -41,6 +41,10 @@ export default function SignInScreen() {
         setError(t('auth.signIn.firstSignInOffline'));
         return;
       }
+      if (result === 'choose-pin') {
+        router.push('/staff-sign-in');
+        return;
+      }
       if (result === 'locked-out') {
         setError(t('auth.signIn.lockedOut'));
         return;

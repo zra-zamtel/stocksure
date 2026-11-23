@@ -411,6 +411,20 @@ describe('UT-API staff identity client', () => {
     expect(JSON.parse(init.body as string)).toEqual({ phone: '0965551122', pin: '7315' });
   });
 
+  it('UT-API-25b sends the staff member\'s own PIN on the second step', async () => {
+    const fetchMock = respond(200, {
+      staff: { id: 'staff_1', name: 'Given', phone: '0965551122', role: 'staff' },
+      owner: { name: 'Elton', phone: '0971234567' },
+      mustChangePin: false,
+    });
+
+    const result = await verifyStaffSignInOnServer('0965551122', '7315', '8642');
+
+    expect(result.mustChangePin).toBe(false);
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({ phone: '0965551122', pin: '7315', newPin: '8642' });
+  });
+
   it('UT-API-26 maps a wrong PIN and a lockout', async () => {
     respond(401, { code: 'invalid_credentials' });
     expect(

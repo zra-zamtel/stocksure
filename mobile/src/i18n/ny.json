@@ -295,11 +295,11 @@
   "staff.confirmNewPin": "Tsimikizani PIN yatsopano",
   "staff.reset.title": "PIN yatsopano ya {name}",
   "staff.reset.note": "Kusintha PIN ya wantchito kumafuna intaneti. Mwini shopu yekha ndiye angachite izi.",
-  "staff.reset.saved": "PIN ya {name} yasinthidwa.",
+  "staff.reset.saved": "PIN ya {name} yasinthidwa. Akadzalowa nthawi ina asankha yatsopano.",
   "staff.reset.localFailed": "PIN yatsopano yasungidwa pa intaneti, koma foni iyi siinaisunge pakali pano. Dinani Sinthani PIN ndipo lowetsaninso PIN yomweyo.",
   "staff.internetNote": "Kuonjeza wantchito kumafuna intaneti kamodzi kuti kulowa kwake koyamba kutsimikizidwe. Pambuyo pake amalowa popanda intaneti.",
   "staff.saving": "Tikusunga...",
-  "staff.added": "{name} waonjezedwa. Tsopano angalowe ndi PIN yake.",
+  "staff.added": "{name} wawonjezedwa. Mpatseni PIN: imagwira ntchito kamodzi, kenako asankha yawoyawo.",
   "staff.signedIn": "Walowa",
   "staff.notSignedIn": "Sanalowe koyamba",
   "staff.error.nameRequired": "Lowetsani dzina la wantchito.",
@@ -680,5 +680,14 @@
   "verify.offline": "Lumikizani ku intaneti kuti mutsimikize imelo yanu.",
   "profile.open": "Mbiri yanu ndi kutuluka",
   "common.close": "Tsekani",
-  "sales.empty.ownerMessage": "Malonda amene antchito anu alemba adzaonekera pano, kuyerekezedwa ndi ndalama za pa foni. Onjezani antchito mu Zokonda kuti athe kulemba malonda."
+  "sales.empty.ownerMessage": "Malonda amene antchito anu alemba adzaonekera pano, kuyerekezedwa ndi ndalama za pa foni. Onjezani antchito mu Zokonda kuti athe kulemba malonda.",
+
+  "staff.choosePin.title": "Sankhani PIN yanu",
+  "staff.choosePin.subtitle": "Takulandirani, {name}. PIN yomwe mwini sitolo anakupatsani imagwira ntchito kamodzi kokha. Sankhani ina yomwe mumadziwa nokha.",
+  "staff.choosePin.newPin": "PIN yatsopano",
+  "staff.choosePin.confirmPin": "Lembaninso",
+  "staff.choosePin.action": "Sungani PIN ndi kupitiriza",
+  "staff.choosePin.hint": "Mudzagwiritsa ntchito PIN iyi kulowa kuyambira tsopano, ngakhale popanda intaneti. Musaiuze aliyense.",
+  "staff.choosePin.error.mismatch": "Ma PIN awiriwa sakufanana. Lembaninso.",
+  "staff.choosePin.error.same": "Sankhani PIN yosiyana ndi yomwe mwini sitolo anakupatsani."
 }

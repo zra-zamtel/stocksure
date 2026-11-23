@@ -817,15 +817,53 @@ class StaffTests(AuthTestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("pin", response.json())
 
-    def test_confirm_signs_in_and_stamps_the_first_check(self):
+    def test_first_sign_in_asks_for_a_new_pin(self):
         self.add_staff()
 
         response = self.post(self.sign_in_url, {"phone": "0965551122", "pin": "1234"})
 
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(response.json()["staff"]["role"], "staff")
+        self.assertTrue(response.json()["mustChangePin"])
         user = User.objects.get(phone="260965551122")
-        self.assertIsNotNone(user.staff_profile.first_signed_in_at)
+        self.assertIsNone(user.staff_profile.first_signed_in_at)
+
+    def test_choosing_a_new_pin_replaces_the_owner_pin(self):
+        self.add_staff()
+
+        response = self.post(
+            self.sign_in_url, {"phone": "0965551122", "pin": "1234", "newPin": "8642"}
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertFalse(response.json()["mustChangePin"])
+        profile = User.objects.get(phone="260965551122").staff_profile
+        self.assertIsNotNone(profile.first_signed_in_at)
+        self.assertTrue(check_password("8642", profile.pin_verifier))
+        old = self.post(self.sign_in_url, {"phone": "0965551122", "pin": "1234"})
+        self.assertEqual(old.status_code, 401)
+        again = self.post(self.sign_in_url, {"phone": "0965551122", "pin": "8642"})
+        self.assertFalse(again.json()["mustChangePin"])
+
+    def test_the_new_pin_must_differ_from_the_owner_pin(self):
+        self.add_staff()
+
+        response = self.post(
+            self.sign_in_url, {"phone": "0965551122", "pin": "1234", "newPin": "1234"}
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_a_wrong_owner_pin_cannot_set_a_new_pin(self):
+        self.add_staff()
+
+        response = self.post(
+            self.sign_in_url, {"phone": "0965551122", "pin": "9999", "newPin": "8642"}
+        )
+
+        self.assertEqual(response.status_code, 401)
+        profile = User.objects.get(phone="260965551122").staff_profile
+        self.assertTrue(check_password("1234", profile.pin_verifier))
 
     def test_wrong_pin_is_rejected_and_counted(self):
         self.add_staff()

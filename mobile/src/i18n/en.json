@@ -351,11 +351,11 @@
   "staff.confirmNewPin": "Confirm new PIN",
   "staff.reset.title": "New PIN for {name}",
   "staff.reset.note": "Changing a staff PIN needs internet. Only the owner can do it.",
-  "staff.reset.saved": "{name}'s PIN was changed.",
+  "staff.reset.saved": "{name}'s PIN was changed. At their next sign-in they choose a new one.",
   "staff.reset.localFailed": "The new PIN was saved online, but this phone could not save it yet. Tap Change PIN and enter the same PIN again.",
   "staff.internetNote": "Adding staff needs internet once so their first sign-in can be checked. After that they sign in offline.",
   "staff.saving": "Saving...",
-  "staff.added": "{name} added. They can now sign in with their PIN.",
+  "staff.added": "{name} added. Give them the PIN: it works once, then they choose their own.",
   "staff.signedIn": "Signed in",
   "staff.notSignedIn": "First sign-in pending",
   "staff.error.nameRequired": "Enter the staff member's name.",
@@ -698,5 +698,14 @@
   "verify.offline": "Connect to the internet to confirm your email.",
   "profile.open": "Your profile and sign out",
   "common.close": "Close",
-  "sales.empty.ownerMessage": "Sales your staff record will show here, checked against your mobile money. Add staff in Settings so they can record sales."
+  "sales.empty.ownerMessage": "Sales your staff record will show here, checked against your mobile money. Add staff in Settings so they can record sales.",
+
+  "staff.choosePin.title": "Choose your own PIN",
+  "staff.choosePin.subtitle": "Welcome, {name}. The PIN the owner gave you works only once. Pick a new one that only you know.",
+  "staff.choosePin.newPin": "New PIN",
+  "staff.choosePin.confirmPin": "Type it again",
+  "staff.choosePin.action": "Save PIN and continue",
+  "staff.choosePin.hint": "You'll use this PIN to sign in from now on, even without internet. Don't share it.",
+  "staff.choosePin.error.mismatch": "The two PINs don't match. Type it again.",
+  "staff.choosePin.error.same": "Choose a PIN different from the one the owner gave you."
 }

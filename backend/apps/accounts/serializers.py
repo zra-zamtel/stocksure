@@ -227,9 +227,23 @@ class StaffSignInConfirmSerializer(serializers.Serializer):
         write_only=True,
         error_messages={"invalid": "Enter the 4 to 6 digit PIN."},
     )
+    # Sent on the second step, once the server has asked for a new PIN.
+    newPin = serializers.RegexField(
+        r"^\d{4,6}$",
+        required=False,
+        write_only=True,
+        error_messages={"invalid": "Choose a 4 to 6 digit PIN."},
+    )
 
     def validate_phone(self, value: str) -> str:
         return validate_phone_value(value)
+
+    def validate(self, attrs):
+        if attrs.get("newPin") and attrs["newPin"] == attrs["pin"]:
+            raise serializers.ValidationError(
+                {"newPin": "Choose a PIN different from the one the owner gave you."}
+            )
+        return attrs
 
 
 class StaffSerializer(serializers.ModelSerializer):

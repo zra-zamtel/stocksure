@@ -22,9 +22,12 @@ const ERROR_KEYS: Partial<Record<ApiErrorCode, string>> = {
 export default function StaffSignInScreen() {
   const { t } = useI18n();
   const router = useRouter();
-  const { signInStaff } = useAuth();
+  const { signInStaff, staffPinChange, cancelStaffPinChange } = useAuth();
   const [phone, setPhone] = useState('');
   const [pin, setPin] = useState('');
+  // Second step: the owner's PIN was one-time, so the staff member picks their own.
+  const [newPin, setNewPin] = useState('');
+  const [confirmPin, setConfirmPin] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [shakeKey, setShakeKey] = useState(0);
   const [submitting, setSubmitting] = useState(false);
@@ -44,21 +47,102 @@ export default function StaffSignInScreen() {
 
     setSubmitting(true);
     try {
-      await signInStaff({ phone: normalisePhone(phone), pin });
-      router.replace('/');
+      const result = await signInStaff({ phone: normalisePhone(phone), pin });
+      if (result === 'ok') router.replace('/');
     } catch (cause) {
-      if (cause instanceof ApiError) {
-        setError(t(ERROR_KEYS[cause.code] ?? 'staff.signIn.error.server'));
-        if (cause.code === 'unauthorized') {
-          setShakeKey((key) => key + 1);
-          setPin('');
-        }
-      } else {
-        setError(cause instanceof Error ? cause.message : t('staff.signIn.error.server'));
-      }
+      showError(cause);
     } finally {
       setSubmitting(false);
     }
+  }
+
+  async function handleChoosePin() {
+    if (submitting || !staffPinChange) return;
+    setError(null);
+    if (!isValidPin(newPin)) {
+      setError(t('staff.signIn.error.pinInvalid'));
+      return;
+    }
+    if (newPin !== confirmPin) {
+      setError(t('staff.choosePin.error.mismatch'));
+      setConfirmPin('');
+      setShakeKey((key) => key + 1);
+      return;
+    }
+    if (newPin === staffPinChange.pin) {
+      setError(t('staff.choosePin.error.same'));
+      setNewPin('');
+      setConfirmPin('');
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      await signInStaff({ phone: staffPinChange.phone, pin: staffPinChange.pin, newPin });
+      router.replace('/');
+    } catch (cause) {
+      showError(cause);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function showError(cause: unknown) {
+    if (cause instanceof ApiError) {
+      setError(t(ERROR_KEYS[cause.code] ?? 'staff.signIn.error.server'));
+      if (cause.code === 'unauthorized') {
+        setShakeKey((key) => key + 1);
+        setPin('');
+      }
+    } else {
+      setError(cause instanceof Error ? cause.message : t('staff.signIn.error.server'));
+    }
+  }
+
+  if (staffPinChange) {
+    return (
+      <SetupStep
+        eyebrow={t('staff.signIn.eyebrow')}
+        title={t('staff.choosePin.title')}
+        subtitle={t('staff.choosePin.subtitle', { name: staffPinChange.name })}
+        onBack={() => {
+          cancelStaffPinChange();
+          router.back();
+        }}
+        backLabel={t('common.back')}
+        footer={
+          <Button
+            label={submitting ? t('staff.signIn.submitting') : t('staff.choosePin.action')}
+            disabled={submitting || newPin.length < 4 || confirmPin.length < 4}
+            onPress={() => void handleChoosePin()}
+          />
+        }
+      >
+        <View style={styles.fields}>
+          <PinBoxes
+            label={t('staff.choosePin.newPin')}
+            value={newPin}
+            onChange={(value) => {
+              setNewPin(value);
+              if (error) setError(null);
+            }}
+          />
+          <PinBoxes
+            label={t('staff.choosePin.confirmPin')}
+            value={confirmPin}
+            onChange={(value) => {
+              setConfirmPin(value);
+              if (error) setError(null);
+            }}
+            invalid={Boolean(error) && confirmPin.length === 0}
+            shakeKey={shakeKey}
+            onSubmit={() => void handleChoosePin()}
+          />
+        </View>
+        {error ? <Notice tone="error">{error}</Notice> : null}
+        <Hint icon="lock">{t('staff.choosePin.hint')}</Hint>
+      </SetupStep>
+    );
   }
 
   return (

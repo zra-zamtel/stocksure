@@ -91,6 +91,9 @@ class StaffProfile(models.Model):
     client_id = models.CharField(max_length=64, unique=True, null=True, blank=True)
     pin_verifier = models.CharField(max_length=255, blank=True, default="")
     first_signed_in_at = models.DateTimeField(null=True, blank=True)
+    # The owner's PIN is a one-time PIN: the staff member chooses their own at
+    # the first sign-in, and again after the owner resets it.
+    must_change_pin = models.BooleanField(default=True)
     failed_sign_ins = models.PositiveSmallIntegerField(default=0)
     locked_until = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
