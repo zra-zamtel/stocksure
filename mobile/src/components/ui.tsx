@@ -12,7 +12,7 @@ import {
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { AndroidSymbol } from 'expo-symbols';
 import Animated, {
   Easing,
@@ -41,6 +41,9 @@ type ScreenProps = {
 const PAPER = require('../../assets/images/paper.png');
 
 export function Screen({ title, subtitle, children, scroll = true, footer, action }: ScreenProps) {
+  // The live height of whatever the phone draws at the bottom: Android's
+  // 3-button bar, the gesture handle (a thin strip) or the iOS home indicator.
+  const { bottom: bottomInset } = useSafeAreaInsets();
   const body = (
     <View style={styles.body}>
       {title || action ? (
@@ -68,11 +71,9 @@ export function Screen({ title, subtitle, children, scroll = true, footer, actio
           body
         )}
         {footer ? (
-          // The footer takes the bottom inset itself, so its surface runs under
-          // Android's 3-button bar or the iOS home indicator instead of being covered.
-          <SafeAreaView edges={['bottom']} style={styles.footer}>
-            {footer}
-          </SafeAreaView>
+          // The footer adds the bottom inset to its own padding, so its buttons
+          // always sit above the system bar and its surface runs underneath it.
+          <View style={[styles.footer, { paddingBottom: spacing.md + bottomInset }]}>{footer}</View>
         ) : null}
       </SafeAreaView>
     </ImageBackground>

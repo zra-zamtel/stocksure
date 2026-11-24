@@ -266,32 +266,50 @@ def upsert_shop(payload, user: User) -> Shop:
         if existing is not None:
             adopt_placeholder(existing, shop)
         return shop
-    _fill_shop(shop, payload, ids)
+    # An existing shop takes partial updates: the phone sends only what changed
+    # (the money step sends providers and tax status, finishing setup sends the
+    # completed flag), and everything else stays as it was.
+    _fill_shop(shop, payload, ids, partial=True)
     shop.save()
     return shop
 
 
-def _fill_shop(shop: Shop, payload: dict, ids: dict) -> None:
-    shop.name = _text(payload, "name", required=True, max_length=150)
-    shop.type = _text(payload, "type", default="other", max_length=20)
-    shop.town = _text(payload, "town", default="", max_length=80)
-    shop.currency = _text(payload, "currency", default="ZMW", max_length=3)
-    shop.language = _text(payload, "language", default="en", max_length=2)
-    shop.uses_barcodes = _bool(payload, "usesBarcodes", "uses_barcodes", default=False)
-    shop.low_stock_default = _int(
-        payload, "lowStockDefault", "low_stock_default", default=3, minimum=0
-    )
-    shop.turnover_tax_registered = _bool(
-        payload, "turnoverTaxRegistered", "turnover_tax_registered", default=False
-    )
-    shop.tpin = _text(payload, "tpin", default="", max_length=20)
-    providers = _get(payload, "providersJson", "providers_json", default=[])
-    if not isinstance(providers, list | dict):
-        raise SyncError("providersJson must be a JSON list or object.")
-    shop.providers_json = providers
-    shop.onboarding_completed = _bool(
-        payload, "onboardingCompleted", "onboarding_completed", default=False
-    )
+def _fill_shop(shop: Shop, payload: dict, ids: dict, *, partial: bool = False) -> None:
+    def sent(*keys) -> bool:
+        return not partial or any(key in payload for key in keys)
+
+    if sent("name"):
+        shop.name = _text(payload, "name", required=True, max_length=150)
+    if sent("type"):
+        shop.type = _text(payload, "type", default="other", max_length=20)
+    if sent("town"):
+        shop.town = _text(payload, "town", default="", max_length=80)
+    if sent("currency"):
+        shop.currency = _text(payload, "currency", default="ZMW", max_length=3)
+    if sent("language"):
+        shop.language = _text(payload, "language", default="en", max_length=2)
+    if sent("usesBarcodes", "uses_barcodes"):
+        shop.uses_barcodes = _bool(payload, "usesBarcodes", "uses_barcodes", default=False)
+    if sent("lowStockDefault", "low_stock_default"):
+        shop.low_stock_default = _int(
+            payload, "lowStockDefault", "low_stock_default", default=3, minimum=0
+        )
+    if sent("turnoverTaxRegistered", "turnover_tax_registered"):
+        shop.turnover_tax_registered = _bool(
+            payload, "turnoverTaxRegistered", "turnover_tax_registered", default=False
+        )
+    if sent("tpin"):
+        shop.tpin = _text(payload, "tpin", default="", max_length=20)
+    # The phone calls it ``providers``; the others are older spellings.
+    if sent("providersJson", "providers_json", "providers"):
+        providers = _get(payload, "providersJson", "providers_json", "providers", default=[])
+        if not isinstance(providers, list | dict):
+            raise SyncError("providersJson must be a JSON list or object.")
+        shop.providers_json = providers
+    if sent("onboardingCompleted", "onboarding_completed"):
+        shop.onboarding_completed = _bool(
+            payload, "onboardingCompleted", "onboarding_completed", default=False
+        )
     shop.updated_at = ids["updated_at"]
 
 

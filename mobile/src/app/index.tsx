@@ -13,6 +13,7 @@ export default function Index() {
     hasAccount,
     hasShop,
     shopRestorePending,
+    emailPending,
     onboardingComplete,
     nextOnboardingRoute,
   } = useAuth();
@@ -20,6 +21,8 @@ export default function Index() {
   if (pendingOwner) return <Redirect href="/set-phone-pin" />;
   if (!hasAccount) return <Redirect href="/onboarding/language" />;
   if (!user) return <Redirect href="/sign-in" />;
+  // A new owner finishes creating the account by confirming the emailed code.
+  if (user.role === 'owner' && emailPending) return <Redirect href="/onboarding/verify-email" />;
   if (
     (user.role === 'staff' && (!hasShop || !onboardingComplete)) ||
     (!hasShop && shopRestorePending)

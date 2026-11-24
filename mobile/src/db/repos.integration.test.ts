@@ -246,6 +246,20 @@ describe('IT-ONB onboarding and account', () => {
     expect(await getOnboardingState(db)).toEqual({ hasShop: true, onboardingComplete: true, hasProducts: true });
   });
 
+  it('IT-ONB-07b syncs the finished-setup flag so a restored shop does not repeat setup', async () => {
+    await shop();
+    await product();
+    const before = await count(db, 'sync_queue', "entity = 'shop' AND operation = 'update'");
+
+    await completeOnboarding(db);
+
+    expect(await count(db, 'sync_queue', "entity = 'shop' AND operation = 'update'")).toBe(before + 1);
+    const queued = await db.getFirstAsync<{ payload: string }>(
+      "SELECT payload FROM sync_queue WHERE entity = 'shop' AND operation = 'update' ORDER BY created_at DESC, rowid DESC LIMIT 1"
+    );
+    expect(JSON.parse(queued?.payload ?? '{}')).toMatchObject({ onboardingCompleted: true });
+  });
+
   it('IT-ONB-08 allows one owner per phone and does not queue it for sync', async () => {
     await createOwner(db, { id: 'owner_1', name: ' Elton ', phone: '0971234567', pinHash: 'h' });
     expect(await getOwner(db)).toEqual({ id: 'owner_1', name: 'Elton', phone: '0971234567', pinHash: 'h' });
@@ -416,11 +430,14 @@ describe('IT-STAFF staff identity', () => {
 });
 
 describe('IT-PROD products and stock', () => {
-  it('IT-PROD-01 records opening stock as a movement and queues both rows', async () => {
+  it('IT-PROD-01 records opening stock as a movement and queues the product, variant and movement', async () => {
     const { productId, variantId } = await product(12);
     expect(await stockOf(db, variantId)).toBe(12);
     expect(await count(db, 'stock_movement', "reason = 'opening'")).toBe(1);
     expect(await count(db, 'sync_queue', 'entity_id IN (?, ?)', productId, variantId)).toBe(2);
+    // The opening stock is queued as well, so a restored shop keeps its quantities.
+    const openingId = (await db.getFirstAsync<{ id: string }>("SELECT id FROM stock_movement WHERE reason = 'opening'"))?.id;
+    expect(await count(db, 'sync_queue', "entity = 'stock_movement' AND entity_id = ?", openingId)).toBe(1);
   });
 
   it('IT-PROD-02 writes no movement for zero opening stock', async () => {

@@ -761,5 +761,16 @@
   "si.card.items": "Items",
   "si.card.total": "Total",
   "si.openDetails": "See connection details",
-  "si.error.signIn": "Sign in with your email and password once more, then connect."
+  "si.error.signIn": "Sign in with your email and password once more, then connect.",
+
+  "verify.eyebrow": "Almost done",
+  "verify.title": "Confirm your email",
+  "verify.subtitle": "This finishes creating your account.",
+  "verify.once": "You only do this once. After this you sign in with your email and password, and your PIN works without internet.",
+  "shop.restore.title": "Getting your shop ready",
+  "shop.restore.loading": "Looking for your shop's products and sales...",
+  "shop.restore.offline": "No internet right now. Connect and try again. Nothing is lost: your shop is safe on the server.",
+  "shop.restore.failed": "We couldn't get your shop just now. Try again in a moment.",
+  "shop.restore.retry": "Try again",
+  "shop.restore.note": "If this is a new account, there is nothing to restore yet and setup starts next."
 }

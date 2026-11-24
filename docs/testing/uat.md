@@ -43,7 +43,7 @@ Write amounts exactly as shown on screen. "K" means Zambian Kwacha.
 | UAT-19 | Works with no internet all day | | | | |
 | UAT-20 | Chichewa (Nyanja) language | | | | |
 | UAT-21 | Staff add, first sign-in and owner-only screens | | | | |
-| UAT-22 | Owner email sign-in and email code on a new phone | | | | |
+| UAT-22 | Owner email sign-in on a new phone restores the shop | | | | |
 
 Sign-off: the build is accepted when every script passes, or when the product
 owner has accepted each failure in writing as a known issue.
@@ -64,8 +64,11 @@ owner has accepted each failure in writing as a known issue.
 | --- | --- | --- |
 | 1 | Open StockSure. | The language screen appears. |
 | 2 | Choose **English**, tap **Next**. | "Create your account" appears. |
-| 3 | Enter your name, phone `+260 97 123 4567`, email `elton@example.com`, password `stocksure-demo`, phone PIN `4821` twice. Tap **Create account**. | "Creating account..." shows, then the shop screen opens. |
-| 4 | Note the time taken from step 1. | Under two minutes. |
+| 3 | Enter your name, phone `+260 97 123 4567`, email `elton@example.com`, password `stocksure-demo`, phone PIN `4821` twice. Tap **Create account**. | "Creating account..." shows, then **Confirm your email** opens. A 6-digit code was emailed. |
+| 4 | Type a wrong code, e.g. `000000`, and tap **Confirm email**. | "That code is not correct." You stay on this step. |
+| 5 | Force-close the app, reopen, enter `4821`. | You are back on **Confirm your email**: this step cannot be skipped. |
+| 6 | Type the real code and tap **Confirm email**. | The shop screen opens. |
+| 7 | Note the time taken from step 1. | Under two minutes. |
 
 ## UAT-02 Account creation without internet
 
@@ -248,19 +251,20 @@ owner has accepted each failure in writing as a known issue.
 | 9 | On the owner's phone, with internet on, open Settings → Staff, tap **Change PIN** next to Given, enter `9042` twice and save. | "Given's PIN was changed." appears. |
 | 10 | Sign out. Try `7315`, then sign in with `9042`. | `7315` is rejected. `9042` opens Home as Given. The owner's phone now uses the new PIN offline too. |
 
-## UAT-22 Owner email sign-in and email code on a new phone
+## UAT-22 Owner email sign-in on a new phone restores the shop
 
-**Start:** UAT-03 completed on the owner's phone, a second phone with the app installed, internet on, and the backend running.
+**Start:** UAT-03 completed on the owner's phone with at least one product added, **Sync now** done (Settings), a second phone with the app installed, internet on, and the backend running.
 
 | Step | Do this | Expected result |
 | --- | --- | --- |
-| 1 | On the second phone, choose English. On "Create your account", tap **Already registered? Sign in with email**. | The email sign-in screen opens. |
-| 2 | Enter `elton@example.com` and password `stocksure-demo`. Tap **Sign in**. | The app says the email isn't confirmed yet and that a 6-digit code was sent. A code box appears (a demo code card shows it in a development build). |
-| 3 | Type a wrong code, e.g. `000000`. Tap **Confirm and sign in**. | "That code is not correct." The app stays on the code step. |
-| 4 | Type the real code. Tap **Confirm and sign in**. | The "Set your phone PIN" screen opens; the email is now confirmed. |
-| 5 | Enter PIN `4821` twice and save. | The app says shop data is not on this phone yet. |
-| 6 | Turn airplane mode on, force-close and reopen. Enter `4821`. | The waiting screen opens offline. |
-| 7 | Try the same code again from another sign-in. | It is rejected; each code works once. |
+| 1 | On the second phone, choose English. On "Create your account", tap **Already have an account? Sign in**. | The email sign-in screen opens. |
+| 2 | Enter `elton@example.com` and password `stocksure-demo`. Tap **Sign in**. | **No code is asked for**: the email was confirmed when the account was created. "Set your phone PIN" opens. |
+| 3 | Enter PIN `4821` twice and save. | "Getting your shop ready" shows briefly. |
+| 4 | Wait. | Home opens with the shop name, and Products lists the products with their stock. Setup is not repeated. |
+| 5 | Turn airplane mode on, force-close and reopen. Enter `4821`. | Home opens offline. |
+| 6 | Repeat steps 1 to 3 on a phone with airplane mode on. | "No internet right now. Connect and try again." with a **Try again** button. Nothing else is lost. |
+| 7 | Create a second account on one phone, confirm its email, stop before shop setup, then sign in with it on another phone. | After the PIN, **Shop setup** opens (there is nothing to restore yet). |
 | 8 | Check the inbox. | Only code emails arrived; no email contains a sign-in link. |
 
-**Note:** in a real deployment the code arrives by email and the demo card is hidden.
+**Older accounts:** an account whose email was never confirmed is asked for a 6-digit code once at its next email sign-in, then signs in normally.
+

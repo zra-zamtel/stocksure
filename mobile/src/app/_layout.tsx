@@ -67,6 +67,7 @@ function RootNavigator() {
     hasAccount,
     hasShop,
     shopRestorePending,
+    emailPending,
     onboardingComplete,
     refresh,
     can,
@@ -120,6 +121,10 @@ function RootNavigator() {
 
       <Stack.Protected guard={hasOwner && !signedIn && pendingOwner === null}>
         <Stack.Screen name="pin-reset" />
+      </Stack.Protected>
+
+      <Stack.Protected guard={signedIn && isOwner && emailPending !== null}>
+        <Stack.Screen name="onboarding/verify-email" />
       </Stack.Protected>
 
       <Stack.Protected
