@@ -136,6 +136,41 @@ describe('IT-SYNC pull and apply', () => {
     expect(meta?.value).toBe('1');
   });
 
+  it('restores mobile money providers sent under the phone\'s own key, `providers`', async () => {
+    respond(200, {
+      changes: [
+        {
+          entity: 'shop',
+          entityId: 'shop_1',
+          operation: 'create',
+          payload: { id: 'shop_1', name: 'Pulled Shop', type: 'shoes', town: 'Kabwe', providers: [], createdAt: NOW, updatedAt: NOW },
+          cursor: '1',
+          clientCreatedAt: NOW,
+        },
+        {
+          entity: 'shop',
+          entityId: 'shop_1',
+          operation: 'update',
+          payload: { id: 'shop_1', providers: ['MTN', 'Airtel'], turnoverTaxRegistered: true, tpin: '1002003004', updatedAt: NOW },
+          cursor: '2',
+          clientCreatedAt: NOW,
+        },
+      ],
+      nextCursor: '2',
+      serverTime: NOW,
+    });
+
+    await pullChanges(db, 'jwt');
+
+    const shop = await db.getFirstAsync<{ name: string; providers_json: string; tpin: string }>(
+      'SELECT name, providers_json, tpin FROM shop WHERE id = ?',
+      'shop_1'
+    );
+    expect(shop?.name).toBe('Pulled Shop');
+    expect(JSON.parse(shop?.providers_json ?? '[]')).toEqual(['MTN', 'Airtel']);
+    expect(shop?.tpin).toBe('1002003004');
+  });
+
   it('applies a sale with its lines, payment and stock movement', async () => {
     const shop = {
       id: 'shop_1',

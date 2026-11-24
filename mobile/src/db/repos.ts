@@ -1086,18 +1086,27 @@ export async function ensureTaxPeriod(
 }
 
 /**
- * Step 3 is skippable, but the finish still needs to be recorded. This flag is
- * phone-only UI state, so it does not go into the sync queue.
+ * Step 3 is skippable, but the finish still needs to be recorded. It is synced
+ * too, so a shop restored onto a new phone does not send the owner back through
+ * setup.
  */
 export async function completeOnboarding(db: SQLiteDatabase): Promise<void> {
   const shop = await db.getFirstAsync<{ id: string }>('SELECT id FROM shop LIMIT 1');
   if (!shop) throw new Error('Complete the shop details first');
 
-  await db.runAsync(
-    'UPDATE shop SET onboarding_completed = 1, updated_at = ? WHERE id = ?',
-    nowIso(),
-    shop.id
-  );
+  const stamp = nowIso();
+  await db.withTransactionAsync(async () => {
+    await db.runAsync(
+      'UPDATE shop SET onboarding_completed = 1, updated_at = ? WHERE id = ?',
+      stamp,
+      shop.id
+    );
+    await enqueueSync(db, 'shop', shop.id, 'update', {
+      id: shop.id,
+      onboardingCompleted: true,
+      updatedAt: stamp,
+    });
+  });
 }
 
 export interface BarcodeMatch {
@@ -1202,11 +1211,12 @@ export async function createProduct(
       stamp
     );
 
+    const openingMovementId = newId('mv');
     if (input.openingQuantity > 0) {
       await db.runAsync(
         `INSERT INTO stock_movement (id, variant_id, quantity_change, reason, created_at, updated_at)
          VALUES (?, ?, ?, 'opening', ?, ?)`,
-        newId('mv'),
+        openingMovementId,
         variantId,
         input.openingQuantity,
         stamp,
@@ -1233,6 +1243,19 @@ export async function createProduct(
       createdAt: stamp,
       updatedAt: stamp,
     });
+    // Opening stock syncs too (after its variant), or a restored shop would show
+    // every starting quantity as zero.
+    if (input.openingQuantity > 0) {
+      await enqueueSync(db, 'stock_movement', openingMovementId, 'create', {
+        id: openingMovementId,
+        variantId,
+        quantityChange: input.openingQuantity,
+        reason: 'opening',
+        note: null,
+        createdAt: stamp,
+        updatedAt: stamp,
+      });
+    }
   });
 
   return { productId, variantId, barcode };

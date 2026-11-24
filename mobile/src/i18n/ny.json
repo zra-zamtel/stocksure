@@ -743,5 +743,16 @@
   "si.card.items": "Katundu",
   "si.card.total": "Zonse",
   "si.openDetails": "Onani zambiri za kulumikizana",
-  "si.error.signIn": "Lowaninso ndi imelo ndi password yanu, kenako lumikizani."
+  "si.error.signIn": "Lowaninso ndi imelo ndi password yanu, kenako lumikizani.",
+
+  "verify.eyebrow": "Watsala pang'ono",
+  "verify.title": "Tsimikizani imelo yanu",
+  "verify.subtitle": "Izi zimaliza kupanga akaunti yanu.",
+  "verify.once": "Mumachita izi kamodzi kokha. Pambuyo pake mumalowa ndi imelo ndi password, ndipo PIN yanu imagwira ntchito popanda intaneti.",
+  "shop.restore.title": "Tikukonza sitolo yanu",
+  "shop.restore.loading": "Tikufufuza katundu ndi malonda a sitolo yanu...",
+  "shop.restore.offline": "Palibe intaneti pano. Lumikizani ndikuyesanso. Palibe chomwe chatayika: sitolo yanu ili yotetezeka pa seva.",
+  "shop.restore.failed": "Sitinathe kutenga sitolo yanu pompano. Yesaninso pakanthawi.",
+  "shop.restore.retry": "Yesaninso",
+  "shop.restore.note": "Ngati iyi ndi akaunti yatsopano, palibe choti tibwezeretse ndipo kukonza sitolo kuyamba."
 }

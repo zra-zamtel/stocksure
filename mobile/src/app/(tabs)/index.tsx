@@ -3,7 +3,6 @@ import type { AndroidSymbol } from 'expo-symbols';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '@/auth/session';
 import { displayName } from '@/components/auth';
-import { EmailReminder } from '@/components/email-reminder';
 import { GettingStarted } from '@/components/getting-started';
 import { ProfileMenu } from '@/components/profile-menu';
 import { Button, Card, Pill, Screen, SectionTitle, Skeleton } from '@/components/ui';
@@ -83,7 +82,6 @@ export default function HomeScreen() {
         ) : undefined
       }
     >
-      <EmailReminder />
 
       <Card>
         <Text style={styles.heroLabel}>{t('home.today.salesToday')}</Text>

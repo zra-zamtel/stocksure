@@ -1,5 +1,11 @@
 import Storage from 'expo-sqlite/kv-store';
-import { clearEmailPending, markEmailPending } from '@/lib/email-verify-store';
+import {
+  clearEmailPending,
+  markEmailPending,
+  readEmailPending,
+  type EmailPending,
+} from '@/lib/email-verify-store';
+import { restoreFromServer } from '@/db/sync';
 import * as SecureStore from 'expo-secure-store';
 import { useSQLiteContext } from 'expo-sqlite';
 import {
@@ -20,6 +26,7 @@ import {
   type Role,
 } from '@/core';
 import {
+  completeOnboarding,
   createOwner,
   getOnboardingState,
   getOwner,
@@ -92,6 +99,14 @@ type AuthValue = {
   hasShop: boolean;
   /** An owner restored a phone account but the shop data has not arrived yet. */
   shopRestorePending: boolean;
+  /** Set until a new owner types the 6-digit code emailed at sign-up. */
+  emailPending: EmailPending | null;
+  /**
+   * Pulls the shop from the server onto a phone that has none. Afterwards the
+   * phone either has the shop or, when the server holds none yet, carries on
+   * with owner setup. Throws when the server cannot be reached.
+   */
+  restoreShop: () => Promise<void>;
   /** Email login succeeded; this phone still needs a local PIN. */
   pendingOwner: PendingOwner | null;
   /** Bearer token for owner-only online calls such as adding staff. */
@@ -226,6 +241,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [hasStaff, setHasStaff] = useState(false);
   const [staffPinChange, setStaffPinChange] = useState<StaffPinChange | null>(null);
   const [shopRestorePending, setShopRestorePending] = useState(false);
+  const [emailPending, setEmailPending] = useState<EmailPending | null>(readEmailPending);
   const [pendingOwner, setPendingOwner] = useState<PendingOwner | null>(null);
   const [deviceToken, setDeviceToken] = useState<string | null>(null);
   const [onboarding, setOnboarding] = useState<OnboardingState>(emptyOnboarding);
@@ -320,6 +336,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       clearPendingRegistration();
       // Older servers do not say; they always attempted the email.
       markEmailPending(owner.email ?? email, session.verificationSent !== false);
+      setEmailPending({ email: owner.email ?? email, sent: session.verificationSent !== false });
       setOwnerPreview({ name: owner.name, phone: owner.phone, email: owner.email });
       setHasAccount(true);
       setUser({ id: owner.id, name: owner.name, phone: owner.phone, role: 'owner' });
@@ -431,6 +448,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
       // A password sign-in only succeeds for a confirmed email.
       clearEmailPending();
+      setEmailPending(null);
       setPendingOwner({ owner: session.owner, deviceToken: session.deviceToken });
       setStatus('ready');
       setError(null);
@@ -441,6 +459,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const startOwnerSession = useCallback((session: OwnerSession) => {
     // Any accepted code proves the inbox, so the email is confirmed now.
     clearEmailPending();
+    setEmailPending(null);
     setPendingOwner({ owner: session.owner, deviceToken: session.deviceToken });
     setStatus('ready');
     setError(null);
@@ -462,6 +481,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const confirmOwnerEmail = useCallback(async (input: { email: string; code: string }) => {
     await verifyEmailCodeOnServer(input.email.trim().toLowerCase(), input.code);
     clearEmailPending();
+    setEmailPending(null);
   }, []);
 
   const requestOwnerPasswordReset = useCallback(
@@ -531,6 +551,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [db, pendingOwner, refresh]
   );
 
+  const restoreShop = useCallback(async () => {
+    if (!deviceToken) throw new ApiError('unauthorized', 'Sign in with your email again to restore the shop.');
+    await restoreFromServer(db, deviceToken);
+    // Whatever the server held is now here. A shop that already has products was
+    // set up and in use on the old phone (older builds never synced the "setup
+    // finished" flag), so it opens on Home instead of repeating setup. If the
+    // server held no shop (the account was just created and setup never
+    // finished), owner setup takes over from here.
+    const restored = await getOnboardingState(db);
+    if (restored.hasShop && !restored.onboardingComplete && restored.hasProducts) {
+      await completeOnboarding(db);
+    }
+    storeRestorePending(false);
+    setShopRestorePending(false);
+    await refresh();
+  }, [db, deviceToken, refresh]);
+
   const cancelOwnerLogin = useCallback(() => setPendingOwner(null), []);
 
   const requestPinResetCode = useCallback(async () => {
@@ -582,6 +619,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       hasAccount,
       hasShop,
       shopRestorePending,
+      emailPending,
+      restoreShop,
       pendingOwner,
       deviceToken,
       onboardingComplete: onboarding.onboardingComplete,
@@ -627,6 +666,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     requestPinResetCode,
     resetPin,
     shopRestorePending,
+    emailPending,
+    restoreShop,
     signIn,
     signInStaff,
     signOut,

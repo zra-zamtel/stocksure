@@ -210,6 +210,47 @@ class SyncTestCase(SyncBase):
             "PositiveIntegerField",
         )
 
+    def test_a_shop_update_changes_only_the_fields_it_sends(self):
+        self.push([self.change("q_shop", "shop", "shop_1", shop_payload(onboardingCompleted=False))])
+
+        # What the money step sends: no name, town or type.
+        money = {
+            "id": "shop_1",
+            "providers": ["MTN", "Airtel"],
+            "turnoverTaxRegistered": True,
+            "tpin": "1002003004",
+            "updatedAt": NOW,
+        }
+        response = self.push([self.change("q_money", "shop", "shop_1", money, operation="update")])
+
+        self.assertEqual(response.json()["rejected"], [])
+        shop = Shop.objects.get(id="shop_1")
+        self.assertEqual(shop.name, "Test Shop")
+        self.assertEqual(shop.town, "Kabwe")
+        self.assertEqual(shop.type, "shoes")
+        self.assertEqual(shop.providers_json, ["MTN", "Airtel"])
+        self.assertTrue(shop.turnover_tax_registered)
+        self.assertEqual(shop.tpin, "1002003004")
+
+    def test_finishing_setup_is_recorded_on_the_server(self):
+        self.push([self.change("q_shop", "shop", "shop_1", shop_payload(onboardingCompleted=False))])
+        self.assertFalse(Shop.objects.get(id="shop_1").onboarding_completed)
+
+        done = {"id": "shop_1", "onboardingCompleted": True, "updatedAt": NOW}
+        response = self.push([self.change("q_done", "shop", "shop_1", done, operation="update")])
+
+        self.assertEqual(response.json()["rejected"], [])
+        self.assertTrue(Shop.objects.get(id="shop_1").onboarding_completed)
+        self.assertEqual(Shop.objects.get(id="shop_1").name, "Test Shop")
+
+    def test_a_new_shop_still_needs_a_name(self):
+        payload = shop_payload()
+        del payload["name"]
+
+        response = self.push([self.change("q_shop", "shop", "shop_1", payload)])
+
+        self.assertEqual(len(response.json()["rejected"]), 1)
+
     def test_push_product_variant_and_append_stock(self):
         self.push_schema()
 
