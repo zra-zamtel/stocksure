@@ -30,6 +30,19 @@ export function needsOverride(quantity: number, requested: number): boolean {
   return requested > quantity;
 }
 
+/** The most units one basket line can hold. */
+export const MAX_LINE_QUANTITY = 99;
+
+/**
+ * The most a basket line may ask for. Whoever cannot approve an override
+ * (staff, or an owner who has staff) is held to what is on hand; someone who
+ * can approve may go over and is warned, then asked to confirm at the end.
+ */
+export function maxSellable(onHand: number, canOverride: boolean): number {
+  if (canOverride) return MAX_LINE_QUANTITY;
+  return Math.min(MAX_LINE_QUANTITY, Math.max(0, Math.trunc(onHand)));
+}
+
 export function applyMovement(quantity: number, change: number): number {
   return quantity + change;
 }

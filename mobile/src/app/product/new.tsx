@@ -8,7 +8,7 @@ import { captureRef } from 'react-native-view-shot';
 import { usePermissionGuard } from '@/auth/permissions';
 import { BarcodeLabel } from '@/components/barcode-label';
 import { Button, Card, Field, Screen, SectionTitle } from '@/components/ui';
-import { isValidEan13, normaliseBarcode, toNgwee } from '@/core';
+import { isValidEan13, normaliseBarcode, parsePrice, sanitisePriceInput, type PriceError } from '@/core';
 import { useShop } from '@/db/hooks';
 import { createProduct } from '@/db/repos';
 import { useI18n } from '@/i18n';
@@ -42,6 +42,12 @@ export default function NewProductScreen() {
   const savedCode = barcode.trim() === '' ? '' : normaliseBarcode(barcode);
   const scannable = savedCode !== '' && isValidEan13(savedCode);
 
+  const priceMessage = (field: string, code: PriceError) => t(`price.error.${code}`, { field });
+  // Selling below what it cost is allowed, but the owner is told while typing.
+  const typedBuy = parsePrice(buyPrice);
+  const typedSell = parsePrice(sellPrice);
+  const lossPerUnit = typedBuy.ok && typedSell.ok && typedSell.ngwee < typedBuy.ngwee ? typedBuy.ngwee - typedSell.ngwee : 0;
+
   async function handleSave() {
     setError(null);
     setMessage(null);
@@ -53,13 +59,16 @@ export default function NewProductScreen() {
       return;
     }
 
-    const buy = toNgwee(Number.parseFloat(buyPrice.replace(',', '.')));
-    const sell = toNgwee(Number.parseFloat(sellPrice.replace(',', '.')));
+    const buyResult = parsePrice(buyPrice);
+    const sellResult = parsePrice(sellPrice);
     const opening = Number.parseInt(quantity, 10);
 
     if (!name.trim()) return setError('Product name is required');
-    if (!Number.isFinite(buy) || !Number.isFinite(sell)) return setError('Buy and sell price are required');
+    if (!buyResult.ok) return setError(priceMessage(t('products.buyPrice'), buyResult.error));
+    if (!sellResult.ok) return setError(priceMessage(t('products.sellPrice'), sellResult.error));
     if (!Number.isInteger(opening) || opening < 0) return setError('Opening quantity must be a whole number');
+    const buy = buyResult.ngwee;
+    const sell = sellResult.ngwee;
 
     setSaving(true);
     try {
@@ -108,8 +117,8 @@ export default function NewProductScreen() {
   async function handlePrintLabel() {
     if (!scannable) return;
     setError(null);
-    const priceValue = Number.parseFloat(sellPrice.replace(',', '.'));
-    const priceText = Number.isFinite(priceValue) ? formatKwacha(toNgwee(priceValue)) : '';
+    const printPrice = parsePrice(sellPrice);
+    const priceText = printPrice.ok ? formatKwacha(printPrice.ngwee) : '';
     try {
       await Print.printAsync({
         html: labelHtml({
@@ -175,17 +184,20 @@ export default function NewProductScreen() {
 
       <SectionTitle>{t('products.buyPrice')}</SectionTitle>
       <Card>
-        <Field label={t('products.buyPrice')} value={buyPrice} onChangeText={setBuyPrice} placeholder="180.00" keyboardType="decimal-pad" required />
-        <Field label={t('products.sellPrice')} value={sellPrice} onChangeText={setSellPrice} placeholder="280.00" keyboardType="decimal-pad" required />
+        <Field label={t('products.buyPrice')} value={buyPrice} onChangeText={(v) => setBuyPrice(sanitisePriceInput(v))} placeholder="180.00" keyboardType="decimal-pad" required />
+        <Field label={t('products.sellPrice')} value={sellPrice} onChangeText={(v) => setSellPrice(sanitisePriceInput(v))} placeholder="280.00" keyboardType="decimal-pad" required />
+        {lossPerUnit > 0 ? (
+          <Text style={styles.warning}>{t('price.belowCost', { loss: formatKwacha(lossPerUnit) })}</Text>
+        ) : null}
       </Card>
 
       <SectionTitle>{t('products.inStock')}</SectionTitle>
       <Card>
-        <Field label={t('product.new.openingQty')} value={quantity} onChangeText={setQuantity} keyboardType="numeric" required />
+        <Field label={t('product.new.openingQty')} value={quantity} onChangeText={(v) => setQuantity(v.replace(/\D/g, ''))} keyboardType="numeric" required />
         <Field
           label={t('product.new.lowStock')}
           value={lowStock}
-          onChangeText={setLowStock}
+          onChangeText={(v) => setLowStock(v.replace(/\D/g, ''))}
           placeholder={String(shop?.lowStockDefault ?? 3)}
           keyboardType="numeric"
         />
@@ -202,4 +214,5 @@ const styles = StyleSheet.create({
   muted: { fontSize: typeScale.label, color: colors.textMuted },
   success: { fontSize: typeScale.label, color: colors.success, fontWeight: '600' },
   error: { fontSize: typeScale.label, color: colors.danger, fontWeight: '600' },
+  warning: { fontSize: typeScale.label, color: colors.warning, fontWeight: '600' },
 });

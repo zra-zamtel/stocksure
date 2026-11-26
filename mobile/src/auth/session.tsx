@@ -55,6 +55,7 @@ import {
   type PinResetRequestResult,
 } from '@/lib/api';
 import { hashPin, verifyPin } from '@/lib/pin';
+import { clearPinGuard, pinGuardStatus, recordWrongPin, type GuardStatus } from '@/lib/pin-guard';
 
 export type SessionUser = {
   id: string;
@@ -76,7 +77,11 @@ type SignInResult =
   | 'first-sign-in-offline'
   | 'locked-out'
   /** The owner's PIN was one-time; the staff member must choose their own. */
-  | 'choose-pin';
+  | 'choose-pin'
+  /** Too many wrong PINs: wait before trying again. */
+  | 'pin-locked'
+  /** Far too many wrong PINs: this phone needs the owner's email sign-in. */
+  | 'online-required';
 
 /** A staff member who signed in with the owner's one-time PIN. */
 export type StaffPinChange = { phone: string; pin: string; name: string };
@@ -123,6 +128,8 @@ type AuthValue = {
     pin: string;
   }) => Promise<void>;
   signIn: (pin: string) => Promise<SignInResult>;
+  /** How long the PIN stays locked after wrong tries, and whether email sign-in is now required. */
+  pinLock: () => Promise<GuardStatus>;
   /** A staff member's first sign-in on a phone that does not know them yet. */
   signInStaff: (input: { phone: string; pin: string; newPin?: string }) => Promise<'ok' | 'choose-pin'>;
   /** Set while a staff member must replace the owner's one-time PIN. */
@@ -352,11 +359,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const identities = await listIdentities(db);
       if (identities.length === 0) return 'no-account';
 
+      // Too many wrong PINs in a row lock the PIN, so it cannot be guessed.
+      const guard = await pinGuardStatus();
+      if (guard.requiresOnline) return 'online-required';
+      if (guard.remainingMs > 0) return 'pin-locked';
+      const wrongPin = async (): Promise<SignInResult> => {
+        const after = await recordWrongPin();
+        if (after.requiresOnline) return 'online-required';
+        return after.remainingMs > 0 ? 'pin-locked' : 'wrong-pin';
+      };
+
       const matches = [];
       for (const identity of identities) {
         if (await verifyPin(pin, identity.pinHash)) matches.push(identity);
       }
-      if (matches.length === 0) return 'wrong-pin';
+      if (matches.length === 0) return wrongPin();
       if (matches.length > 1) return 'ambiguous-pin';
 
       const matched = matches[0];
@@ -376,7 +393,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             return 'first-sign-in-offline';
           }
           if (cause instanceof ApiError && cause.code === 'unauthorized') {
-            return 'wrong-pin';
+            return wrongPin();
           }
           if (cause instanceof ApiError && cause.code === 'too-many-attempts') {
             return 'locked-out';
@@ -385,12 +402,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       }
 
+      clearPinGuard();
       setUser({ id: matched.id, name: matched.name, phone: matched.phone, role: matched.role });
       await refresh();
       return 'ok';
     },
     [db, refresh]
   );
+
+  const pinLock = useCallback(() => pinGuardStatus(), []);
 
   const signInStaff = useCallback(
     async (input: { phone: string; pin: string; newPin?: string }): Promise<'ok' | 'choose-pin'> => {
@@ -431,6 +451,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
       await markStaffFirstSignIn(db, staff.id);
       setStaffPinChange(null);
+      clearPinGuard();
       setUser({ id: staff.id, name: staff.name, phone: staff.phone, role: 'staff' });
       setStatus('ready');
       setError(null);
@@ -536,6 +557,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
       await storeDeviceToken(pendingOwner.deviceToken);
       setDeviceToken(pendingOwner.deviceToken);
+      // Signing in online proves it is the owner, so the PIN opens again.
+      clearPinGuard();
 
       const state = await getOnboardingState(db);
       const restorePending = existingOwner === null && !state.hasShop;
@@ -593,6 +616,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const pinHash = await hashPin(input.pin);
       await confirmPinResetOnServer({ phone: owner.phone, code: input.code, pinHash });
       await updateOwnerPinHash(db, owner.id, pinHash);
+      // The reset code proved it is the owner, so the PIN opens again.
+      clearPinGuard();
 
       setOwnerPreview({ name: owner.name, phone: owner.phone, email: owner.email });
       setUser({ id: owner.id, name: owner.name, phone: owner.phone, role: 'owner' });
@@ -628,6 +653,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       can: (permission) => roleCan(user?.role, permission, { hasStaff }),
       registerOwner,
       signIn,
+      pinLock,
       signInStaff,
       staffPinChange,
       cancelStaffPinChange: () => setStaffPinChange(null),
@@ -669,6 +695,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     emailPending,
     restoreShop,
     signIn,
+    pinLock,
     signInStaff,
     signOut,
     staffPinChange,

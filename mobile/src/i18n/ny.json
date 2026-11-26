@@ -754,5 +754,19 @@
   "shop.restore.offline": "Palibe intaneti pano. Lumikizani ndikuyesanso. Palibe chomwe chatayika: sitolo yanu ili yotetezeka pa seva.",
   "shop.restore.failed": "Sitinathe kutenga sitolo yanu pompano. Yesaninso pakanthawi.",
   "shop.restore.retry": "Yesaninso",
-  "shop.restore.note": "Ngati iyi ndi akaunti yatsopano, palibe choti tibwezeretse ndipo kukonza sitolo kuyamba."
+  "shop.restore.note": "Ngati iyi ndi akaunti yatsopano, palibe choti tibwezeretse ndipo kukonza sitolo kuyamba.",
+
+  "auth.signIn.pinLocked": "Mwayesa ma PIN olakwika kambiri. Yesaninso pakatha {time}.",
+  "auth.signIn.wait.seconds": "masekondi {count}",
+  "auth.signIn.wait.minutes": "mphindi {count}",
+  "auth.signIn.onlineRequired": "Mwayesa ma PIN olakwika kambiri. Kuti sitolo yanu ikhale yotetezeka, lowani ndi imelo ndi password yanu kuti mutsegule foni iyi.",
+  "price.error.empty": "{field} ndiyofunika.",
+  "price.error.malformed": "{field} iyenera kukhala nambala monga 150 kapena 150.50.",
+  "price.error.negative": "{field} siingakhale yochepera ziro.",
+  "price.error.zero": "{field} iyenera kukhala yoposa K0.",
+  "price.error.decimals": "{field} ikhoza kukhala ndi manambala awiri okha pambuyo pa kadontho.",
+  "price.error.tooLarge": "{field} ndi yaikulu kwambiri.",
+  "price.belowCost": "Mtengo wogulitsira uli pansi pa mtengo wogulira: mudzataya {loss} pa chinthu chilichonse.",
+  "sale.new.onlyLeft": "Pali {count} yokha ya {item}. Simungagulitse zoposa zomwe zilipo.",
+  "sale.new.overStock": "Zilipo {count} zokha. Kugulitsa zambiri kumafuna chivomerezo chanu."
 }

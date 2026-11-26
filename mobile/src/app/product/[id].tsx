@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { usePermissionGuard } from '@/auth/permissions';
 import { Button, Card, Choice, EmptyState, ErrorState, LoadingList, Field, Pill, Row, Screen, SectionTitle } from '@/components/ui';
-import { isValidEan13, toNgwee } from '@/core';
+import { isValidEan13, parsePrice, sanitisePriceInput } from '@/core';
 import { useMovements, useProducts, useShop } from '@/db/hooks';
 import { restockVariant, setVariantBarcode } from '@/db/repos';
 import { useI18n } from '@/i18n';
@@ -50,11 +50,17 @@ export default function ProductScreen() {
     }
     setSubmitting(true);
     try {
-      const parsedPrice = Number.parseFloat(buyPrice.replace(',', '.'));
+      // An empty price keeps the current one; anything typed must be a real price.
+      const typedPrice = buyPrice.trim() === '' ? null : parsePrice(buyPrice);
+      if (typedPrice && !typedPrice.ok) {
+        setSubmitError(t(`price.error.${typedPrice.error}`, { field: t('products.restockPrice') }));
+        setSubmitting(false);
+        return;
+      }
       const result = await restockVariant(db, {
         variantId: selectedVariant.id,
         quantity: Number.parseInt(quantity, 10),
-        buyPrice: Number.isFinite(parsedPrice) ? toNgwee(parsedPrice) : undefined,
+        buyPrice: typedPrice ? typedPrice.ngwee : undefined,
         note: note.trim() || undefined,
       });
       setMessage(
@@ -231,13 +237,13 @@ export default function ProductScreen() {
             <Field
               label={t('products.restockQty')}
               value={quantity}
-              onChangeText={setQuantity}
+              onChangeText={(v) => setQuantity(v.replace(/\D/g, ''))}
               keyboardType="numeric"
             />
             <Field
               label={t('products.restockPrice')}
               value={buyPrice}
-              onChangeText={setPriceDraft}
+              onChangeText={(v) => setPriceDraft(sanitisePriceInput(v))}
               keyboardType="decimal-pad"
             />
             <Field

@@ -2,6 +2,8 @@ import { useEffect, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   ImageBackground,
+  Keyboard,
+  KeyboardAvoidingView,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -40,10 +42,26 @@ type ScreenProps = {
 // a material rather than a flat fill. It is a 128px tile, a few KB.
 const PAPER = require('../../assets/images/paper.png');
 
+/** True while the on-screen keyboard is up. */
+function useKeyboardVisible(): boolean {
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const show = Keyboard.addListener('keyboardDidShow', () => setVisible(true));
+    const hide = Keyboard.addListener('keyboardDidHide', () => setVisible(false));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
+  return visible;
+}
+
 export function Screen({ title, subtitle, children, scroll = true, footer, action }: ScreenProps) {
   // The live height of whatever the phone draws at the bottom: Android's
   // 3-button bar, the gesture handle (a thin strip) or the iOS home indicator.
   const { bottom: bottomInset } = useSafeAreaInsets();
+  // The keyboard covers that strip, so the footer drops the extra space then.
+  const keyboardVisible = useKeyboardVisible();
   const body = (
     <View style={styles.body}>
       {title || action ? (
@@ -63,18 +81,25 @@ export function Screen({ title, subtitle, children, scroll = true, footer, actio
         style={styles.safe}
         edges={footer ? ['top', 'left', 'right'] : ['top', 'left', 'right', 'bottom']}
       >
-        {scroll ? (
-          <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
-            {body}
-          </ScrollView>
-        ) : (
-          body
-        )}
-        {footer ? (
-          // The footer adds the bottom inset to its own padding, so its buttons
-          // always sit above the system bar and its surface runs underneath it.
-          <View style={[styles.footer, { paddingBottom: spacing.md + bottomInset }]}>{footer}</View>
-        ) : null}
+        {/* The phone's window does not always shrink for the keyboard (apps that
+            draw edge to edge), so the content makes room itself: the field being
+            typed in and the main button stay above the keyboard. */}
+        <KeyboardAvoidingView behavior="padding" style={styles.avoid}>
+          {scroll ? (
+            <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+              {body}
+            </ScrollView>
+          ) : (
+            body
+          )}
+          {footer ? (
+            // The footer adds the bottom inset to its own padding, so its buttons
+            // always sit above the system bar and its surface runs underneath it.
+            <View style={[styles.footer, { paddingBottom: spacing.md + (keyboardVisible ? 0 : bottomInset) }]}>
+              {footer}
+            </View>
+          ) : null}
+        </KeyboardAvoidingView>
       </SafeAreaView>
     </ImageBackground>
   );
@@ -531,6 +556,7 @@ const styles = StyleSheet.create({
   icon: { fontFamily: ICON_FONT, textAlign: 'center', includeFontPadding: false },
   paper: { flex: 1, backgroundColor: colors.bg },
   safe: { flex: 1 },
+  avoid: { flex: 1 },
   scroll: { paddingBottom: spacing.xxl },
   body: { flex: 1, paddingHorizontal: spacing.lg, paddingTop: spacing.lg, gap: spacing.md },
   footer: {
