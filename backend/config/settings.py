@@ -302,3 +302,12 @@ COLLECTIONS_PROVIDER = os.environ.get(
 )
 COLLECTIONS_SIMULATED_DELAY_SECONDS = int(os.environ.get("COLLECTIONS_SIMULATED_DELAY_SECONDS", "6"))
 COLLECTIONS_TIMEOUT_SECONDS = int(os.environ.get("COLLECTIONS_TIMEOUT_SECONDS", "120"))
+
+# Lipila mobile-money collections (COLLECTIONS_PROVIDER =
+# apps.collections.providers.LipilaProvider). api.lipila.dev is the sandbox and
+# blz.lipila.io is production; the key must match the host or Lipila returns 401.
+LIPILA_API_KEY = os.environ.get("LIPILA_API_KEY", "")
+LIPILA_BASE_URL = os.environ.get("LIPILA_BASE_URL", "https://blz.lipila.io")
+LIPILA_TIMEOUT_SECONDS = int(os.environ.get("LIPILA_TIMEOUT_SECONDS", "15"))
+LIPILA_CALLBACK_URL = os.environ.get("LIPILA_CALLBACK_URL", "")
+LIPILA_NARRATION = os.environ.get("LIPILA_NARRATION", "StockSure sale")
