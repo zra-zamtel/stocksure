@@ -30,7 +30,10 @@ class PaymentRequest(TimeStampedModel):
     )
     provider = models.CharField(max_length=8, choices=Provider.choices)
     phone = models.CharField(max_length=15)
+    # The sale's amount. The customer is asked for amount + fee, so the shop
+    # still nets the sale after the provider takes its cut.
     amount_ngwee = models.PositiveIntegerField()
+    fee_ngwee = models.PositiveIntegerField(default=0)
     status = models.CharField(max_length=12, choices=Status.choices, default=Status.PENDING)
     provider_reference = models.CharField(max_length=80, blank=True)
     reason = models.CharField(max_length=200, blank=True)
@@ -39,6 +42,11 @@ class PaymentRequest(TimeStampedModel):
     class Meta:
         ordering = ["-created_at"]
         indexes = [models.Index(fields=["shop", "status"])]
+
+    @property
+    def charged_ngwee(self) -> int:
+        """What the customer is asked to pay."""
+        return self.amount_ngwee + self.fee_ngwee
 
     @property
     def is_final(self) -> bool:

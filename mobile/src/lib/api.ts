@@ -571,7 +571,12 @@ export type PaymentRequest = {
   id: string;
   provider: 'MTN' | 'Airtel' | 'Zamtel';
   phone: string;
+  /** The sale's amount, in ngwee. */
   amount: number;
+  /** The mobile money fee passed on to the customer (older servers omit it). */
+  fee?: number;
+  /** What the customer is asked for: amount + fee. */
+  charged?: number;
   status: PaymentRequestStatus;
   reference: string;
   reason: string;
@@ -602,6 +607,17 @@ export async function requestToPayOnServer(input: {
   const { deviceToken, ...body } = input;
   const response = await postJson(REQUEST_TO_PAY_PATH, body, { Authorization: `Bearer ${deviceToken}` });
   if (response.ok) return (await response.json()) as PaymentRequest;
+  throw paymentRequestError(response, await readErrorPayload(response));
+}
+
+export type FeeQuote = { amount: number; fee: number; charged: number; feePercent: string };
+
+/** What the customer will be asked for a sale of `amount` ngwee, fee included. */
+export async function feeQuoteOnServer(input: { amount: number; deviceToken: string }): Promise<FeeQuote> {
+  const response = await getJson(`/api/v1/collections/quote?amount=${encodeURIComponent(String(input.amount))}`, {
+    Authorization: `Bearer ${input.deviceToken}`,
+  });
+  if (response.ok) return (await response.json()) as FeeQuote;
   throw paymentRequestError(response, await readErrorPayload(response));
 }
 

@@ -257,7 +257,9 @@ export default function NewSaleScreen() {
             reference: confirmed.reference,
             sender: confirmed.phone,
             receivedAt: confirmed.at,
-            rawMessage: `Request to pay approved by ${confirmed.phone}. Ref ${confirmed.reference}.`,
+            rawMessage:
+              `Request to pay approved by ${confirmed.phone}. Ref ${confirmed.reference}.` +
+              (confirmed.fee ? ` Customer also paid a ${formatKwacha(confirmed.fee)} mobile money fee.` : ''),
             parsed: true,
           });
           await reconcileDay(db);

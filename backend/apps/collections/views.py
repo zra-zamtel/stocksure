@@ -12,9 +12,14 @@ from rest_framework.views import APIView
 
 from apps.core.shop_scope import ShopScopedMixin
 
+from .fees import customer_fee_ngwee, fee_percent
 from .models import PaymentRequest
 from .providers import ProviderError, ProviderStatus, get_provider
-from .serializers import PaymentRequestCreateSerializer, PaymentRequestSerializer
+from .serializers import (
+    FeeQuoteSerializer,
+    PaymentRequestCreateSerializer,
+    PaymentRequestSerializer,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +88,7 @@ class RequestToPayView(ShopScopedMixin, APIView):
             provider=data["provider"],
             phone=data["phone"],
             amount_ngwee=data["amount"],
+            fee_ngwee=customer_fee_ngwee(data["amount"]),
         )
         try:
             get_provider().start(payment)
@@ -114,3 +120,23 @@ class RequestToPayStatusView(ShopScopedMixin, APIView):
         if not payment:
             raise NotFound()
         return Response(PaymentRequestSerializer(refresh(payment)).data)
+
+
+class FeeQuoteView(ShopScopedMixin, APIView):
+    """GET /api/v1/collections/quote?amount=<ngwee>
+
+    What the customer will be asked for, so the counter can show the fee
+    before the request goes out. Matches what RequestToPayView charges.
+    """
+
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "collections_status"
+
+    def get(self, request):
+        serializer = FeeQuoteSerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        amount = serializer.validated_data["amount"]
+        fee = customer_fee_ngwee(amount)
+        return Response(
+            {"amount": amount, "fee": fee, "charged": amount + fee, "feePercent": str(fee_percent())}
+        )

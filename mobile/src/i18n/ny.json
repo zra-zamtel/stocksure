@@ -798,5 +798,10 @@
   "price.error.tooLarge": "{field} ndi yaikulu kwambiri.",
   "price.belowCost": "Mtengo wogulitsira uli pansi pa mtengo wogulira: mudzataya {loss} pa chinthu chilichonse.",
   "sale.new.onlyLeft": "Pali {count} yokha ya {item}. Simungagulitse zoposa zomwe zilipo.",
-  "sale.new.overStock": "Zilipo {count} zokha. Kugulitsa zambiri kumafuna chivomerezo chanu."
+  "sale.new.overStock": "Zilipo {count} zokha. Kugulitsa zambiri kumafuna chivomerezo chanu.",
+  "rtp.sale": "Malonda",
+  "rtp.fee": "Ndalama ya mobile money ({percent}%)",
+  "rtp.customerPays": "Kasitomala alipira",
+  "rtp.feeNote": "Ndalama iyi ndi ya ntchito yolipira, kuti sitolo ilandire malonda onse.",
+  "rtp.feePlain": "Ndalama ya mobile money"
 }

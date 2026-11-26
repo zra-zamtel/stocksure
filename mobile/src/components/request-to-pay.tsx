@@ -11,12 +11,7 @@ import Animated, {
 import { useAuth } from '@/auth/session';
 import { isValidPhone, newId, normalisePhone, type Provider } from '@/core';
 import { useI18n } from '@/i18n';
-import {
-  ApiError,
-  paymentRequestStatusOnServer,
-  requestToPayOnServer,
-  type PaymentRequest,
-} from '@/lib/api';
+import { ApiError, feeQuoteOnServer, type PaymentRequest, paymentRequestStatusOnServer, requestToPayOnServer } from '@/lib/api';
 import { formatKwacha } from '@/lib/format';
 import { colors, radii, spacing, themed, typeScale } from '@/theme/tokens';
 import { ConnectDevice } from './connect-device';
@@ -43,7 +38,16 @@ export function providerForPhone(input: string): Provider | null {
   return (Object.keys(PREFIXES) as Provider[]).find((provider) => PREFIXES[provider].includes(prefix)) ?? null;
 }
 
-export type PaidRequest = { reference: string; phone: string; amount: number; provider: Provider; at: string };
+export type PaidRequest = {
+  reference: string;
+  phone: string;
+  /** The sale's amount: what the shop keeps and what reconciliation matches. */
+  amount: number;
+  /** The mobile money fee the customer paid on top, if any. */
+  fee?: number;
+  provider: Provider;
+  at: string;
+};
 
 type Phase = 'form' | 'sending' | 'waiting' | 'paid' | 'failed' | 'manual';
 
@@ -80,7 +84,26 @@ export function RequestToPayDialog({
   const [request, setRequest] = useState<PaymentRequest | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
+  // The fee passed on to the customer, from the server so it always matches
+  // what the request will charge. Null until known (or with no internet).
+  const [quote, setQuote] = useState<{ fee: number; charged: number; feePercent: string } | null>(null);
   const onPaidRef = useRef(onPaid);
+
+  useEffect(() => {
+    if (!deviceToken) return;
+    let cancelled = false;
+    feeQuoteOnServer({ amount, deviceToken })
+      .then((next) => {
+        if (!cancelled) setQuote(next);
+      })
+      .catch(() => {
+        // Without a quote the sheet shows the sale amount; the request's own
+        // answer fills the fee in once it is sent.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [amount, deviceToken]);
   useEffect(() => {
     onPaidRef.current = onPaid;
   }, [onPaid]);
@@ -105,6 +128,7 @@ export function RequestToPayDialog({
                   reference: next.reference,
                   phone: next.phone,
                   amount: next.amount,
+                  fee: next.fee,
                   provider: next.provider,
                   at: next.completedAt ?? new Date().toISOString(),
                 }),
@@ -158,6 +182,13 @@ export function RequestToPayDialog({
         deviceToken: token,
       });
       setRequest(created);
+      if (created.fee !== undefined && created.charged !== undefined) {
+        setQuote((current) => ({
+          fee: created.fee ?? 0,
+          charged: created.charged ?? amount,
+          feePercent: current?.feePercent ?? '',
+        }));
+      }
       setPhase('waiting');
     } catch (cause) {
       setPhase('form');
@@ -172,6 +203,9 @@ export function RequestToPayDialog({
     }
   }
 
+  const hasFee = Boolean(quote && quote.fee > 0);
+  // What the customer's phone will ask for: the sale plus any fee passed on.
+  const charged = hasFee && quote ? quote.charged : amount;
   // Read from the prefix as the number is typed; the chosen tile can override it.
   const detected = providerForPhone(phone);
   const blocking = phase === 'sending' || phase === 'paid';
@@ -181,7 +215,26 @@ export function RequestToPayDialog({
       <View style={styles.backdrop}>
         <View style={styles.sheet}>
           <Text style={styles.eyebrow}>{t('rtp.title')}</Text>
-          <Text style={styles.amount}>{formatKwacha(amount)}</Text>
+          <Text style={styles.amount}>{formatKwacha(charged)}</Text>
+          {hasFee && quote ? (
+            <View style={styles.breakdown}>
+              <View style={styles.breakdownRow}>
+                <Text style={styles.breakdownLabel}>{t('rtp.sale')}</Text>
+                <Text style={styles.breakdownValue}>{formatKwacha(amount)}</Text>
+              </View>
+              <View style={styles.breakdownRow}>
+                <Text style={styles.breakdownLabel}>
+                  {quote.feePercent ? t('rtp.fee', { percent: quote.feePercent }) : t('rtp.feePlain')}
+                </Text>
+                <Text style={styles.breakdownValue}>{formatKwacha(quote.fee)}</Text>
+              </View>
+              <View style={[styles.breakdownRow, styles.breakdownTotal]}>
+                <Text style={styles.breakdownTotalLabel}>{t('rtp.customerPays')}</Text>
+                <Text style={styles.breakdownTotalValue}>{formatKwacha(charged)}</Text>
+              </View>
+              <Text style={styles.breakdownNote}>{t('rtp.feeNote')}</Text>
+            </View>
+          ) : null}
 
           {phase === 'form' || phase === 'sending' ? (
             <Animated.View entering={FadeIn.duration(160)} style={styles.body}>
@@ -349,6 +402,20 @@ const styles = themed(() => StyleSheet.create({
   amount: { fontSize: typeScale.display + 6, fontWeight: '800', color: colors.text, fontVariant: ['tabular-nums'] },
   body: { gap: spacing.md, marginTop: spacing.md },
   providers: { flexDirection: 'row', gap: spacing.sm },
+  breakdown: {
+    gap: spacing.xs,
+    marginTop: spacing.sm,
+    padding: spacing.md,
+    borderRadius: radii.md,
+    backgroundColor: colors.bg,
+  },
+  breakdownRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.md },
+  breakdownLabel: { flexShrink: 1, fontSize: typeScale.label, color: colors.textMuted },
+  breakdownValue: { fontSize: typeScale.label, color: colors.text, fontVariant: ['tabular-nums'] },
+  breakdownTotal: { marginTop: spacing.xs },
+  breakdownTotalLabel: { fontSize: typeScale.body, fontWeight: '700', color: colors.text },
+  breakdownTotalValue: { fontSize: typeScale.body, fontWeight: '800', color: colors.text, fontVariant: ['tabular-nums'] },
+  breakdownNote: { fontSize: typeScale.caption, lineHeight: 17, color: colors.textMuted, marginTop: spacing.xs },
   networkGroup: { gap: spacing.xs },
   networkLabel: { fontSize: typeScale.label, color: colors.textMuted, fontWeight: '600' },
   links: { alignItems: 'center' },

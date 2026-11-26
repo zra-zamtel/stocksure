@@ -816,5 +816,10 @@
   "price.error.tooLarge": "{field} is too large.",
   "price.belowCost": "The sell price is below the buy price: you lose {loss} on every item sold.",
   "sale.new.onlyLeft": "Only {count} left of {item}. You can't sell more than the stock on hand.",
-  "sale.new.overStock": "Only {count} in stock. Selling more needs your approval."
+  "sale.new.overStock": "Only {count} in stock. Selling more needs your approval.",
+  "rtp.sale": "Sale",
+  "rtp.fee": "Mobile money fee ({percent}%)",
+  "rtp.customerPays": "Customer pays",
+  "rtp.feeNote": "The fee covers the payment service, so the shop gets the full sale.",
+  "rtp.feePlain": "Mobile money fee"
 }

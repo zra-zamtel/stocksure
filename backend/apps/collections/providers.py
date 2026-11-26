@@ -91,8 +91,9 @@ class LipilaProvider(BaseCollectionProvider):
     def start(self, request) -> None:
         payload = {
             "referenceId": request.id,
-            # Lipila takes kwacha; the app stores ngwee.
-            "amount": float(Decimal(request.amount_ngwee) / 100),
+            # Lipila takes kwacha; the app stores ngwee. The customer pays the
+            # sale plus the fee passed on to them (0 when none is).
+            "amount": float(Decimal(request.amount_ngwee + getattr(request, "fee_ngwee", 0)) / 100),
             "narration": settings.LIPILA_NARRATION,
             "accountNumber": request.phone,
             "currency": "ZMW",

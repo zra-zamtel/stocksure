@@ -191,3 +191,51 @@ class LipilaFlowTests(BaseTestCase):
         body = created.json()
         self.assertEqual(body["status"], "failed")
         self.assertEqual(body["reason"], "Invalid account number")
+
+
+class CustomerFeeTests(BaseTestCase):
+    @override_settings(COLLECTIONS_CUSTOMER_FEE_PERCENT="2.5")
+    def test_the_shop_nets_the_sale_after_lipila_takes_its_cut(self):
+        from decimal import Decimal
+
+        from apps.collections.fees import customer_fee_ngwee
+
+        for sale in (100, 10000, 25000, 12345, 5_000_000):
+            fee = customer_fee_ngwee(sale)
+            charged = sale + fee
+            net = Decimal(charged) * Decimal("0.975")
+            self.assertGreaterEqual(net, sale, sale)  # never short
+            self.assertLess(net - sale, 1, sale)  # by less than one ngwee
+        self.assertEqual(customer_fee_ngwee(10000), 257)  # K100 -> K102.57
+
+    @override_settings(COLLECTIONS_CUSTOMER_FEE_PERCENT="0")
+    def test_no_fee_passed_on_by_default(self):
+        from apps.collections.fees import customer_fee_ngwee
+
+        self.assertEqual(customer_fee_ngwee(10000), 0)
+
+    @override_settings(COLLECTIONS_CUSTOMER_FEE_PERCENT="2.5")
+    def test_quote_shows_the_fee_before_sending(self):
+        _, _, assistant = make_shop()
+        body = client_for(assistant).get(f"{URL.rsplit('/', 1)[0]}/quote", {"amount": 10000}).json()
+        self.assertEqual(body, {"amount": 10000, "fee": 257, "charged": 10257, "feePercent": "2.5"})
+
+
+@override_settings(
+    COLLECTIONS_PROVIDER="apps.collections.providers.LipilaProvider",
+    COLLECTIONS_CUSTOMER_FEE_PERCENT="2.5",
+    **LIPILA,
+)
+class LipilaFeeFlowTests(BaseTestCase):
+    def test_lipila_asks_for_sale_plus_fee_and_the_sale_amount_is_kept(self):
+        _, _, assistant = make_shop()
+        with patch("apps.collections.providers.httpx.post") as post:
+            post.return_value = reply(200, {"status": "Pending"})
+            body = client_for(assistant).post(
+                URL,
+                {"id": "req_fee_0001", "provider": "Airtel", "phone": "0771234567", "amount": 10000},
+                format="json",
+            ).json()
+
+        self.assertEqual(post.call_args.kwargs["json"]["amount"], 102.57)
+        self.assertEqual((body["amount"], body["fee"], body["charged"]), (10000, 257, 10257))

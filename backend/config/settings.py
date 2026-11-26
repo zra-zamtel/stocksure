@@ -302,6 +302,9 @@ COLLECTIONS_PROVIDER = os.environ.get(
 )
 COLLECTIONS_SIMULATED_DELAY_SECONDS = int(os.environ.get("COLLECTIONS_SIMULATED_DELAY_SECONDS", "6"))
 COLLECTIONS_TIMEOUT_SECONDS = int(os.environ.get("COLLECTIONS_TIMEOUT_SECONDS", "120"))
+# The provider's fee, in percent of what it collects, passed on to the
+# customer so the shop nets the full sale. 0 passes nothing on. Lipila: 2.5.
+COLLECTIONS_CUSTOMER_FEE_PERCENT = os.environ.get("COLLECTIONS_CUSTOMER_FEE_PERCENT", "0")
 
 # Lipila mobile-money collections (COLLECTIONS_PROVIDER =
 # apps.collections.providers.LipilaProvider). api.lipila.dev is the sandbox and

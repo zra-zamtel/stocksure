@@ -21,12 +21,30 @@ class PaymentRequestCreateSerializer(serializers.Serializer):
             raise serializers.ValidationError(str(getattr(exc, "message", exc))) from exc
 
 
+class FeeQuoteSerializer(serializers.Serializer):
+    amount = serializers.IntegerField(min_value=1, max_value=MAX_REQUEST_NGWEE)
+
+
 class PaymentRequestSerializer(serializers.ModelSerializer):
     amount = serializers.IntegerField(source="amount_ngwee")
+    fee = serializers.IntegerField(source="fee_ngwee")
+    charged = serializers.IntegerField(source="charged_ngwee")
     reference = serializers.CharField(source="provider_reference")
     createdAt = serializers.DateTimeField(source="created_at")
     completedAt = serializers.DateTimeField(source="completed_at")
 
     class Meta:
         model = PaymentRequest
-        fields = ["id", "provider", "phone", "amount", "status", "reference", "reason", "createdAt", "completedAt"]
+        fields = [
+            "id",
+            "provider",
+            "phone",
+            "amount",
+            "fee",
+            "charged",
+            "status",
+            "reference",
+            "reason",
+            "createdAt",
+            "completedAt",
+        ]
