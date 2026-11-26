@@ -20,7 +20,8 @@ import {
 import { formatKwacha } from '@/lib/format';
 import { colors, radii, spacing, themed, typeScale } from '@/theme/tokens';
 import { ConnectDevice } from './connect-device';
-import { Button, Choice, Field, FormError, Icon, TextLink } from './ui';
+import { DetectedNetwork, NetworkOption, WALLET_NAMES } from './network-mark';
+import { Button, Field, FormError, Icon, TextLink } from './ui';
 
 const POLL_MS = 2000;
 /** How long the "Paid" tick stays up before the sale is saved and the dialog closes. */
@@ -171,6 +172,8 @@ export function RequestToPayDialog({
     }
   }
 
+  // Read from the prefix as the number is typed; the chosen tile can override it.
+  const detected = providerForPhone(phone);
   const blocking = phase === 'sending' || phase === 'paid';
 
   return (
@@ -189,15 +192,22 @@ export function RequestToPayDialog({
                 placeholder="97 123 4567"
                 keyboardType="phone-pad"
                 prefix="+260"
-                hint={t('rtp.phoneHint')}
+                hint={detected ? t('rtp.detected', { wallet: WALLET_NAMES[detected] }) : t('rtp.phoneHint')}
+                trailing={<DetectedNetwork provider={detected} />}
                 autoFocus
               />
-              <View style={styles.providers} accessibilityRole="radiogroup">
-                {PROVIDERS.map((option) => (
-                  <View key={option} style={styles.provider}>
-                    <Choice label={option} selected={provider === option} onPress={() => setProvider(option)} />
-                  </View>
-                ))}
+              <View style={styles.networkGroup}>
+                <Text style={styles.networkLabel}>{t('rtp.network')}</Text>
+                <View style={styles.providers} accessibilityRole="radiogroup" accessibilityLabel={t('rtp.network')}>
+                  {PROVIDERS.map((option) => (
+                    <NetworkOption
+                      key={option}
+                      provider={option}
+                      selected={provider === option}
+                      onPress={() => setProvider(option)}
+                    />
+                  ))}
+                </View>
               </View>
               {error ? <FormError message={error} /> : null}
               {needsConnect ? (
@@ -268,12 +278,18 @@ export function RequestToPayDialog({
           {phase === 'manual' ? (
             <Animated.View entering={FadeIn.duration(160)} style={styles.body}>
               <Text style={styles.statusBody}>{t('rtp.manualBody')}</Text>
-              <View style={styles.providers} accessibilityRole="radiogroup">
-                {PROVIDERS.map((option) => (
-                  <View key={option} style={styles.provider}>
-                    <Choice label={option} selected={provider === option} onPress={() => setProvider(option)} />
-                  </View>
-                ))}
+              <View style={styles.networkGroup}>
+                <Text style={styles.networkLabel}>{t('rtp.network')}</Text>
+                <View style={styles.providers} accessibilityRole="radiogroup" accessibilityLabel={t('rtp.network')}>
+                  {PROVIDERS.map((option) => (
+                    <NetworkOption
+                      key={option}
+                      provider={option}
+                      selected={provider === option}
+                      onPress={() => setProvider(option)}
+                    />
+                  ))}
+                </View>
               </View>
               <Field
                 label={t('sale.new.reference')}
@@ -333,7 +349,8 @@ const styles = themed(() => StyleSheet.create({
   amount: { fontSize: typeScale.display + 6, fontWeight: '800', color: colors.text, fontVariant: ['tabular-nums'] },
   body: { gap: spacing.md, marginTop: spacing.md },
   providers: { flexDirection: 'row', gap: spacing.sm },
-  provider: { flex: 1 },
+  networkGroup: { gap: spacing.xs },
+  networkLabel: { fontSize: typeScale.label, color: colors.textMuted, fontWeight: '600' },
   links: { alignItems: 'center' },
   status: { alignItems: 'center', gap: spacing.md, paddingVertical: spacing.lg },
   actions: { alignSelf: 'stretch', gap: spacing.sm, marginTop: spacing.sm },

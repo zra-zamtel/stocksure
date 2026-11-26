@@ -771,5 +771,7 @@
   "theme.system": "Foni",
   "theme.light": "Kowala",
   "theme.dark": "Mdima",
-  "theme.hint": "Foni imatsatira momwe foni yanu yakhazikitsidwira (mdima kapena kowala)."
+  "theme.hint": "Foni imatsatira momwe foni yanu yakhazikitsidwira (mdima kapena kowala).",
+  "rtp.network": "Netiweki",
+  "rtp.detected": "Nambala ya {wallet}. Dinani netiweki ina ngati inasintha."
 }

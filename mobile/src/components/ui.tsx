@@ -520,6 +520,7 @@ export function Field({
   revealLabels,
   hint,
   error,
+  trailing,
 }: {
   label: string;
   value?: string;
@@ -541,6 +542,8 @@ export function Field({
   hint?: string;
   /** Replaces the hint in red and outlines the box, so the owner sees which field to fix. */
   error?: string | null;
+  /** Something inside the box after the text, e.g. the detected network's mark. */
+  trailing?: ReactNode;
 }) {
   const [revealed, setRevealed] = useState(false);
   const canReveal = Boolean(secureTextEntry && revealLabels);
@@ -577,6 +580,7 @@ export function Field({
           style={[styles.input, (icon || prefix) && styles.inputAfterLead]}
           autoCorrect={false}
         />
+        {trailing ? <View style={styles.inputTrailing}>{trailing}</View> : null}
         {canReveal && revealLabels ? (
           <Pressable
             accessibilityRole="button"
@@ -1020,6 +1024,7 @@ const styles = themed(() => StyleSheet.create({
     borderRightColor: colors.border,
   },
   inputPrefixText: { fontSize: typeScale.body, fontWeight: '700', color: colors.text },
+  inputTrailing: { justifyContent: 'center', paddingRight: spacing.sm },
   inputReveal: { width: touch.minWidth, alignItems: 'center', justifyContent: 'center' },
   textLink: { minHeight: touch.minHeight, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.sm },
   textLinkLead: { fontSize: typeScale.body, color: colors.textMuted, textAlign: 'center' },

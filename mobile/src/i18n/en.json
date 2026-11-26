@@ -789,5 +789,7 @@
   "theme.system": "Phone",
   "theme.light": "Light",
   "theme.dark": "Dark",
-  "theme.hint": "Phone follows your phone's dark mode setting."
+  "theme.hint": "Phone follows your phone's dark mode setting.",
+  "rtp.network": "Network",
+  "rtp.detected": "{wallet} number. Tap another network if it moved."
 }
