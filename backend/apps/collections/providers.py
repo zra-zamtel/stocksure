@@ -67,14 +67,14 @@ class LipilaProvider(BaseCollectionProvider):
     COLLECT_PATH = "/api/v1/collections/mobile-money"
     STATUS_PATH = "/api/v1/collections/check-status"
 
-    def _headers(self) -> dict[str, str]:
-        headers = {
-            "accept": "application/json",
-            "Content-Type": "application/json",
-            "x-api-key": settings.LIPILA_API_KEY,
-        }
-        if settings.LIPILA_CALLBACK_URL:
-            headers["callbackUrl"] = settings.LIPILA_CALLBACK_URL
+    def _headers(self, *, with_body: bool = False) -> dict[str, str]:
+        headers = {"accept": "application/json", "x-api-key": settings.LIPILA_API_KEY}
+        if with_body:
+            # Only the POST carries these. Lipila answers 400 to a status GET
+            # that says Content-Type: application/json (found in the K1 test).
+            headers["Content-Type"] = "application/json"
+            if settings.LIPILA_CALLBACK_URL:
+                headers["callbackUrl"] = settings.LIPILA_CALLBACK_URL
         return headers
 
     def _url(self, path: str) -> str:
@@ -101,7 +101,7 @@ class LipilaProvider(BaseCollectionProvider):
             response = httpx.post(
                 self._url(self.COLLECT_PATH),
                 json=payload,
-                headers=self._headers(),
+                headers=self._headers(with_body=True),
                 timeout=settings.LIPILA_TIMEOUT_SECONDS,
             )
         except httpx.HTTPError as exc:

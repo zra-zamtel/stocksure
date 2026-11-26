@@ -94,6 +94,9 @@ class LipilaCheckTests(BaseTestCase):
         (url,), kwargs = get.call_args
         self.assertEqual(url, "https://lipila.test/api/v1/collections/check-status")
         self.assertEqual(kwargs["params"], {"referenceId": "req_0000001"})
+        # Lipila answers 400 to a GET that claims a JSON body.
+        self.assertNotIn("Content-Type", kwargs["headers"])
+        self.assertEqual(kwargs["headers"]["x-api-key"], "test-key")
 
     def test_successful(self):
         result, _ = self.check(
