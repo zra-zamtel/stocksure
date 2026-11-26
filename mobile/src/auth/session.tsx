@@ -1,5 +1,11 @@
 import Storage from 'expo-sqlite/kv-store';
-import { clearEmailPending, markEmailPending } from '@/lib/email-verify-store';
+import {
+  clearEmailPending,
+  markEmailPending,
+  readEmailPending,
+  type EmailPending,
+} from '@/lib/email-verify-store';
+import { restoreFromServer } from '@/db/sync';
 import * as SecureStore from 'expo-secure-store';
 import { useSQLiteContext } from 'expo-sqlite';
 import {
@@ -20,6 +26,7 @@ import {
   type Role,
 } from '@/core';
 import {
+  completeOnboarding,
   createOwner,
   getOnboardingState,
   getOwner,
@@ -48,6 +55,7 @@ import {
   type PinResetRequestResult,
 } from '@/lib/api';
 import { hashPin, verifyPin } from '@/lib/pin';
+import { clearPinGuard, pinGuardStatus, recordWrongPin, type GuardStatus } from '@/lib/pin-guard';
 
 export type SessionUser = {
   id: string;
@@ -69,7 +77,11 @@ type SignInResult =
   | 'first-sign-in-offline'
   | 'locked-out'
   /** The owner's PIN was one-time; the staff member must choose their own. */
-  | 'choose-pin';
+  | 'choose-pin'
+  /** Too many wrong PINs: wait before trying again. */
+  | 'pin-locked'
+  /** Far too many wrong PINs: this phone needs the owner's email sign-in. */
+  | 'online-required';
 
 /** A staff member who signed in with the owner's one-time PIN. */
 export type StaffPinChange = { phone: string; pin: string; name: string };
@@ -92,6 +104,14 @@ type AuthValue = {
   hasShop: boolean;
   /** An owner restored a phone account but the shop data has not arrived yet. */
   shopRestorePending: boolean;
+  /** Set until a new owner types the 6-digit code emailed at sign-up. */
+  emailPending: EmailPending | null;
+  /**
+   * Pulls the shop from the server onto a phone that has none. Afterwards the
+   * phone either has the shop or, when the server holds none yet, carries on
+   * with owner setup. Throws when the server cannot be reached.
+   */
+  restoreShop: () => Promise<void>;
   /** Email login succeeded; this phone still needs a local PIN. */
   pendingOwner: PendingOwner | null;
   /** Bearer token for owner-only online calls such as adding staff. */
@@ -108,6 +128,8 @@ type AuthValue = {
     pin: string;
   }) => Promise<void>;
   signIn: (pin: string) => Promise<SignInResult>;
+  /** How long the PIN stays locked after wrong tries, and whether email sign-in is now required. */
+  pinLock: () => Promise<GuardStatus>;
   /** A staff member's first sign-in on a phone that does not know them yet. */
   signInStaff: (input: { phone: string; pin: string; newPin?: string }) => Promise<'ok' | 'choose-pin'>;
   /** Set while a staff member must replace the owner's one-time PIN. */
@@ -240,6 +262,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [hasStaff, setHasStaff] = useState(false);
   const [staffPinChange, setStaffPinChange] = useState<StaffPinChange | null>(null);
   const [shopRestorePending, setShopRestorePending] = useState(false);
+  const [emailPending, setEmailPending] = useState<EmailPending | null>(readEmailPending);
   const [pendingOwner, setPendingOwner] = useState<PendingOwner | null>(null);
   const [deviceToken, setDeviceToken] = useState<string | null>(null);
   const [onboarding, setOnboarding] = useState<OnboardingState>(emptyOnboarding);
@@ -334,6 +357,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       clearPendingRegistration();
       // Older servers do not say; they always attempted the email.
       markEmailPending(owner.email ?? email, session.verificationSent !== false);
+      setEmailPending({ email: owner.email ?? email, sent: session.verificationSent !== false });
       setOwnerPreview({ name: owner.name, phone: owner.phone, email: owner.email });
       setHasAccount(true);
       setUser({ id: owner.id, name: owner.name, phone: owner.phone, role: 'owner' });
@@ -349,11 +373,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const identities = await listIdentities(db);
       if (identities.length === 0) return 'no-account';
 
+      // Too many wrong PINs in a row lock the PIN, so it cannot be guessed.
+      const guard = await pinGuardStatus();
+      if (guard.requiresOnline) return 'online-required';
+      if (guard.remainingMs > 0) return 'pin-locked';
+      const wrongPin = async (): Promise<SignInResult> => {
+        const after = await recordWrongPin();
+        if (after.requiresOnline) return 'online-required';
+        return after.remainingMs > 0 ? 'pin-locked' : 'wrong-pin';
+      };
+
       const matches = [];
       for (const identity of identities) {
         if (await verifyPin(pin, identity.pinHash)) matches.push(identity);
       }
-      if (matches.length === 0) return 'wrong-pin';
+      if (matches.length === 0) return wrongPin();
       if (matches.length > 1) return 'ambiguous-pin';
 
       const matched = matches[0];
@@ -373,7 +407,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             return 'first-sign-in-offline';
           }
           if (cause instanceof ApiError && cause.code === 'unauthorized') {
-            return 'wrong-pin';
+            return wrongPin();
           }
           if (cause instanceof ApiError && cause.code === 'too-many-attempts') {
             return 'locked-out';
@@ -382,12 +416,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       }
 
+      clearPinGuard();
       setUser({ id: matched.id, name: matched.name, phone: matched.phone, role: matched.role });
       await refresh();
       return 'ok';
     },
     [db, refresh]
   );
+
+  const pinLock = useCallback(() => pinGuardStatus(), []);
 
   const signInStaff = useCallback(
     async (input: { phone: string; pin: string; newPin?: string }): Promise<'ok' | 'choose-pin'> => {
@@ -428,6 +465,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
       await markStaffFirstSignIn(db, staff.id);
       setStaffPinChange(null);
+      clearPinGuard();
       setUser({ id: staff.id, name: staff.name, phone: staff.phone, role: 'staff' });
       setStatus('ready');
       setError(null);
@@ -445,6 +483,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
       // A password sign-in only succeeds for a confirmed email.
       clearEmailPending();
+      setEmailPending(null);
       setPendingOwner({ owner: session.owner, deviceToken: session.deviceToken });
       setStatus('ready');
       setError(null);
@@ -455,6 +494,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const startOwnerSession = useCallback((session: OwnerSession) => {
     // Any accepted code proves the inbox, so the email is confirmed now.
     clearEmailPending();
+    setEmailPending(null);
     setPendingOwner({ owner: session.owner, deviceToken: session.deviceToken });
     setStatus('ready');
     setError(null);
@@ -477,6 +517,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     async (input: { email: string; code: string }) => {
       const session = await verifyEmailCodeOnServer(input.email.trim().toLowerCase(), input.code);
       clearEmailPending();
+      setEmailPending(null);
       // The code also returns a fresh device key. Keep it when it is for the
       // owner on this phone, so online actions work without another sign-in.
       const owner = await getOwner(db);
@@ -494,6 +535,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const owner = await getOwner(db);
       if (!owner || owner.id !== session.owner.id) throw new OwnerMismatchError();
       clearEmailPending();
+      setEmailPending(null);
       await storeDeviceToken(session.deviceToken);
       setDeviceToken(session.deviceToken);
       return session.deviceToken;
@@ -553,6 +595,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
       await storeDeviceToken(pendingOwner.deviceToken);
       setDeviceToken(pendingOwner.deviceToken);
+      // Signing in online proves it is the owner, so the PIN opens again.
+      clearPinGuard();
 
       const state = await getOnboardingState(db);
       const restorePending = existingOwner === null && !state.hasShop;
@@ -567,6 +611,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
     [db, pendingOwner, refresh]
   );
+
+  const restoreShop = useCallback(async () => {
+    if (!deviceToken) throw new ApiError('unauthorized', 'Sign in with your email again to restore the shop.');
+    await restoreFromServer(db, deviceToken);
+    // Whatever the server held is now here. A shop that already has products was
+    // set up and in use on the old phone (older builds never synced the "setup
+    // finished" flag), so it opens on Home instead of repeating setup. If the
+    // server held no shop (the account was just created and setup never
+    // finished), owner setup takes over from here.
+    const restored = await getOnboardingState(db);
+    if (restored.hasShop && !restored.onboardingComplete && restored.hasProducts) {
+      await completeOnboarding(db);
+    }
+    storeRestorePending(false);
+    setShopRestorePending(false);
+    await refresh();
+  }, [db, deviceToken, refresh]);
 
   const cancelOwnerLogin = useCallback(() => setPendingOwner(null), []);
 
@@ -593,6 +654,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const pinHash = await hashPin(input.pin);
       await confirmPinResetOnServer({ phone: owner.phone, code: input.code, pinHash });
       await updateOwnerPinHash(db, owner.id, pinHash);
+      // The reset code proved it is the owner, so the PIN opens again.
+      clearPinGuard();
 
       setOwnerPreview({ name: owner.name, phone: owner.phone, email: owner.email });
       setUser({ id: owner.id, name: owner.name, phone: owner.phone, role: 'owner' });
@@ -619,6 +682,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       hasAccount,
       hasShop,
       shopRestorePending,
+      emailPending,
+      restoreShop,
       pendingOwner,
       deviceToken,
       onboardingComplete: onboarding.onboardingComplete,
@@ -626,6 +691,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       can: (permission) => roleCan(user?.role, permission, { hasStaff }),
       registerOwner,
       signIn,
+      pinLock,
       signInStaff,
       staffPinChange,
       cancelStaffPinChange: () => setStaffPinChange(null),
@@ -666,7 +732,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     requestPinResetCode,
     resetPin,
     shopRestorePending,
+    emailPending,
+    restoreShop,
     signIn,
+    pinLock,
     signInStaff,
     signOut,
     staffPinChange,

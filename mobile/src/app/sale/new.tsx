@@ -20,7 +20,7 @@ import {
   Screen,
   SectionTitle,
 } from '@/components/ui';
-import { priceSale, toNgwee, type LineInput, type PaymentInput, type Provider } from '@/core';
+import { maxSellable, priceSale, toNgwee, type LineInput, type PaymentInput, type Provider } from '@/core';
 import { useProducts, useShop } from '@/db/hooks';
 import {
   addPaymentMessage,
@@ -35,7 +35,8 @@ import { formatKwacha } from '@/lib/format';
 import { colors, fonts, iconSize, radii, spacing, themed, touch, typeScale } from '@/theme/tokens';
 
 
-function Stepper({ value, onChange }: { value: number; onChange: (next: number) => void }) {
+function Stepper({ value, max, onChange }: { value: number; max: number; onChange: (next: number) => void }) {
+  const atMax = value >= max;
   return (
     <View style={styles.stepper}>
       <Pressable
@@ -52,9 +53,15 @@ function Stepper({ value, onChange }: { value: number; onChange: (next: number) 
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Add one"
+        accessibilityState={{ disabled: atMax }}
         onPress={() => onChange(value + 1)}
         android_ripple={{ color: 'rgba(255, 255, 255, 0.2)' }}
-        style={({ pressed }) => [styles.stepButton, styles.stepAdd, pressed && styles.stepPressed]}
+        style={({ pressed }) => [
+          styles.stepButton,
+          styles.stepAdd,
+          pressed && styles.stepPressed,
+          atMax && styles.stepButtonOff,
+        ]}
       >
         <Icon name="add" size={iconSize.md} color={colors.primaryText} />
       </Pressable>
@@ -82,18 +89,20 @@ export default function NewSaleScreen() {
   const [cashPart, setCashPart] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [shortfalls, setShortfalls] = useState<StockShortfall[] | null>(null);
+  const [stockNote, setStockNote] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [paid, setPaid] = useState<PaidRequest | null>(null);
   const [payOpen, setPayOpen] = useState(false);
 
   const index = useMemo(() => {
-    const map = new Map<string, { label: string; sellPrice: number; buyPrice: number; discount?: LineInput['productDiscount'] }>();
+    const map = new Map<string, { label: string; sellPrice: number; buyPrice: number; onHand: number; discount?: LineInput['productDiscount'] }>();
     for (const product of products) {
       for (const variant of product.variants) {
         map.set(variant.id, {
           label: [product.name, variant.size, variant.colour].filter(Boolean).join(' · '),
           sellPrice: variant.sellPrice,
           buyPrice: variant.buyPrice,
+          onHand: variant.quantity,
           discount: product.discount,
         });
       }
@@ -146,7 +155,15 @@ export default function NewSaleScreen() {
   // Any basket change voids an override shown for the old basket.
   const setQuantity = (variantId: string, next: number) => {
     setShortfalls(null);
-    setQuantityByVariant((current) => ({ ...current, [variantId]: Math.min(99, Math.max(0, next)) }));
+    const entry = index.get(variantId);
+    // Staff (and an owner who has staff) cannot sell past what is on hand, so
+    // the basket stops there and says why. Someone who can approve an override
+    // may go over; they are warned on the line and asked to confirm at the end.
+    const limit = maxSellable(entry?.onHand ?? 0, canApproveOverride);
+    setStockNote(
+      next > limit && entry ? t('sale.new.onlyLeft', { count: entry.onHand, item: entry.label }) : null
+    );
+    setQuantityByVariant((current) => ({ ...current, [variantId]: Math.min(limit, Math.max(0, next)) }));
   };
 
   /** A scan adds one unit to the basket; the basket itself never leaves this screen. */
@@ -320,6 +337,7 @@ export default function NewSaleScreen() {
         />
       ) : null}
       {scanMessage ? <Text style={styles.muted}>{scanMessage}</Text> : null}
+      {stockNote ? <Text style={styles.stockWarning}>{stockNote}</Text> : null}
       {products.map((product) => (
         <Card
           key={product.id}
@@ -336,8 +354,15 @@ export default function NewSaleScreen() {
                   <Text style={styles.muted}>
                     {formatKwacha(variant.sellPrice)} · {t('sale.new.stockLeft', { count: variant.quantity })}
                   </Text>
+                  {quantity > variant.quantity ? (
+                    <Text style={styles.stockWarning}>{t('sale.new.overStock', { count: Math.max(0, variant.quantity) })}</Text>
+                  ) : null}
                 </View>
-                <Stepper value={quantity} onChange={(next) => setQuantity(variant.id, next)} />
+                <Stepper
+                  value={quantity}
+                  max={maxSellable(variant.quantity, canApproveOverride)}
+                  onChange={(next) => setQuantity(variant.id, next)}
+                />
               </View>
             );
           })}
@@ -525,6 +550,9 @@ const styles = themed(() => StyleSheet.create({
   stepValueOn: { color: colors.text },
   alertHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   flex: { flex: 1 },
+  // At the stock on hand: dimmed, but still tappable for an owner-approved oversell.
+  stepButtonOff: { opacity: 0.35 },
+  stockWarning: { fontSize: typeScale.label, color: colors.warning, fontWeight: '700' },
   totals: { marginTop: spacing.sm, gap: spacing.xs },
   warningCard: { backgroundColor: colors.warningSoft, gap: spacing.xs },
   dangerCard: { backgroundColor: colors.dangerSoft, gap: spacing.xs },

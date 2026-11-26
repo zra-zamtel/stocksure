@@ -43,6 +43,7 @@ export function PinBoxes({
   invalid,
   shakeKey,
   onSubmit,
+  disabled,
 }: {
   label: string;
   value: string;
@@ -51,6 +52,8 @@ export function PinBoxes({
   invalid?: boolean;
   shakeKey?: number;
   onSubmit?: () => void;
+  /** Stops typing, e.g. while the PIN is locked after wrong tries. */
+  disabled?: boolean;
 }) {
   const shake = useSharedValue(0);
   const boxes = Math.min(MAX_PIN_LENGTH, Math.max(MIN_PIN, value.length + 1));
@@ -97,6 +100,7 @@ export function PinBoxes({
           autoFocus={autoFocus}
           secureTextEntry
           caretHidden
+          editable={!disabled}
           contextMenuHidden
           accessibilityLabel={label}
           returnKeyType="done"
@@ -212,12 +216,17 @@ export function Avatar({ name, size = 56 }: { name: string; size?: number }) {
 }
 
 const styles = themed(() => StyleSheet.create({
-  pin: { gap: spacing.sm },
+  pin: { gap: spacing.sm, alignSelf: 'stretch', width: '100%' },
   pinLabel: { fontSize: typeScale.label, color: colors.textMuted, fontWeight: '600' },
-  pinRow: { flexDirection: 'row', gap: spacing.sm },
-  // Boxes share the row and cap at 52px, so six still fit a 320px screen.
+  // The row always spans the full width, so it can never shrink to its contents.
+  pinRow: { flexDirection: 'row', gap: spacing.sm, alignSelf: 'stretch', width: '100%' },
+  // Each box asks for 44px, may shrink to 36px and grows to 52px, so six always
+  // fit a 320px screen and no box can collapse to a sliver whatever the phone.
   pinBox: {
-    flex: 1,
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 44,
+    minWidth: 36,
     maxWidth: 52,
     height: 60,
     borderRadius: radii.md,

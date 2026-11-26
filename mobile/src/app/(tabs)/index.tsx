@@ -4,7 +4,6 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '@/auth/session';
 import { displayName } from '@/components/auth';
 import { ConnectReminder } from '@/components/connect-device';
-import { EmailReminder } from '@/components/email-reminder';
 import { GettingStarted } from '@/components/getting-started';
 import { ProfileMenu } from '@/components/profile-menu';
 import {
@@ -105,7 +104,6 @@ export default function HomeScreen() {
         ) : undefined
       }
     >
-      <EmailReminder />
 
       <View style={styles.hero}>
         <View style={styles.heroTop}>

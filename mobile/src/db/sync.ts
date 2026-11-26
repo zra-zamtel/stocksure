@@ -125,7 +125,8 @@ function mapShop(p: JsonRecord): JsonRecord {
     low_stock_default: integer(p.lowStockDefault),
     turnover_tax_registered: bool(p.turnoverTaxRegistered),
     tpin: text(p.tpin),
-    providers_json: json(p.providersJson),
+    // The phone has always sent this as `providers`; `providersJson` is the older spelling.
+    providers_json: json(p.providersJson ?? p.providers),
     onboarding_completed: bool(p.onboardingCompleted),
     created_at: text(p.createdAt),
     updated_at: text(p.updatedAt),
@@ -479,6 +480,25 @@ export async function pullChanges(
   });
 
   return { applied: result.changes.length, nextCursor: result.nextCursor };
+}
+
+/**
+ * A phone with no shop pulls everything the server holds for the account, page
+ * by page, so a large shop comes back whole. Returns how many changes arrived.
+ */
+export async function restoreFromServer(
+  db: SQLiteDatabase,
+  accessToken: string,
+  pageSize = 500
+): Promise<number> {
+  let total = 0;
+  for (let page = 0; page < 200; page += 1) {
+    const { applied } = await pullChanges(db, accessToken, pageSize);
+    total += applied;
+    if (applied < pageSize) break;
+  }
+  await setMeta(db, 'lastSyncAt', nowIso());
+  return total;
 }
 
 async function runSync(db: SQLiteDatabase, accessToken: string): Promise<SyncRunResult> {

@@ -3,7 +3,6 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { useEffect, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useAuth } from '@/auth/session';
-import { EmailReminder } from '@/components/email-reminder';
 import type { AndroidSymbol } from 'expo-symbols';
 import { Button, Field, FormError } from '@/components/ui';
 import { OptionCard, OptionGrid, SETUP_STEPS, SetupStep, StepSection } from '@/components/onboarding';
@@ -77,7 +76,6 @@ export default function ShopScreen() {
       subtitle={t('onboarding.shop.subtitle')}
       footer={<Button label={t('common.next')} disabled={saving} loading={saving} onPress={handleNext} />}
     >
-      <EmailReminder />
 
       <View style={styles.fields}>
         <Field

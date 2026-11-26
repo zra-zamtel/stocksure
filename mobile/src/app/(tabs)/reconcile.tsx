@@ -19,6 +19,7 @@ import {
 } from '@/components/ui';
 import { PermissionError, toNgwee, type Permission } from '@/core';
 import { useReconciliation } from '@/db/hooks';
+import { DEMO_TOOLS } from '@/lib/demo';
 import { ignorePayment, injectDemoMessages, markSalePaid, saveCashCount, voidSale } from '@/db/repos';
 import { useI18n } from '@/i18n';
 import { formatKwacha } from '@/lib/format';
@@ -309,7 +310,7 @@ export default function ReconcileScreen() {
         </View>
       </Group>
 
-      {canResolve ? (
+      {canResolve && DEMO_TOOLS ? (
         <View style={styles.demo}>
           <TextLink
             label={t('reconcile.demo')}
@@ -336,11 +337,7 @@ function Item({ title, meta, actions, last }: { title: string; meta?: string; ac
     <View style={styles.item}>
       <View style={styles.itemText}>
         <Text style={styles.itemTitle}>{title}</Text>
-        {meta ? (
-          <Text style={styles.itemMeta} numberOfLines={1}>
-            {meta}
-          </Text>
-        ) : null}
+        {meta ? <Text style={styles.itemMeta}>{meta}</Text> : null}
       </View>
       {actions ? <View style={styles.itemActions}>{actions}</View> : null}
     </View>

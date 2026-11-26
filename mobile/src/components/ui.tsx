@@ -3,6 +3,8 @@ import { BottomTabBarHeightContext } from 'expo-router/tabs';
 import {
   ActivityIndicator,
   ImageBackground,
+  Keyboard,
+  KeyboardAvoidingView,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -95,18 +97,36 @@ const PaperFade = memo(function PaperFade({
   );
 });
 
+/** True while the on-screen keyboard is up. */
+function useKeyboardVisible(): boolean {
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const show = Keyboard.addListener('keyboardDidShow', () => setVisible(true));
+    const hide = Keyboard.addListener('keyboardDidHide', () => setVisible(false));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
+  return visible;
+}
+
 export function Screen({ title, subtitle, children, scroll = true, footer, action }: ScreenProps) {
   const insets = useSafeAreaInsets();
   // Inside the tabs the bar floats over the screen with no background of its
   // own; this screen draws the fade behind it. Elsewhere this is 0.
   const tabBarHeight = useContext(BottomTabBarHeightContext) ?? 0;
   const [footerHeight, setFooterHeight] = useState(0);
+  // The keyboard covers the tab bar and the phone's nav bar, so while it is up
+  // the footer drops that space and sits straight on top of the keyboard.
+  const keyboardVisible = useKeyboardVisible();
   // Content runs edge to edge, under the status bar and behind the footer and
   // tab bar; these pads only make sure the first and last items can be read.
-  const bottomChrome = footer ? footerHeight : tabBarHeight || insets.bottom;
+  const bottomEdge = keyboardVisible ? 0 : tabBarHeight || insets.bottom;
+  const bottomChrome = footer ? footerHeight : bottomEdge;
   // Solid behind the status bar and the tab bar (or the phone's own nav bar);
   // a soft fade above the floating footer button so content slides under it.
-  const bottomSolid = tabBarHeight || insets.bottom;
+  const bottomSolid = bottomEdge;
   const bottomSoft = Math.max(bottomChrome - bottomSolid, 0) + spacing.xxl;
 
   const body = (
@@ -124,34 +144,40 @@ export function Screen({ title, subtitle, children, scroll = true, footer, actio
 
   return (
     <Paper>
-      <View style={[styles.safe, { paddingLeft: insets.left, paddingRight: insets.right }]}>
-        {scroll ? (
-          <ScrollView
-            contentContainerStyle={{ paddingBottom: bottomChrome + spacing.xl }}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-          >
-            {body}
-          </ScrollView>
-        ) : (
-          <View style={[styles.safe, { paddingBottom: bottomChrome }]}>{body}</View>
-        )}
+      {/* The window does not shrink for the keyboard when the app draws edge to
+          edge, so the content makes room itself: the field being typed in and the
+          footer button stay above the keyboard. The inner view is what shrinks,
+          so the floating footer and the fades move up with it. */}
+      <KeyboardAvoidingView behavior="padding" style={styles.safe}>
+        <View style={[styles.safe, { paddingLeft: insets.left, paddingRight: insets.right }]}>
+          {scroll ? (
+            <ScrollView
+              contentContainerStyle={{ paddingBottom: bottomChrome + spacing.xl }}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
+              {body}
+            </ScrollView>
+          ) : (
+            <View style={[styles.safe, { paddingBottom: bottomChrome }]}>{body}</View>
+          )}
 
-        {/* Soft fades instead of hard edges, so content slides under the chrome. */}
-        <PaperFade edge="top" solid={insets.top} fade={spacing.xl} />
-        <PaperFade edge="bottom" solid={bottomSolid} fade={bottomSoft} />
+          {/* Soft fades instead of hard edges, so content slides under the chrome. */}
+          <PaperFade edge="top" solid={insets.top} fade={spacing.xl} />
+          <PaperFade edge="bottom" solid={bottomSolid} fade={bottomSoft} />
 
-        {footer ? (
-          // The footer floats over the content: above the tab bar inside the
-          // tabs, otherwise above Android's 3-button bar or gesture strip.
-          <View
-            style={[styles.footer, { paddingBottom: (tabBarHeight || insets.bottom) + spacing.md }]}
-            onLayout={(event) => setFooterHeight(event.nativeEvent.layout.height)}
-          >
-            {footer}
-          </View>
-        ) : null}
-      </View>
+          {footer ? (
+            // The footer floats over the content: above the tab bar inside the
+            // tabs, otherwise above Android's 3-button bar or gesture strip.
+            <View
+              style={[styles.footer, { paddingBottom: bottomEdge + spacing.md }]}
+              onLayout={(event) => setFooterHeight(event.nativeEvent.layout.height)}
+            >
+              {footer}
+            </View>
+          ) : null}
+        </View>
+      </KeyboardAvoidingView>
     </Paper>
   );
 }
