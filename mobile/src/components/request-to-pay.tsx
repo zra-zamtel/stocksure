@@ -18,8 +18,9 @@ import {
   type PaymentRequest,
 } from '@/lib/api';
 import { formatKwacha } from '@/lib/format';
-import { colors, radii, spacing, typeScale } from '@/theme/tokens';
-import { Button, Choice, Field, FormError, TextLink } from './ui';
+import { colors, radii, spacing, themed, typeScale } from '@/theme/tokens';
+import { ConnectDevice } from './connect-device';
+import { Button, Choice, Field, FormError, Icon, TextLink } from './ui';
 
 const POLL_MS = 2000;
 /** How long the "Paid" tick stays up before the sale is saved and the dialog closes. */
@@ -69,8 +70,9 @@ export function RequestToPayDialog({
   onManual: (input: { provider: Provider; reference: string }) => void;
 }) {
   const { t } = useI18n();
-  const { deviceToken } = useAuth();
+  const { deviceToken, user } = useAuth();
   const [phase, setPhase] = useState<Phase>('form');
+  const [needsConnect, setNeedsConnect] = useState(false);
   const [phone, setPhone] = useState('');
   const [provider, setProvider] = useState<Provider>(initialProvider);
   const [reference, setReference] = useState('');
@@ -130,10 +132,21 @@ export function RequestToPayDialog({
     if (detected) setProvider(detected);
   }
 
-  async function send() {
+  /** No key, or the server refused it: owners reconnect here, staff are told who can. */
+  function askToConnect() {
+    if (user?.role === 'owner') {
+      setNeedsConnect(true);
+      setError(null);
+    } else {
+      setError(t('connect.askOwner'));
+    }
+  }
+
+  async function send(tokenOverride?: string) {
     setError(null);
-    if (!deviceToken) return setError(t('rtp.error.signIn'));
+    const token = tokenOverride ?? (needsConnect ? null : deviceToken);
     if (!isValidPhone(phone)) return setError(t('rtp.error.phone'));
+    if (!token) return askToConnect();
     setPhase('sending');
     try {
       const created = await requestToPayOnServer({
@@ -141,12 +154,13 @@ export function RequestToPayDialog({
         provider,
         phone: normalisePhone(phone),
         amount,
-        deviceToken,
+        deviceToken: token,
       });
       setRequest(created);
       setPhase('waiting');
     } catch (cause) {
       setPhase('form');
+      if (cause instanceof ApiError && cause.code === 'unauthorized') return askToConnect();
       setError(
         cause instanceof ApiError && cause.code === 'offline'
           ? t('rtp.error.offline')
@@ -186,6 +200,15 @@ export function RequestToPayDialog({
                 ))}
               </View>
               {error ? <FormError message={error} /> : null}
+              {needsConnect ? (
+                <ConnectDevice
+                  bare
+                  onConnected={(token) => {
+                    setNeedsConnect(false);
+                    void send(token);
+                  }}
+                />
+              ) : null}
               <Button
                 label={t('rtp.send')}
                 loading={phase === 'sending'}
@@ -217,7 +240,7 @@ export function RequestToPayDialog({
           {phase === 'paid' ? (
             <Animated.View entering={FadeIn.duration(160)} style={styles.status}>
               <View style={[styles.badge, styles.badgePaid]}>
-                <Text style={styles.badgeMark}>✓</Text>
+                <Icon name="check" size={32} color={colors.primaryText} />
               </View>
               <Text style={styles.statusTitle} accessibilityLiveRegion="assertive">
                 {t('rtp.paidTitle')}
@@ -290,7 +313,7 @@ function Pulse() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   backdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(30, 30, 28, 0.45)' },
   sheet: {
     backgroundColor: colors.surface,
@@ -322,4 +345,4 @@ const styles = StyleSheet.create({
   badgeMarkFailed: { color: colors.danger },
   statusTitle: { fontSize: typeScale.heading, fontWeight: '700', color: colors.text, textAlign: 'center' },
   statusBody: { fontSize: typeScale.body, color: colors.textMuted, textAlign: 'center', lineHeight: 22 },
-});
+}));

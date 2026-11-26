@@ -4,9 +4,10 @@ import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/auth/session';
 import { displayName } from '@/components/auth';
+import { ConnectSheet } from '@/components/connect-device';
 import { Icon } from '@/components/ui';
 import { useI18n } from '@/i18n';
-import { colors, radii, spacing, touch, typeScale } from '@/theme/tokens';
+import { colors, radii, spacing, themed, touch, typeScale } from '@/theme/tokens';
 
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -23,14 +24,21 @@ export function ProfileMenu() {
   const { t } = useI18n();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { user, can, signOut } = useAuth();
+  const { user, can, signOut, deviceToken } = useAuth();
   const [open, setOpen] = useState(false);
+  const [connectOpen, setConnectOpen] = useState(false);
+  const isOwner = user?.role === 'owner';
+  const connected = Boolean(deviceToken);
+
+  function close() {
+    setOpen(false);
+  }
 
   if (!user) return null;
   const name = displayName(user.name);
 
   function go(action: () => void) {
-    setOpen(false);
+    close();
     action();
   }
 
@@ -46,9 +54,12 @@ export function ProfileMenu() {
         <Text style={styles.avatarText}>{initials(name)}</Text>
       </Pressable>
 
-      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
-        <Pressable style={styles.backdrop} onPress={() => setOpen(false)} accessibilityLabel={t('common.close')}>
-          <Pressable style={[styles.panel, { marginTop: insets.top + spacing.xl }]} onPress={() => {}}>
+      <Modal visible={open} transparent animationType="fade" onRequestClose={close}>
+        <Pressable style={styles.backdrop} onPress={close} accessibilityLabel={t('common.close')}>
+          <Pressable
+            style={[styles.panel, { marginTop: insets.top + spacing.xl }]}
+            onPress={() => {}}
+          >
             <View style={styles.who}>
               <View style={[styles.avatar, styles.avatarLarge]}>
                 <Text style={[styles.avatarText, styles.avatarTextLarge]}>{initials(name)}</Text>
@@ -63,6 +74,29 @@ export function ProfileMenu() {
               </View>
             </View>
 
+            {isOwner ? (
+              <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={connected ? t('connect.on') : `${t('connect.off')}. ${t('connect.title')}`}
+                  disabled={connected}
+                  onPress={() => go(() => setConnectOpen(true))}
+                  style={({ pressed }) => [styles.item, pressed && styles.itemPressed]}
+                >
+                  <Icon
+                    name={connected ? 'cloud_done' : 'cloud_off'}
+                    size={22}
+                    color={connected ? colors.success : colors.warning}
+                  />
+                  <View style={styles.statusText}>
+                    <Text style={[styles.itemLabel, { color: colors.text }]}>
+                      {connected ? t('connect.on') : t('connect.title')}
+                    </Text>
+                    {connected ? null : <Text style={styles.meta}>{t('connect.off')}</Text>}
+                  </View>
+                  {connected ? null : <Icon name="chevron_right" size={20} color={colors.textMuted} />}
+                </Pressable>
+            ) : null}
+
             {can('settings.view') ? (
               <MenuItem icon="settings" label={t('nav.settings')} onPress={() => go(() => router.push('/settings'))} />
             ) : null}
@@ -70,6 +104,7 @@ export function ProfileMenu() {
           </Pressable>
         </Pressable>
       </Modal>
+      <ConnectSheet visible={connectOpen} onClose={() => setConnectOpen(false)} />
     </>
   );
 }
@@ -99,7 +134,7 @@ function MenuItem({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   avatar: {
     width: touch.minHeight,
     height: touch.minHeight,
@@ -133,8 +168,6 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
     marginBottom: spacing.xs,
   },
   whoText: { flex: 1 },
@@ -149,4 +182,5 @@ const styles = StyleSheet.create({
   },
   itemPressed: { backgroundColor: colors.bg },
   itemLabel: { fontSize: typeScale.body, fontWeight: '600' },
-});
+  statusText: { flex: 1, paddingVertical: spacing.sm },
+}));

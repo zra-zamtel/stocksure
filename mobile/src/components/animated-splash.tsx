@@ -13,7 +13,7 @@ import Animated, {
 import Svg, { Circle, Path } from 'react-native-svg';
 import { MARK_DOT, MARK_STROKE, MARK_S_PATH, MARK_VIEWBOX, Wordmark } from './brand';
 import { useI18n } from '../i18n';
-import { colors, spacing, typeScale } from '../theme/tokens';
+import { colors, spacing, themed, typeScale } from '../theme/tokens';
 
 // Keep the native splash (plain paper, no image) up until this overlay has
 // painted, so the hand-over is invisible. Called once, at import time.
@@ -155,7 +155,7 @@ export function AnimatedSplash({ ready, onDone }: { ready: boolean; onDone: () =
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   screen: {
     backgroundColor: colors.bg,
     alignItems: 'center',
@@ -171,4 +171,4 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     maxWidth: 260,
   },
-});
+}));

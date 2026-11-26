@@ -6,8 +6,8 @@ import { useAuth } from '../auth/session';
 import { useProducts, useSales } from '../db/hooks';
 import { useI18n } from '../i18n';
 import { hasVisited, hideStartList, isStartListHidden } from '../lib/getting-started';
-import { colors, radii, spacing, touch, typeScale } from '../theme/tokens';
-import { Card, TextLink } from './ui';
+import { colors, radii, spacing, themed, touch, typeScale } from '../theme/tokens';
+import { Card, Icon, TextLink } from './ui';
 
 type Step = { key: string; label: string; hint: string; done: boolean; href: Href };
 
@@ -114,7 +114,7 @@ export function GettingStarted() {
               >
                 <View style={[styles.badge, step.done && styles.badgeDone, isNext && styles.badgeNext]}>
                   {step.done ? (
-                    <Text style={styles.badgeTick}>✓</Text>
+                    <Icon name="check" size={18} color={colors.primaryText} />
                   ) : (
                     <Text style={[styles.badgeText, isNext && styles.badgeTextNext]}>{index + 1}</Text>
                   )}
@@ -140,7 +140,7 @@ export function GettingStarted() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   title: { fontSize: typeScale.heading, fontWeight: '700', color: colors.text },
   progressText: { fontSize: typeScale.label, color: colors.textMuted },
   track: { height: 6, borderRadius: radii.pill, backgroundColor: colors.surfaceAlt, overflow: 'hidden' },
@@ -176,4 +176,4 @@ const styles = StyleSheet.create({
   stepLabel: { fontSize: typeScale.body, fontWeight: '700', color: colors.text },
   stepLabelDone: { color: colors.textMuted, textDecorationLine: 'line-through' },
   stepHint: { fontSize: typeScale.label, color: colors.textMuted },
-});
+}));

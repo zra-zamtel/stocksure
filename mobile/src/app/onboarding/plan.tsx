@@ -14,7 +14,7 @@ import { Button, Icon, TextLink } from '@/components/ui';
 import { PLANS, TRIAL_DAYS, type PlanId } from '@/core';
 import { useI18n } from '@/i18n';
 import { continueFree, readPlanChoice, startTrial } from '@/lib/plan-store';
-import { colors, radii, spacing, typeScale } from '@/theme/tokens';
+import { colors, radii, spacing, themed, typeScale } from '@/theme/tokens';
 
 const PLAN_ICONS: Record<PlanId, AndroidSymbol> = { standard: 'storefront', pro: 'domain' };
 const FEATURE_COUNT = 3;
@@ -164,7 +164,7 @@ function PlanCard({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   plans: { gap: spacing.md },
   footer: { gap: spacing.xs },
   card: {
@@ -211,4 +211,4 @@ const styles = StyleSheet.create({
   feature: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   featureText: { fontSize: typeScale.body, color: colors.text, flexShrink: 1 },
   error: { fontSize: typeScale.label, color: colors.danger, fontWeight: '600' },
-});
+}));

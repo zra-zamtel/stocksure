@@ -29,7 +29,8 @@ import {
   resetStaffPinOnServer,
 } from '@/lib/api';
 import { hashPin, verifyPin } from '@/lib/pin';
-import { colors, spacing, typeScale } from '@/theme/tokens';
+import { ConnectDevice } from '@/components/connect-device';
+import { colors, spacing, themed, typeScale } from '@/theme/tokens';
 
 const VALIDATION_KEYS: Partial<Record<AccountErrorCode, string>> = {
   'name-required': 'staff.error.nameRequired',
@@ -66,6 +67,11 @@ export default function StaffScreen() {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // Set when an online step found this phone not connected (no key, or the
+  // server refused it). The connect panel then shows above the form, and the
+  // action the owner pressed runs again once it is connected.
+  const [needsConnect, setNeedsConnect] = useState(false);
+  const [pendingAction, setPendingAction] = useState<'add' | 'reset' | null>(null);
 
   const resetPerson = staff.find((person) => person.id === resettingId) ?? null;
 
@@ -93,6 +99,16 @@ export default function StaffScreen() {
     setConfirmNewPin('');
   }
 
+  /** True when the failure means "connect this phone", which the panel handles. */
+  function wantsConnect(cause: unknown, action: 'add' | 'reset'): boolean {
+    if (cause instanceof ApiError && cause.code === 'unauthorized') {
+      setNeedsConnect(true);
+      setPendingAction(action);
+      return true;
+    }
+    return false;
+  }
+
   function describeApiError(cause: unknown): string {
     if (cause instanceof ApiError) {
       return t(API_ERROR_KEYS[cause.code] ?? 'staff.error.server');
@@ -100,7 +116,8 @@ export default function StaffScreen() {
     return cause instanceof Error ? cause.message : t('staff.error.server');
   }
 
-  async function handleAdd() {
+  async function handleAdd(tokenOverride?: string) {
+    const token = tokenOverride ?? (needsConnect ? null : deviceToken);
     if (saving) return;
     setError(null);
     setMessage(null);
@@ -116,8 +133,9 @@ export default function StaffScreen() {
       setError(t('staff.error.ownerMissing'));
       return;
     }
-    if (!deviceToken) {
-      setError(t('staff.error.signInAgain'));
+    if (!token) {
+      setNeedsConnect(true);
+      setPendingAction('add');
       return;
     }
 
@@ -147,7 +165,7 @@ export default function StaffScreen() {
         name: name.trim(),
         phone: normalised,
         pin,
-        deviceToken,
+        deviceToken: token,
       });
       await createStaff(db, { id, name: name.trim(), phone: normalised, pinHash });
       resetForm();
@@ -157,13 +175,14 @@ export default function StaffScreen() {
       // The owner stops recording sales once the shop has staff.
       void refresh();
     } catch (cause) {
-      setError(describeApiError(cause));
+      if (!wantsConnect(cause, 'add')) setError(describeApiError(cause));
     } finally {
       setSaving(false);
     }
   }
 
-  async function handleResetPin() {
+  async function handleResetPin(tokenOverride?: string) {
+    const token = tokenOverride ?? (needsConnect ? null : deviceToken);
     if (saving) return;
     setError(null);
     setMessage(null);
@@ -181,8 +200,9 @@ export default function StaffScreen() {
       setError(t('staff.error.pinMismatch'));
       return;
     }
-    if (!deviceToken) {
-      setError(t('staff.error.signInAgain'));
+    if (!token) {
+      setNeedsConnect(true);
+      setPendingAction('reset');
       return;
     }
 
@@ -202,7 +222,7 @@ export default function StaffScreen() {
       await resetStaffPinOnServer({
         staffId: person.id,
         pin: newPin,
-        deviceToken,
+        deviceToken: token,
       });
       try {
         await updateStaffPinHash(db, person.id, pinHash);
@@ -219,11 +239,23 @@ export default function StaffScreen() {
       resetPinForm();
       reload();
     } catch (cause) {
-      setError(describeApiError(cause));
+      if (!wantsConnect(cause, 'reset')) setError(describeApiError(cause));
     } finally {
       setSaving(false);
     }
   }
+
+  function handleConnected(token: string) {
+    setNeedsConnect(false);
+    const action = pendingAction;
+    setPendingAction(null);
+    if (action === 'add') void handleAdd(token);
+    if (action === 'reset') void handleResetPin(token);
+  }
+
+  // Shown before the owner even types, whenever an add or PIN change is open
+  // and this phone has no key, so the reconnect happens in place.
+  const showConnect = (adding || resettingId !== null) && (needsConnect || !deviceToken);
 
   return (
     <Screen
@@ -318,6 +350,8 @@ export default function StaffScreen() {
         </Card>
       ))}
 
+      {showConnect ? <ConnectDevice lead={t('connect.staffFirst')} onConnected={handleConnected} /> : null}
+
       {resettingId ? (
         <Card>
           <Text style={styles.formTitle}>
@@ -397,7 +431,7 @@ export default function StaffScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.md },
   personText: { flexShrink: 1 },
   name: { fontSize: typeScale.body, fontWeight: '700', color: colors.text },
@@ -407,4 +441,4 @@ const styles = StyleSheet.create({
   error: { fontSize: typeScale.label, color: colors.danger, fontWeight: '600' },
   footerRow: { flexDirection: 'row', gap: spacing.md },
   footerButton: { flex: 1 },
-});
+}));

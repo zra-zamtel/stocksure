@@ -11,7 +11,7 @@ import { parsePaymentMessage, PermissionError, toNgwee, type Provider } from '@/
 import { addPaymentMessage, DuplicateMessageError, reconcileDay } from '@/db/repos';
 import { useI18n } from '@/i18n';
 import { formatKwacha } from '@/lib/format';
-import { colors, radii, spacing, typeScale } from '@/theme/tokens';
+import { colors, radii, spacing, themed, typeScale } from '@/theme/tokens';
 
 const PROVIDERS: Provider[] = ['MTN', 'Airtel', 'Zamtel'];
 
@@ -188,7 +188,7 @@ export default function PaymentMessageScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   footer: { gap: spacing.xs },
   pasteBox: {
     borderRadius: radii.md,
@@ -211,4 +211,4 @@ const styles = StyleSheet.create({
     color: colors.text,
     marginTop: spacing.sm,
   },
-});
+}));

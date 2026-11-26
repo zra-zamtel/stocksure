@@ -1,13 +1,25 @@
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { StyleSheet, Text, TextInput, View } from 'react-native';
 import { useAuth } from '@/auth/session';
-import { Button, EmptyState, ErrorState, Icon, IconButton, LoadingList, Pill, Screen } from '@/components/ui';
+import {
+  Button,
+  EmptyState,
+  ErrorState,
+  Icon,
+  IconButton,
+  ListGroup,
+  ListRow,
+  LoadingList,
+  Pill,
+  Screen,
+  StatTile,
+} from '@/components/ui';
 import { useProducts, useShop } from '@/db/hooks';
 import type { ProductWithStock } from '@/db/repos';
 import { useI18n } from '@/i18n';
 import { formatKwacha } from '@/lib/format';
-import { colors, radii, spacing, touch, typeScale } from '@/theme/tokens';
+import { colors, elevation, fonts, radii, spacing, themed, touch, typeScale } from '@/theme/tokens';
 
 type Filter = 'all' | 'low' | 'out';
 
@@ -100,29 +112,32 @@ export default function ProductsScreen() {
       }
       footer={
         managesProducts ? (
-          <Button label={t('products.addProduct')} onPress={addProduct} />
+          <Button label={t('products.addProduct')} icon="add" onPress={addProduct} />
         ) : undefined
       }
     >
       <View style={styles.counts} accessibilityRole="radiogroup">
-        <Count
+        <StatTile
           label={t('products.filter.all')}
           value={counts.all}
-          active={filter === 'all'}
+          icon="inventory_2"
+          selected={filter === 'all'}
           onPress={() => setFilter('all')}
         />
-        <Count
+        <StatTile
           label={t('products.filter.low')}
           value={counts.low}
-          tone="warning"
-          active={filter === 'low'}
+          icon="trending_down"
+          tone={counts.low > 0 ? 'warning' : 'neutral'}
+          selected={filter === 'low'}
           onPress={() => setFilter('low')}
         />
-        <Count
+        <StatTile
           label={t('products.filter.out')}
           value={counts.out}
-          tone="danger"
-          active={filter === 'out'}
+          icon="remove_shopping_cart"
+          tone={counts.out > 0 ? 'danger' : 'neutral'}
+          selected={filter === 'out'}
           onPress={() => setFilter('out')}
         />
       </View>
@@ -156,124 +171,49 @@ export default function ProductsScreen() {
         )
       ) : null}
 
-      <View style={styles.list}>
-        {visible.map((product) => {
-          const state = states.get(product.id) ?? 'ok';
-          const barcode = product.variants.find((variant) => variant.barcode)?.barcode;
-          const meta = [
-            product.variants.length > 1
-              ? t('products.variantCount', { count: product.variants.length })
-              : null,
-            product.category,
-            barcode,
-          ]
-            .filter(Boolean)
-            .join(' · ');
-          const row = (
-            <>
-              <View style={styles.rowMain}>
-                <Text style={styles.name} numberOfLines={1}>
-                  {product.name}
-                </Text>
-                {meta ? (
-                  <Text style={styles.meta} numberOfLines={1}>
-                    {meta}
-                  </Text>
-                ) : null}
-              </View>
-              <View style={styles.rowSide}>
-                <Text style={styles.price} numberOfLines={1}>
-                  {formatKwacha(product.defaultSellPrice)}
-                </Text>
-                <Pill
-                  label={
-                    state === 'out' ? t('products.filter.out') : t('products.left', { count: product.stock })
-                  }
-                  tone={state === 'out' ? 'danger' : state === 'low' ? 'warning' : 'neutral'}
-                />
-              </View>
-              {managesProducts ? <Icon name="chevron_right" color={colors.textMuted} /> : null}
-            </>
-          );
-
-          return managesProducts ? (
-            <Pressable
-              key={product.id}
-              accessibilityRole="button"
-              onPress={() => router.push(`/product/${product.id}`)}
-              style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
-            >
-              {row}
-            </Pressable>
-          ) : (
-            <View key={product.id} style={styles.row}>
-              {row}
-            </View>
-          );
-        })}
-      </View>
+      {visible.length > 0 ? (
+        <ListGroup>
+          {visible.map((product, index) => {
+            const state = states.get(product.id) ?? 'ok';
+            const barcode = product.variants.find((variant) => variant.barcode)?.barcode;
+            const meta = [
+              product.variants.length > 1
+                ? t('products.variantCount', { count: product.variants.length })
+                : null,
+              product.category,
+              barcode,
+            ]
+              .filter(Boolean)
+              .join(' · ');
+            const stockLabel =
+              state === 'out' ? t('products.filter.out') : t('products.left', { count: product.stock });
+            return (
+              <ListRow
+                key={product.id}
+                last={index === visible.length - 1}
+                title={product.name}
+                meta={meta || null}
+                right={
+                  <>
+                    <Text style={styles.price} numberOfLines={1}>
+                      {formatKwacha(product.defaultSellPrice)}
+                    </Text>
+                    <Pill label={stockLabel} tone={state === 'out' ? 'danger' : state === 'low' ? 'warning' : 'neutral'} />
+                  </>
+                }
+                accessibilityLabel={`${product.name}, ${formatKwacha(product.defaultSellPrice)}, ${stockLabel}`}
+                onPress={managesProducts ? () => router.push(`/product/${product.id}`) : undefined}
+              />
+            );
+          })}
+        </ListGroup>
+      ) : null}
     </Screen>
   );
 }
 
-function Count({
-  label,
-  value,
-  tone,
-  active,
-  onPress,
-}: {
-  label: string;
-  value: number;
-  tone?: 'warning' | 'danger';
-  active: boolean;
-  onPress: () => void;
-}) {
-  const ink = value > 0 && tone ? (tone === 'danger' ? colors.danger : colors.warning) : colors.text;
-  return (
-    <Pressable
-      accessibilityRole="radio"
-      accessibilityState={{ selected: active }}
-      accessibilityLabel={`${label}: ${value}`}
-      onPress={onPress}
-      style={[styles.count, active && styles.countActive]}
-    >
-      <Text style={[styles.countValue, { color: ink }]}>{value}</Text>
-      <Text style={styles.countLabel} numberOfLines={1}>
-        {label}
-      </Text>
-    </Pressable>
-  );
-}
-
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   counts: { flexDirection: 'row', gap: spacing.sm },
-  count: {
-    flex: 1,
-    minHeight: touch.minHeight + spacing.xl,
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    justifyContent: 'center',
-  },
-  countActive: {
-    borderColor: colors.primary,
-    borderWidth: 2,
-    backgroundColor: colors.primarySoft,
-  },
-  countValue: {
-    fontSize: typeScale.title,
-    fontWeight: '800',
-    fontVariant: ['tabular-nums'],
-  },
-  countLabel: {
-    fontSize: typeScale.label,
-    color: colors.textMuted,
-    fontWeight: '600',
-  },
   search: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -284,6 +224,7 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     backgroundColor: colors.surface,
     paddingHorizontal: spacing.lg,
+    ...elevation.card,
   },
   searchInput: {
     flex: 1,
@@ -291,32 +232,12 @@ const styles = StyleSheet.create({
     fontSize: typeScale.body,
     color: colors.text,
   },
-  list: { gap: spacing.sm },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    minHeight: touch.minHeight + spacing.lg,
-    paddingVertical: spacing.md,
-    paddingLeft: spacing.lg,
-    paddingRight: spacing.sm,
-    borderRadius: radii.lg,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-  },
-  rowPressed: { backgroundColor: colors.surfaceAlt },
-  rowMain: { flex: 1, gap: 2 },
-  name: { fontSize: typeScale.body, fontWeight: '700', color: colors.text },
-  meta: { fontSize: typeScale.label, color: colors.textMuted },
-  rowSide: { alignItems: 'flex-end', gap: spacing.xs },
   price: {
+    fontFamily: fonts.display,
     fontSize: typeScale.body,
-    fontWeight: '700',
     color: colors.text,
     fontVariant: ['tabular-nums'],
   },
-  muted: { fontSize: typeScale.label, color: colors.textMuted },
   empty: {
     alignItems: 'center',
     gap: spacing.sm,
@@ -327,4 +248,4 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     textAlign: 'center',
   },
-});
+}));

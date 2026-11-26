@@ -14,7 +14,7 @@ import { createProduct } from '@/db/repos';
 import { useI18n } from '@/i18n';
 import { formatKwacha } from '@/lib/format';
 import { labelHtml } from '@/lib/label';
-import { colors, spacing, typeScale } from '@/theme/tokens';
+import { colors, spacing, themed, typeScale } from '@/theme/tokens';
 
 export default function NewProductScreen() {
   const { t } = useI18n();
@@ -196,10 +196,10 @@ export default function NewProductScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   rowButton: { flex: 1 },
   labelActions: { flexDirection: 'row', gap: spacing.md },
   muted: { fontSize: typeScale.label, color: colors.textMuted },
   success: { fontSize: typeScale.label, color: colors.success, fontWeight: '600' },
   error: { fontSize: typeScale.label, color: colors.danger, fontWeight: '600' },
-});
+}));

@@ -5,7 +5,7 @@ import { useAuth } from '@/auth/session';
 import { useSmartInvoice } from '@/db/hooks';
 import { useI18n } from '@/i18n';
 import { getSmartInvoiceSaleOnServer, type SmartInvoiceSent } from '@/lib/api';
-import { colors, spacing, typeScale } from '@/theme/tokens';
+import { colors, spacing, themed, typeScale } from '@/theme/tokens';
 import { Card, Pill, Row, SectionTitle, TextLink } from './ui';
 
 /** Signatures read better in groups of four: TQZM-KL57-AGBM-STPO. */
@@ -127,10 +127,10 @@ export function SmartInvoiceCard({ saleId }: { saleId: string }) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   head: { flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap' },
   muted: { fontSize: typeScale.label, color: colors.textMuted },
-  sent: { gap: spacing.xs, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, paddingTop: spacing.sm },
+  sent: { gap: spacing.xs, marginTop: spacing.sm },
   sentTitle: { fontSize: typeScale.label, fontWeight: '800', color: colors.text },
   code: { fontSize: typeScale.caption, color: colors.textMuted, fontFamily: 'monospace' },
-});
+}));

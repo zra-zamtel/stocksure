@@ -9,7 +9,7 @@ import { isValidTpin } from '@/core';
 import { useShop } from '@/db/hooks';
 import { saveMoneySettings } from '@/db/repos';
 import { useI18n } from '@/i18n';
-import { colors, spacing, typeScale } from '@/theme/tokens';
+import { colors, spacing, themed, typeScale } from '@/theme/tokens';
 
 const PROVIDERS = ['MTN', 'Airtel', 'Zamtel'] as const;
 
@@ -119,10 +119,10 @@ export default function MoneyScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   sectionLabel: { fontSize: typeScale.label, fontWeight: '600', color: colors.textMuted },
   group: { gap: spacing.sm },
   row: { flexDirection: 'row', gap: spacing.md },
   rowChoice: { flex: 1 },
   hint: { fontSize: typeScale.label, color: colors.textMuted },
-});
+}));

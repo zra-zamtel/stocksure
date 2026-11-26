@@ -9,7 +9,7 @@ import { taxRules } from '@/data/fake';
 import { useProducts, useShop } from '@/db/hooks';
 import { completeOnboarding, ensureTaxPeriod } from '@/db/repos';
 import { useI18n } from '@/i18n';
-import { colors, spacing, typeScale } from '@/theme/tokens';
+import { colors, spacing, themed, typeScale } from '@/theme/tokens';
 
 export default function FirstProductsScreen() {
   const { t } = useI18n();
@@ -91,7 +91,7 @@ export default function FirstProductsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   count: { fontSize: typeScale.body, fontWeight: '700', color: colors.text },
   actions: { gap: spacing.md, marginTop: spacing.md },
-});
+}));

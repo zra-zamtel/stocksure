@@ -13,7 +13,8 @@ import { saveMoneySettings, saveShopDetails } from '@/db/repos';
 import { useSync } from '@/db/use-sync';
 import { readPlanChoice } from '@/lib/plan-store';
 import { LANGUAGE_LABELS, useI18n, type Language } from '@/i18n';
-import { colors, spacing, typeScale } from '@/theme/tokens';
+import { ConnectReminder } from '@/components/connect-device';
+import { colors, elevation, radii, setThemePreference, spacing, themed, type ThemePreference, themePreference, touch, typeScale } from '@/theme/tokens';
 
 const SHOP_TYPES: ShopType[] = ['clothes', 'shoes', 'general', 'other'];
 const PROVIDERS = ['MTN', 'Airtel', 'Zamtel'] as const;
@@ -34,8 +35,9 @@ export default function SettingsScreen() {
           });
   const router = useRouter();
   const db = useSQLiteContext();
-  const { ownerPreview, signOut, refresh } = useAuth();
+  const { ownerPreview, signOut, refresh, deviceToken } = useAuth();
   const { data: shop, reload } = useShop();
+  const [theme, setTheme] = useState<ThemePreference>(themePreference);
   const { data: smartInvoice } = useSmartInvoiceLink();
   const sync = useSync();
 
@@ -131,6 +133,22 @@ export default function SettingsScreen() {
           value={language}
           onChange={(code) => void changeLanguage(code)}
         />
+      </View>
+
+      <View style={styles.group}>
+        <SectionTitle>{t('settings.appearance')}</SectionTitle>
+        <Toggle
+          options={(['system', 'light', 'dark'] as ThemePreference[]).map((value) => ({
+            value,
+            label: t(`theme.${value}`),
+          }))}
+          value={theme}
+          onChange={(value) => {
+            setTheme(value);
+            setThemePreference(value);
+          }}
+        />
+        <Text style={styles.hint}>{t('theme.hint')}</Text>
       </View>
 
       {editing ? (
@@ -267,7 +285,12 @@ export default function SettingsScreen() {
         />
         <ListRow label={t('sync.pending')} value={String(sync.pending)} last />
       </Group>
-      {sync.error ? <Text style={styles.error}>{sync.error}</Text> : null}
+      {/* Sync needs this phone connected: the strip opens the connect sheet. */}
+      {deviceToken ? (
+        sync.error ? <Text style={styles.error}>{sync.error}</Text> : null
+      ) : (
+        <ConnectReminder dismissible={false} />
+      )}
 
       <Pressable
         accessibilityRole="button"
@@ -288,7 +311,7 @@ export default function SettingsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   pair: { flexDirection: 'row', gap: spacing.md },
   wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   pairItem: { flexGrow: 1, flexBasis: '40%' },
@@ -320,7 +343,7 @@ const styles = StyleSheet.create({
     color: colors.primaryInk,
     fontWeight: '600',
   },
-  pressed: { opacity: 0.6 },
+  pressed: { backgroundColor: colors.surfaceAlt },
   muted: {
     fontSize: typeScale.label,
     color: colors.textMuted,
@@ -332,8 +355,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.sm,
-    minHeight: 48,
+    minHeight: touch.minHeight + 4,
     marginTop: spacing.md,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: colors.danger,
+    backgroundColor: colors.surface,
   },
   signOutText: {
     fontSize: typeScale.body,
@@ -349,10 +376,11 @@ const styles = StyleSheet.create({
   },
   groupCard: {
     backgroundColor: colors.surface,
-    borderRadius: 16,
+    borderRadius: radii.lg,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.border,
     overflow: 'hidden',
+    ...elevation.card,
   },
   groupPad: { padding: spacing.lg, gap: spacing.sm },
   listRow: {
@@ -363,10 +391,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.sm,
   },
-  listRowDivider: {
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
-  },
+  listRowLast: { paddingBottom: spacing.md },
   rowLabel: { flex: 1, fontSize: typeScale.body, color: colors.textMuted },
   rowValue: {
     flexShrink: 1,
@@ -377,7 +402,8 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   footer: { alignItems: 'center', marginTop: spacing.md },
-});
+  hint: { fontSize: typeScale.label, color: colors.textMuted },
+}));
 
 /** A titled group of rows on one card, with an optional small action. */
 function Group({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) {
@@ -417,7 +443,7 @@ function ListRow({
       {onPress ? <Icon name="chevron_right" color={colors.textMuted} /> : null}
     </>
   );
-  const style = [styles.listRow, !last && styles.listRowDivider];
+  const style = [styles.listRow, last && styles.listRowLast];
   return onPress ? (
     <Pressable
       accessibilityRole="button"

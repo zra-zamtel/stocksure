@@ -1,7 +1,7 @@
 import { useMemo, type ComponentRef, type RefObject } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { encodeEan13 } from '@/core';
-import { colors, typeScale } from '@/theme/tokens';
+import { colors, themed, typeScale } from '@/theme/tokens';
 
 type ViewRef = ComponentRef<typeof View>;
 
@@ -42,7 +42,7 @@ export function BarcodeLabel({ code, height = 88, moduleWidth = 2, viewRef }: Pr
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   wrap: {
     alignSelf: 'center',
     alignItems: 'center',
@@ -54,4 +54,4 @@ const styles = StyleSheet.create({
   },
   bars: { flexDirection: 'row', alignItems: 'stretch' },
   digits: { color: colors.text, fontSize: typeScale.caption, letterSpacing: 2 },
-});
+}));

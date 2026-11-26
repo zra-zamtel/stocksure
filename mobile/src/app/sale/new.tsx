@@ -13,8 +13,9 @@ import {
   EmptyState,
   ErrorState,
   Field,
+  FormError,
+  Icon,
   LoadingList,
-  Pill,
   Row,
   Screen,
   SectionTitle,
@@ -31,7 +32,7 @@ import {
 } from '@/db/repos';
 import { useI18n } from '@/i18n';
 import { formatKwacha } from '@/lib/format';
-import { colors, radii, spacing, touch, typeScale } from '@/theme/tokens';
+import { colors, fonts, iconSize, radii, spacing, themed, touch, typeScale } from '@/theme/tokens';
 
 
 function Stepper({ value, onChange }: { value: number; onChange: (next: number) => void }) {
@@ -41,18 +42,21 @@ function Stepper({ value, onChange }: { value: number; onChange: (next: number) 
         accessibilityRole="button"
         accessibilityLabel="Remove one"
         onPress={() => onChange(Math.max(0, value - 1))}
-        style={styles.stepButton}
+        disabled={value === 0}
+        android_ripple={{ color: colors.ripple }}
+        style={({ pressed }) => [styles.stepButton, pressed && styles.stepPressed, value === 0 && styles.stepIdle]}
       >
-        <Text style={styles.stepLabel}>−</Text>
+        <Icon name="remove" size={iconSize.md} color={value === 0 ? colors.textMuted : colors.text} />
       </Pressable>
-      <Text style={styles.stepValue}>{value}</Text>
+      <Text style={[styles.stepValue, value > 0 && styles.stepValueOn]}>{value}</Text>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Add one"
         onPress={() => onChange(value + 1)}
-        style={styles.stepButton}
+        android_ripple={{ color: 'rgba(255, 255, 255, 0.2)' }}
+        style={({ pressed }) => [styles.stepButton, styles.stepAdd, pressed && styles.stepPressed]}
       >
-        <Text style={styles.stepLabel}>+</Text>
+        <Icon name="add" size={iconSize.md} color={colors.primaryText} />
       </Pressable>
     </View>
   );
@@ -307,6 +311,7 @@ export default function NewSaleScreen() {
       {shop?.usesBarcodes ? (
         <Button
           label={t('sale.new.scan')}
+          icon="barcode_scanner"
           variant="secondary"
           onPress={() => {
             setScanMessage(null);
@@ -316,7 +321,10 @@ export default function NewSaleScreen() {
       ) : null}
       {scanMessage ? <Text style={styles.muted}>{scanMessage}</Text> : null}
       {products.map((product) => (
-        <Card key={product.id}>
+        <Card
+          key={product.id}
+          style={product.variants.some((variant) => (quantityByVariant[variant.id] ?? 0) > 0) && styles.pickedCard}
+        >
           <Text style={styles.productName}>{product.name}</Text>
           {product.variants.map((variant) => {
             const quantity = quantityByVariant[variant.id] ?? 0;
@@ -362,10 +370,12 @@ export default function NewSaleScreen() {
 
       {seesMoney && belowCostLabels.length > 0 ? (
         <Card style={styles.warningCard}>
-          <Pill label="!" tone="warning" />
-          <Text style={styles.warningText}>
-            {t('sale.new.belowCost', { count: belowCostLabels.length })}
-          </Text>
+          <View style={styles.alertHead}>
+            <Icon name="warning" size={iconSize.md} color={colors.warning} />
+            <Text style={[styles.warningText, styles.flex]}>
+              {t('sale.new.belowCost', { count: belowCostLabels.length })}
+            </Text>
+          </View>
           {belowCostLabels.map((label) => (
             <Text key={label} style={styles.muted}>
               {label}
@@ -376,7 +386,10 @@ export default function NewSaleScreen() {
 
       {shortfalls ? (
         <Card style={styles.dangerCard}>
-          <Text style={styles.warningText}>{t('sale.new.overrideTitle')}</Text>
+          <View style={styles.alertHead}>
+            <Icon name="error" size={iconSize.md} color={colors.danger} />
+            <Text style={[styles.warningText, styles.flex]}>{t('sale.new.overrideTitle')}</Text>
+          </View>
           {shortfalls.map((shortfall) => (
             <Text key={shortfall.variantId} style={styles.muted}>
               {t('sale.new.overrideLine', {
@@ -402,20 +415,34 @@ export default function NewSaleScreen() {
 
       <SectionTitle>{t('sale.new.paymentMethod')}</SectionTitle>
       <View style={styles.methods}>
-        <Choice label={t('sale.new.cash')} selected={method === 'cash'} onPress={() => chooseMethod('cash')} />
+        <Choice
+          label={t('sale.new.cash')}
+          icon="payments"
+          selected={method === 'cash'}
+          onPress={() => chooseMethod('cash')}
+        />
         <Choice
           label={t('sale.new.mobileMoney')}
+          icon="phone_iphone"
           selected={method === 'mobile_money'}
           onPress={() => chooseMethod('mobile_money')}
         />
-        <Choice label={t('sale.new.split')} selected={method === 'split'} onPress={() => chooseMethod('split')} />
+        <Choice
+          label={t('sale.new.split')}
+          icon="call_split"
+          selected={method === 'split'}
+          onPress={() => chooseMethod('split')}
+        />
       </View>
 
       {method !== 'cash' && paidValid ? (
         <Card style={styles.paidCard}>
-          <Text style={styles.paidText}>
+          <View style={styles.alertHead}>
+            <Icon name="check_circle" size={iconSize.md} color={colors.success} />
+            <Text style={[styles.paidText, styles.flex]}>
             {t('rtp.paid', { amount: formatKwacha(paidValid.amount), reference: paidValid.reference })}
-          </Text>
+            </Text>
+          </View>
         </Card>
       ) : null}
 
@@ -427,6 +454,7 @@ export default function NewSaleScreen() {
             onChangeText={setCashPart}
             placeholder="0.00"
             keyboardType="decimal-pad"
+            prefix="K"
           />
           <Row
             label={t('sale.new.remaining')}
@@ -435,11 +463,7 @@ export default function NewSaleScreen() {
         </Card>
       ) : null}
 
-      {error ? (
-        <Card style={styles.dangerCard}>
-          <Text style={styles.warningText}>{error}</Text>
-        </Card>
-      ) : null}
+      {error ? <FormError message={error} /> : null}
 
       {payOpen ? (
         <RequestToPayDialog
@@ -460,8 +484,9 @@ export default function NewSaleScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   productName: { fontSize: typeScale.body, fontWeight: '700', color: colors.text },
+  pickedCard: { borderColor: colors.primary, borderWidth: 1.5 },
   variantRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -475,14 +500,31 @@ const styles = StyleSheet.create({
   stepper: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: colors.border,
+    gap: spacing.xs,
+  },
+  stepButton: {
+    width: touch.minWidth,
+    height: touch.minHeight,
     borderRadius: radii.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surfaceAlt,
     overflow: 'hidden',
   },
-  stepButton: { width: touch.minWidth, height: 40, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surfaceAlt },
-  stepLabel: { fontSize: typeScale.heading, color: colors.text, fontWeight: '700' },
-  stepValue: { minWidth: 32, textAlign: 'center', fontSize: typeScale.body, color: colors.text },
+  stepAdd: { backgroundColor: colors.primary },
+  stepIdle: { opacity: 0.5 },
+  stepPressed: { opacity: 0.75 },
+  stepValue: {
+    minWidth: 32,
+    textAlign: 'center',
+    fontFamily: fonts.display,
+    fontSize: typeScale.heading,
+    color: colors.textMuted,
+    fontVariant: ['tabular-nums'],
+  },
+  stepValueOn: { color: colors.text },
+  alertHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  flex: { flex: 1 },
   totals: { marginTop: spacing.sm, gap: spacing.xs },
   warningCard: { backgroundColor: colors.warningSoft, gap: spacing.xs },
   dangerCard: { backgroundColor: colors.dangerSoft, gap: spacing.xs },
@@ -490,4 +532,4 @@ const styles = StyleSheet.create({
   methods: { gap: spacing.sm },
   paidCard: { backgroundColor: colors.successSoft },
   paidText: { fontSize: typeScale.body, color: colors.success, fontWeight: '600' },
-});
+}));

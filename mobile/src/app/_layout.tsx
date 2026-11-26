@@ -1,8 +1,8 @@
 import { MaterialSymbols_400Regular } from '@expo-google-fonts/material-symbols/400Regular';
 import { SpaceGrotesk_700Bold, useFonts } from '@expo-google-fonts/space-grotesk';
-import { Stack } from 'expo-router';
+import { DarkTheme, DefaultTheme, Stack, ThemeProvider, router, usePathname, type Href } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider, useAuth } from '@/auth/session';
@@ -11,7 +11,7 @@ import { Button } from '@/components/ui';
 import { canAccessScreen } from '@/core';
 import { DatabaseProvider } from '@/db/provider';
 import { I18nProvider, useI18n } from '@/i18n';
-import { colors, spacing, typeScale } from '@/theme/tokens';
+import { colors, spacing, themed, typeScale, useScheme } from '@/theme/tokens';
 
 // The database is initialised once here, before any screen renders, so screens
 // can read real data on their very first paint instead of a loading flicker.
@@ -21,7 +21,7 @@ export default function RootLayout() {
       <DatabaseProvider>
         <I18nProvider>
           <AuthProvider>
-            <StatusBar style="dark" />
+            <ThemedStatusBar />
             <AppShell />
           </AuthProvider>
         </I18nProvider>
@@ -34,8 +34,61 @@ export default function RootLayout() {
  * The animated splash sits on top of the app until the session and the brand
  * font are ready and the animation has played, then fades away and unmounts.
  */
+function ThemedStatusBar() {
+  const scheme = useScheme();
+  return <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />;
+}
+
+/**
+ * Redraws every screen when the theme changes (from Settings or the phone's
+ * own dark mode), then puts the owner back on the screen they were on. Auth,
+ * data and the splash sit above this, so nothing is lost or replayed.
+ */
+function ThemedNavigator() {
+  const scheme = useScheme();
+  const pathname = usePathname();
+  const lastPath = useRef(pathname);
+  const shownScheme = useRef(scheme);
+
+  useEffect(() => {
+    lastPath.current = pathname;
+  }, [pathname]);
+
+  useEffect(() => {
+    if (shownScheme.current === scheme) return;
+    shownScheme.current = scheme;
+    const path = lastPath.current;
+    if (!path || path === '/') return;
+    // Wait a frame so the fresh navigator has mounted before going back.
+    requestAnimationFrame(() => router.replace(path as Href));
+  }, [scheme]);
+
+  const navigationTheme = useMemo(() => {
+    const base = scheme === 'dark' ? DarkTheme : DefaultTheme;
+    return {
+      ...base,
+      colors: {
+        ...base.colors,
+        background: colors.bg,
+        card: colors.surface,
+        text: colors.text,
+        border: colors.border,
+        primary: colors.primary,
+      },
+    };
+  }, [scheme]);
+
+  return (
+    <ThemeProvider value={navigationTheme}>
+      <RootNavigator key={scheme} />
+    </ThemeProvider>
+  );
+}
+
 function AppShell() {
   const { status } = useAuth();
+  // Re-render on a theme change so the shell's own background follows it.
+  useScheme();
   // Both fonts load before the splash lifts, so no icon or heading paints blank.
   const [fontsLoaded, fontError] = useFonts({ SpaceGrotesk_700Bold, MaterialSymbols_400Regular });
   const [splashDone, setSplashDone] = useState(false);
@@ -44,7 +97,7 @@ function AppShell() {
 
   return (
     <View style={styles.shell}>
-      <RootNavigator />
+      <ThemedNavigator />
       {splashDone ? null : <AnimatedSplash ready={ready} onDone={finishSplash} />}
     </View>
   );
@@ -96,7 +149,7 @@ function RootNavigator() {
   const ownerOnly = signedIn && onboardingComplete;
 
   return (
-    <Stack screenOptions={{ headerShown: false }}>
+    <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg } }}>
       <Stack.Screen name="index" />
       {/* Open in every state: a signed-in owner taps the link to confirm their email. */}
 
@@ -186,7 +239,7 @@ function RootNavigator() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   shell: { flex: 1, backgroundColor: colors.bg },
   centred: {
     flex: 1,
@@ -198,4 +251,4 @@ const styles = StyleSheet.create({
   },
   muted: { fontSize: typeScale.label, color: colors.textMuted, textAlign: 'center' },
   errorTitle: { fontSize: typeScale.heading, fontWeight: '700', color: colors.text, textAlign: 'center' },
-});
+}));

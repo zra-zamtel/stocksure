@@ -2,7 +2,7 @@ import { StyleSheet, Text } from 'react-native';
 import { useAuth } from '@/auth/session';
 import { Button, Card, Screen } from '@/components/ui';
 import { useI18n } from '@/i18n';
-import { colors, typeScale } from '@/theme/tokens';
+import { colors, themed, typeScale } from '@/theme/tokens';
 
 /**
  * A staff member can prove their identity on a new phone, but the shop's
@@ -33,7 +33,7 @@ export default function ShopPendingScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   body: { fontSize: typeScale.body, color: colors.text },
   muted: { fontSize: typeScale.label, color: colors.textMuted },
-});
+}));

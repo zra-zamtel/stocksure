@@ -14,7 +14,7 @@ import Animated, {
 import { BrandMark, Wordmark } from './brand';
 import { Icon, Screen } from './ui';
 import { useI18n } from '../i18n';
-import { colors, radii, spacing, touch, typeScale } from '../theme/tokens';
+import { colors, radii, spacing, themed, touch, typeScale } from '../theme/tokens';
 
 /**
  * Setup runs as one stepped flow. Every numbered screen shares this frame so
@@ -280,7 +280,7 @@ export function Logo({ size = 44 }: { size?: number }) {
 const BUBBLE_W = 104;
 const BUBBLE_H = 64;
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   top: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   back: {
     width: touch.minWidth,
@@ -405,4 +405,4 @@ const styles = StyleSheet.create({
   tailRight: { right: 20 },
   tailBlue: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
   logo: { flexDirection: 'row', alignItems: 'center', alignSelf: 'center', gap: spacing.sm },
-});
+}));

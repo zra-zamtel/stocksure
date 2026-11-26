@@ -1,6 +1,6 @@
 import { StyleSheet, Text, type TextStyle, type StyleProp } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
-import { colors } from '../theme/tokens';
+import { colors, themed } from '../theme/tokens';
 
 /**
  * The StockSure mark: a squared S drawn like shelving, ending in a blue dot.
@@ -45,7 +45,7 @@ export function Wordmark({ size = 32, style }: { size?: number; style?: StylePro
 
 export const WORDMARK_FONT = 'SpaceGrotesk_700Bold';
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   word: { fontFamily: WORDMARK_FONT, color: colors.charcoal },
   sure: { color: colors.primaryInk },
-});
+}));

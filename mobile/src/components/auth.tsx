@@ -11,7 +11,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { MAX_PIN_LENGTH, normalisePin } from '@/core';
 import { Icon } from './ui';
-import { colors, radii, spacing, touch, typeScale } from '../theme/tokens';
+import { colors, radii, spacing, themed, touch, typeScale } from '../theme/tokens';
 
 /**
  * Pieces shared by the sign-in screens so they read as one family with setup:
@@ -117,12 +117,12 @@ function PinDot() {
   return <Animated.View style={[styles.pinDot, style]} />;
 }
 
-const NOTICE = {
+const NOTICE = themed(() => ({
   error: { icon: 'error', ink: colors.danger, bg: colors.dangerSoft },
   success: { icon: 'check_circle', ink: colors.success, bg: colors.successSoft },
   info: { icon: 'info', ink: colors.info, bg: colors.infoSoft },
   warning: { icon: 'warning', ink: colors.warning, bg: colors.warningSoft },
-} as const satisfies Record<string, { icon: AndroidSymbol; ink: string; bg: string }>;
+}) as const satisfies Record<string, { icon: AndroidSymbol; ink: string; bg: string }>);
 
 /** One inline message style for errors, confirmations and tips. */
 export function Notice({
@@ -160,9 +160,7 @@ export function Hint({ icon, children }: { icon: AndroidSymbol; children: ReactN
 export function SectionDivider({ label }: { label: string }) {
   return (
     <View style={styles.divider}>
-      <View style={styles.dividerLine} />
       <Text style={styles.dividerText}>{label}</Text>
-      <View style={styles.dividerLine} />
     </View>
   );
 }
@@ -213,7 +211,7 @@ export function Avatar({ name, size = 56 }: { name: string; size?: number }) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   pin: { gap: spacing.sm },
   pinLabel: { fontSize: typeScale.label, color: colors.textMuted, fontWeight: '600' },
   pinRow: { flexDirection: 'row', gap: spacing.sm },
@@ -247,8 +245,7 @@ const styles = StyleSheet.create({
   noticeText: { flex: 1, fontSize: typeScale.body, lineHeight: 21, fontWeight: '600' },
   hint: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   hintText: { flexShrink: 1, fontSize: typeScale.label, color: colors.textMuted, lineHeight: 18 },
-  divider: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginTop: spacing.sm },
-  dividerLine: { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: colors.border },
+  divider: { alignItems: 'center', marginTop: spacing.lg },
   dividerText: {
     fontSize: typeScale.caption,
     fontWeight: '700',
@@ -281,4 +278,4 @@ const styles = StyleSheet.create({
   optionCaption: { fontSize: typeScale.label, color: colors.textMuted, lineHeight: 18 },
   avatar: { backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
   avatarText: { color: colors.primaryText, fontWeight: '800' },
-});
+}));

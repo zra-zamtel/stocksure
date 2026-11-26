@@ -5,7 +5,7 @@ import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import { LanguageBubbles, Logo } from '@/components/onboarding';
 import { Button, Choice, HelpTip, Screen } from '@/components/ui';
 import { LANGUAGE_LABELS, useI18n, type Language } from '@/i18n';
-import { colors, spacing, typeScale } from '@/theme/tokens';
+import { colors, spacing, themed, typeScale } from '@/theme/tokens';
 
 // A Zambian street market, faded at the bottom into the paper colour so the
 // screen reads as one page rather than a photo stuck on top.
@@ -53,7 +53,7 @@ export default function LanguageScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   // Bleed past the screen's side and top padding so the picture runs edge to edge.
   hero: { marginHorizontal: -spacing.lg, marginTop: -spacing.lg },
   heroImage: { width: '100%', aspectRatio: 1200 / 670 },
@@ -61,4 +61,4 @@ const styles = StyleSheet.create({
   title: { fontSize: typeScale.display, fontWeight: '800', color: colors.text, textAlign: 'center', letterSpacing: -0.4 },
   subtitle: { fontSize: typeScale.body, color: colors.textMuted, textAlign: 'center' },
   choices: { gap: spacing.md },
-});
+}));

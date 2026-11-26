@@ -119,6 +119,12 @@ type AuthValue = {
   /** Confirms the email of the owner already signed in on this phone. */
   confirmOwnerEmail: (input: { email: string; code: string }) => Promise<void>;
   requestOwnerEmailCode: (email: string, phone?: string) => Promise<EmailCodeRequestResult>;
+  /**
+   * Reconnects this phone to the owner's online account with an emailed code,
+   * without leaving the current screen or setting a new PIN. Throws
+   * OwnerMismatchError when the code belongs to a different owner account.
+   */
+  connectOwnerDevice: (input: { email: string; code: string }) => Promise<string>;
   requestOwnerPasswordReset: (email: string) => Promise<EmailCodeRequestResult>;
   /** Sets a new password with the emailed code; this phone then needs a PIN. */
   beginOwnerPasswordReset: (input: { email: string; code: string; password: string }) => Promise<void>;
@@ -129,6 +135,14 @@ type AuthValue = {
   signOut: () => void;
   refresh: () => Promise<void>;
 };
+
+/** The emailed code is valid but signs in a different owner than this phone's. */
+export class OwnerMismatchError extends Error {
+  constructor() {
+    super('owner-mismatch');
+    this.name = 'OwnerMismatchError';
+  }
+}
 
 const emptyOnboarding: OnboardingState = {
   hasShop: false,
@@ -459,10 +473,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [startOwnerSession]
   );
 
-  const confirmOwnerEmail = useCallback(async (input: { email: string; code: string }) => {
-    await verifyEmailCodeOnServer(input.email.trim().toLowerCase(), input.code);
-    clearEmailPending();
-  }, []);
+  const confirmOwnerEmail = useCallback(
+    async (input: { email: string; code: string }) => {
+      const session = await verifyEmailCodeOnServer(input.email.trim().toLowerCase(), input.code);
+      clearEmailPending();
+      // The code also returns a fresh device key. Keep it when it is for the
+      // owner on this phone, so online actions work without another sign-in.
+      const owner = await getOwner(db);
+      if (owner && owner.id === session.owner.id) {
+        await storeDeviceToken(session.deviceToken);
+        setDeviceToken(session.deviceToken);
+      }
+    },
+    [db]
+  );
+
+  const connectOwnerDevice = useCallback(
+    async (input: { email: string; code: string }) => {
+      const session = await verifyEmailCodeOnServer(input.email.trim().toLowerCase(), input.code);
+      const owner = await getOwner(db);
+      if (!owner || owner.id !== session.owner.id) throw new OwnerMismatchError();
+      clearEmailPending();
+      await storeDeviceToken(session.deviceToken);
+      setDeviceToken(session.deviceToken);
+      return session.deviceToken;
+    },
+    [db]
+  );
 
   const requestOwnerPasswordReset = useCallback(
     async (email: string) => requestPasswordResetOnServer(email.trim().toLowerCase()),
@@ -595,6 +632,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       beginOwnerLogin,
       beginOwnerEmailCode,
       confirmOwnerEmail,
+      connectOwnerDevice,
       requestOwnerEmailCode,
       requestOwnerPasswordReset,
       beginOwnerPasswordReset,
@@ -611,6 +649,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     beginOwnerPasswordReset,
     cancelOwnerLogin,
     confirmOwnerEmail,
+    connectOwnerDevice,
     completeDeviceSetup,
     deviceToken,
     error,

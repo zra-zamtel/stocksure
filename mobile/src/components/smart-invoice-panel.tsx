@@ -4,6 +4,7 @@ import { useCallback, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '@/auth/session';
 import { Notice } from '@/components/auth';
+import { ConnectDevice } from '@/components/connect-device';
 import { Button, Card, Field, Icon, Pill, Row, SectionTitle, TextLink } from '@/components/ui';
 import { useShop } from '@/db/hooks';
 import { saveSmartInvoiceLink } from '@/db/repos';
@@ -15,7 +16,7 @@ import {
   getSmartInvoiceStatusOnServer,
   type SmartInvoiceStatus,
 } from '@/lib/api';
-import { colors, radii, spacing, typeScale } from '@/theme/tokens';
+import { colors, radii, spacing, themed, typeScale } from '@/theme/tokens';
 
 type Connected = Extract<SmartInvoiceStatus, { connected: true }>;
 
@@ -71,8 +72,8 @@ export function SmartInvoicePanel({ compact = false }: { compact?: boolean }) {
   async function connect() {
     if (busy) return;
     if (!deviceToken || !shop) {
-      // Without a session the server cannot be asked; say so instead of doing nothing.
-      setError(t('si.error.signIn'));
+      // The connect panel above is already showing for a missing key.
+      if (!shop) setError(t('si.error.signIn'));
       return;
     }
     const digits = tpin.replace(/\D/g, '');
@@ -106,10 +107,8 @@ export function SmartInvoicePanel({ compact = false }: { compact?: boolean }) {
 
   async function sendNow() {
     if (busy) return;
-    if (!deviceToken) {
-      setError(t('si.error.signIn'));
-      return;
-    }
+    // The connect panel above is already showing for a missing key.
+    if (!deviceToken) return;
     setBusy(true);
     setError(null);
     try {
@@ -131,6 +130,10 @@ export function SmartInvoicePanel({ compact = false }: { compact?: boolean }) {
         <Icon name="science" size={20} color={colors.warning} />
         <Text style={styles.practiceText}>{t('si.practice')}</Text>
       </View>
+
+      {/* Smart Invoice talks to the server, so an unconnected phone reconnects
+          right here; the status reloads by itself once the key is saved. */}
+      {deviceToken ? null : <ConnectDevice />}
 
       {connected ? (
         <>
@@ -227,7 +230,7 @@ function Stat({ value, label, tone }: { value: number; label: string; tone: 'suc
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   practice: {
     flexDirection: 'row',
     gap: spacing.sm,
@@ -254,4 +257,4 @@ const styles = StyleSheet.create({
   statValue: { fontSize: typeScale.title, fontWeight: '800', color: colors.text },
   muted: { fontSize: typeScale.label, color: colors.textMuted },
   links: { alignItems: 'flex-start' },
-});
+}));

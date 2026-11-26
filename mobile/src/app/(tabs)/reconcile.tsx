@@ -10,10 +10,11 @@ import {
   EmptyState,
   ErrorState,
   Field,
-  Icon,
+  IconBadge,
   LoadingList,
   Screen,
   SectionTitle,
+  StatTile,
   TextLink,
 } from '@/components/ui';
 import { PermissionError, toNgwee, type Permission } from '@/core';
@@ -22,7 +23,7 @@ import { ignorePayment, injectDemoMessages, markSalePaid, saveCashCount, voidSal
 import { useI18n } from '@/i18n';
 import { formatKwacha } from '@/lib/format';
 import { markVisited } from '@/lib/getting-started';
-import { colors, radii, spacing, typeScale } from '@/theme/tokens';
+import { colors, elevation, fonts, radii, spacing, themed, typeScale } from '@/theme/tokens';
 
 const time = (iso: string) => new Date(iso).toTimeString().slice(0, 5);
 
@@ -74,7 +75,7 @@ export default function ReconcileScreen() {
   }
 
   const footer = canResolve ? (
-    <Button label={t('payMsg.open')} onPress={() => router.push('/payment-message')} />
+    <Button label={t('payMsg.open')} icon="sms" onPress={() => router.push('/payment-message')} />
   ) : undefined;
 
   if (!data) {
@@ -114,15 +115,30 @@ export default function ReconcileScreen() {
       {canResolve ? (
         <>
           <View style={styles.counts}>
-            <Count value={data.matched.length} label={t('reconcile.count.matched')} tone="success" />
-            <Count value={toCheck} label={t('reconcile.count.toCheck')} tone="warning" />
-            <Count value={data.paymentsWithoutSale.length} label={t('reconcile.count.unknown')} tone="warning" />
+            <StatTile
+              value={data.matched.length}
+              label={t('reconcile.count.matched')}
+              icon="check_circle"
+              tone={data.matched.length > 0 ? 'success' : 'neutral'}
+            />
+            <StatTile
+              value={toCheck}
+              label={t('reconcile.count.toCheck')}
+              icon="schedule"
+              tone={toCheck > 0 ? 'warning' : 'neutral'}
+            />
+            <StatTile
+              value={data.paymentsWithoutSale.length}
+              label={t('reconcile.count.unknown')}
+              icon="help"
+              tone={data.paymentsWithoutSale.length > 0 ? 'warning' : 'neutral'}
+            />
           </View>
 
           {allClear ? (
             <View style={styles.allClear}>
-              <Icon name="check_circle" size={20} color={colors.success} />
-              <Text style={styles.muted}>
+              <IconBadge name="check_circle" tone="success" size={36} />
+              <Text style={styles.allClearText}>
                 {data.matched.length > 0 ? t('reconcile.allClear') : t('reconcile.nothingYet')}
               </Text>
             </View>
@@ -254,6 +270,7 @@ export default function ReconcileScreen() {
               />
               <Button
                 label={t('reconcile.cash.save')}
+                icon="save"
                 variant="secondary"
                 disabled={!canCountCash || countedValue.trim() === ''}
                 loading={busy}
@@ -304,18 +321,6 @@ export default function ReconcileScreen() {
   );
 }
 
-function Count({ value, label, tone }: { value: number; label: string; tone: 'success' | 'warning' }) {
-  const ink = value === 0 ? colors.text : tone === 'success' ? colors.success : colors.warning;
-  return (
-    <View style={styles.count} accessible accessibilityLabel={`${label}: ${value}`}>
-      <Text style={[styles.countValue, { color: ink }]}>{value}</Text>
-      <Text style={styles.countLabel} numberOfLines={1}>
-        {label}
-      </Text>
-    </View>
-  );
-}
-
 function Group({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
   return (
     <View style={styles.group}>
@@ -328,7 +333,7 @@ function Group({ title, hint, children }: { title: string; hint?: string; childr
 
 function Item({ title, meta, actions, last }: { title: string; meta?: string; actions?: ReactNode; last?: boolean }) {
   return (
-    <View style={[styles.item, !last && styles.itemDivider]}>
+    <View style={styles.item}>
       <View style={styles.itemText}>
         <Text style={styles.itemTitle}>{title}</Text>
         {meta ? (
@@ -342,29 +347,23 @@ function Item({ title, meta, actions, last }: { title: string; meta?: string; ac
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   counts: { flexDirection: 'row', gap: spacing.sm },
-  count: {
-    flex: 1,
+  allClear: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    padding: spacing.md,
     borderRadius: radii.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
     backgroundColor: colors.surface,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-  },
-  countValue: { fontSize: typeScale.title, fontWeight: '800', fontVariant: ['tabular-nums'] },
-  countLabel: { fontSize: typeScale.label, color: colors.textMuted, fontWeight: '600' },
-  allClear: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  group: { gap: spacing.xs },
-  hint: { fontSize: typeScale.label, color: colors.textMuted, lineHeight: 18 },
-  groupCard: {
-    backgroundColor: colors.surface,
-    borderRadius: radii.lg,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.border,
-    overflow: 'hidden',
   },
+  allClearText: { flex: 1, fontSize: typeScale.body, color: colors.success, fontWeight: '700' },
+  group: { gap: spacing.xs },
+  hint: { fontSize: typeScale.label, color: colors.textMuted, lineHeight: 18 },
+  groupCard: { gap: spacing.sm },
+
   item: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -373,19 +372,23 @@ const styles = StyleSheet.create({
     paddingRight: spacing.xs,
     paddingVertical: spacing.sm,
     minHeight: 56,
+    backgroundColor: colors.surface,
+    borderRadius: radii.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    ...elevation.card,
   },
-  itemDivider: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
   itemText: { flex: 1, gap: 2 },
-  itemTitle: { fontSize: typeScale.body, fontWeight: '700', color: colors.text, fontVariant: ['tabular-nums'] },
+  itemTitle: { fontFamily: fonts.display, fontSize: typeScale.body, color: colors.text, fontVariant: ['tabular-nums'] },
   itemMeta: { fontSize: typeScale.label, color: colors.textMuted },
   itemActions: { flexDirection: 'row', alignItems: 'center' },
   cash: { padding: spacing.lg, gap: spacing.md },
   cashRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.md },
   cashLabel: { fontSize: typeScale.body, color: colors.textMuted, flexShrink: 1 },
   cashValue: { fontSize: typeScale.body, color: colors.text, fontWeight: '600', fontVariant: ['tabular-nums'] },
-  strong: { fontWeight: '800' },
+  strong: { fontFamily: fonts.display, fontSize: typeScale.heading },
   short: { color: colors.danger },
   over: { color: colors.success },
   muted: { fontSize: typeScale.body, color: colors.textMuted },
   demo: { alignItems: 'center' },
-});
+}));

@@ -4,14 +4,29 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { usePermissionGuard } from '@/auth/permissions';
-import { Button, Card, Choice, EmptyState, ErrorState, LoadingList, Field, Pill, Row, Screen, SectionTitle } from '@/components/ui';
+import { Notice } from '@/components/auth';
+import {
+  Button,
+  Card,
+  Choice,
+  EmptyState,
+  ErrorState,
+  Field,
+  Icon,
+  LoadingList,
+  Pill,
+  Row,
+  Screen,
+  SectionTitle,
+  StatTile,
+} from '@/components/ui';
 import { isValidEan13, toNgwee } from '@/core';
 import { useMovements, useProducts, useShop } from '@/db/hooks';
 import { restockVariant, setVariantBarcode } from '@/db/repos';
 import { useI18n } from '@/i18n';
 import { formatKwacha } from '@/lib/format';
 import { labelHtml } from '@/lib/label';
-import { colors, spacing, typeScale } from '@/theme/tokens';
+import { colors, fonts, iconSize, spacing, themed, typeScale } from '@/theme/tokens';
 
 export default function ProductScreen() {
   const { t } = useI18n();
@@ -148,14 +163,14 @@ export default function ProductScreen() {
 
   return (
     <Screen title={product.name} subtitle={product.category}>
-      <Card>
-        <Row label={t('products.buyPrice')} value={formatKwacha(product.defaultBuyPrice)} />
-        <Row label={t('products.sellPrice')} value={formatKwacha(product.defaultSellPrice)} />
-        <Row
-          label={t('products.margin')}
+      <View style={styles.stats}>
+        <StatTile value={formatKwacha(product.defaultSellPrice)} label={t('products.sellPrice')} />
+        <StatTile
           value={formatKwacha(product.defaultSellPrice - product.defaultBuyPrice)}
+          label={t('products.margin')}
+          tone={product.defaultSellPrice - product.defaultBuyPrice < 0 ? 'danger' : 'success'}
         />
-      </Card>
+      </View>
 
       {product.variants.length > 1 ? (
         <>
@@ -185,7 +200,11 @@ export default function ProductScreen() {
                 {[selectedVariant.size, selectedVariant.colour].filter(Boolean).join(' · ') || 'Single'}
               </Text>
               <Pill
-                label={`${selectedVariant.quantity}`}
+                label={
+                  selectedVariant.quantity <= 0
+                    ? t('products.filter.out')
+                    : t('products.left', { count: selectedVariant.quantity })
+                }
                 tone={
                   selectedVariant.state === 'out'
                     ? 'danger'
@@ -201,6 +220,7 @@ export default function ProductScreen() {
                 {isValidEan13(selectedVariant.barcode) ? (
                   <Button
                     label={t('products.printLabel')}
+                    icon="print"
                     variant="secondary"
                     onPress={() => handlePrintLabel(selectedVariant.barcode!)}
                   />
@@ -213,6 +233,7 @@ export default function ProductScreen() {
                 <Row label="Barcode" value={t('products.noBarcodeYet')} />
                 <Button
                   label={t('products.generateBarcode')}
+                  icon="barcode"
                   variant="secondary"
                   disabled={submitting}
                   loading={submitting}
@@ -239,6 +260,7 @@ export default function ProductScreen() {
               value={buyPrice}
               onChangeText={setPriceDraft}
               keyboardType="decimal-pad"
+              prefix="K"
             />
             <Field
               label={t('products.restockNote')}
@@ -248,12 +270,13 @@ export default function ProductScreen() {
             />
             <Button
               label={t('products.restock')}
+              icon="add_box"
               disabled={submitting}
               loading={submitting}
               onPress={handleRestock}
             />
-            {message ? <Text style={styles.success}>{message}</Text> : null}
-            {submitError ? <Text style={styles.error}>{submitError}</Text> : null}
+            {message ? <Notice tone="success">{message}</Notice> : null}
+            {submitError ? <Notice tone="error">{submitError}</Notice> : null}
           </Card>
         </>
       ) : null}
@@ -264,11 +287,19 @@ export default function ProductScreen() {
           <EmptyState message={t('common.none')} />
         ) : (
           movements.map((movement) => (
-            <Row
-              key={movement.id}
-              label={`${t(`movement.${movement.reason}`)} · ${movement.createdAt.slice(0, 10)}`}
-              value={`${movement.quantityChange > 0 ? '+' : ''}${movement.quantityChange}`}
-            />
+            <View key={movement.id} style={styles.movement}>
+              <Icon
+                name={movement.quantityChange > 0 ? 'arrow_upward' : 'arrow_downward'}
+                size={iconSize.md}
+                color={movement.quantityChange > 0 ? colors.success : colors.textMuted}
+              />
+              <Text style={styles.movementLabel} numberOfLines={1}>
+                {`${t(`movement.${movement.reason}`)} · ${movement.createdAt.slice(0, 10)}`}
+              </Text>
+              <Text style={[styles.movementQty, movement.quantityChange > 0 && styles.movementIn]}>
+                {`${movement.quantityChange > 0 ? '+' : ''}${movement.quantityChange}`}
+              </Text>
+            </View>
           ))
         )}
       </Card>
@@ -276,11 +307,19 @@ export default function ProductScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.md },
   name: { fontSize: typeScale.body, fontWeight: '700', color: colors.text },
   muted: { fontSize: typeScale.label, color: colors.textMuted },
   choices: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  success: { fontSize: typeScale.label, color: colors.success, fontWeight: '600' },
-  error: { fontSize: typeScale.label, color: colors.danger, fontWeight: '600' },
-});
+  stats: { flexDirection: 'row', gap: spacing.sm },
+  movement: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 36 },
+  movementLabel: { flex: 1, fontSize: typeScale.body, color: colors.textMuted },
+  movementQty: {
+    fontFamily: fonts.display,
+    fontSize: typeScale.body,
+    color: colors.text,
+    fontVariant: ['tabular-nums'],
+  },
+  movementIn: { color: colors.success },
+}));

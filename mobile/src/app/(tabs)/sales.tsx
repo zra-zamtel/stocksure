@@ -1,23 +1,35 @@
 import { useAuth } from '@/auth/session';
+import type { AndroidSymbol } from 'expo-symbols';
 import { useRouter } from 'expo-router';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { Button, Card, EmptyState, ErrorState, Icon, LoadingList, Pill, Screen, SectionTitle } from '@/components/ui';
+import { StyleSheet, View } from 'react-native';
+import {
+  Button,
+  EmptyState,
+  ErrorState,
+  ListGroup,
+  ListRow,
+  LoadingList,
+  Pill,
+  Screen,
+  SectionTitle,
+  StatTile,
+  type Tone,
+} from '@/components/ui';
 import type { ReconcileStatus } from '@/core/types';
 import { useDayTotals, useSales } from '@/db/hooks';
 import { useI18n } from '@/i18n';
 import { formatKwacha } from '@/lib/format';
-import { colors, spacing, typeScale } from '@/theme/tokens';
+import { spacing } from '@/theme/tokens';
 
-const statusView: Record<ReconcileStatus, { key: string; tone: 'success' | 'warning' | 'neutral' }> = {
-  matched: { key: 'sales.state.matched', tone: 'success' },
-  sale_no_payment: { key: 'sales.state.saleNoPayment', tone: 'warning' },
-  payment_no_sale: { key: 'sales.state.paymentNoSale', tone: 'warning' },
-  unresolved: { key: 'sales.state.unresolved', tone: 'neutral' },
+const statusView: Record<ReconcileStatus, { key: string; tone: Tone; icon: AndroidSymbol }> = {
+  matched: { key: 'sales.state.matched', tone: 'success', icon: 'check_circle' },
+  sale_no_payment: { key: 'sales.state.saleNoPayment', tone: 'warning', icon: 'schedule' },
+  payment_no_sale: { key: 'sales.state.paymentNoSale', tone: 'warning', icon: 'help' },
+  unresolved: { key: 'sales.state.unresolved', tone: 'neutral', icon: 'receipt_long' },
 };
 
-// One card per sale: time, amount, who, and whether the money was found. The
-// whole card opens the sale, so there is no extra button per row. Cost and
-// discount breakdowns live on the sale itself.
+// One row per sale: amount, time and who, and whether the money was found.
+// The whole row opens the sale; cost and discount breakdowns live there.
 export default function SalesScreen() {
   const { t } = useI18n();
   const router = useRouter();
@@ -62,59 +74,39 @@ export default function SalesScreen() {
     <Screen
       title={t('sales.title')}
       subtitle={t('common.today')}
-      footer={canRecord ? <Button label={t('sales.new')} onPress={recordSale} /> : undefined}
+      footer={canRecord ? <Button label={t('sales.new')} icon="add" onPress={recordSale} /> : undefined}
     >
-      <Card>
-        <Text style={styles.heroLabel}>{t('sales.total')}</Text>
-        <Text style={styles.heroValue}>{formatKwacha(totals.salesTotal)}</Text>
-      </Card>
+      <View style={styles.stats}>
+        <StatTile value={formatKwacha(totals.salesTotal)} label={t('sales.total')} icon="payments" />
+        <StatTile value={totals.saleCount} label={t('home.today.count')} icon="receipt_long" />
+      </View>
 
       <SectionTitle>{t('sales.items')}</SectionTitle>
 
-      {sales.map((sale) => {
-        const status = statusView[sale.reconcileStatus as ReconcileStatus] ?? statusView.unresolved;
-        return (
-          <Pressable
-            key={sale.id}
-            accessibilityRole="button"
-            accessibilityLabel={`${sale.createdAt.slice(11, 16)}, ${formatKwacha(sale.total)}, ${t(status.key)}`}
-            onPress={() => router.push(`/sale/${sale.id}`)}
-            style={({ pressed }) => pressed && styles.pressed}
-          >
-            <Card>
-              <View style={styles.row}>
-                <Text style={styles.amount}>{formatKwacha(sale.total)}</Text>
-                <Icon name="chevron_right" color={colors.textMuted} />
-              </View>
-              <Text style={styles.muted}>
-                {sale.createdAt.slice(11, 16)} · {sale.recordedByName}
-              </Text>
-              <View style={styles.pills}>
-                {sale.status === 'void' ? (
-                  <Pill label={t('sales.voided')} tone="danger" />
-                ) : (
-                  <Pill label={t(status.key)} tone={status.tone} />
-                )}
-              </View>
-            </Card>
-          </Pressable>
-        );
-      })}
+      <ListGroup>
+        {sales.map((sale, index) => {
+          const voided = sale.status === 'void';
+          const status = statusView[sale.reconcileStatus as ReconcileStatus] ?? statusView.unresolved;
+          const when = sale.createdAt.slice(11, 16);
+          return (
+            <ListRow
+              key={sale.id}
+              last={index === sales.length - 1}
+              icon={voided ? 'block' : status.icon}
+              iconTone={voided ? 'danger' : status.tone}
+              title={formatKwacha(sale.total)}
+              meta={`${when} · ${sale.recordedByName}`}
+              right={<Pill label={voided ? t('sales.voided') : t(status.key)} tone={voided ? 'danger' : status.tone} />}
+              accessibilityLabel={`${when}, ${formatKwacha(sale.total)}, ${voided ? t('sales.voided') : t(status.key)}`}
+              onPress={() => router.push(`/sale/${sale.id}`)}
+            />
+          );
+        })}
+      </ListGroup>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  heroLabel: { fontSize: typeScale.body, color: colors.textMuted, fontWeight: '600' },
-  heroValue: {
-    fontSize: typeScale.display,
-    fontWeight: '700',
-    color: colors.text,
-    fontVariant: ['tabular-nums'],
-  },
-  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.md },
-  amount: { fontSize: typeScale.heading, fontWeight: '700', color: colors.text, fontVariant: ['tabular-nums'] },
-  muted: { fontSize: typeScale.body, color: colors.textMuted },
-  pills: { flexDirection: 'row', gap: spacing.sm },
-  pressed: { opacity: 0.6 },
+  stats: { flexDirection: 'row', gap: spacing.sm },
 });

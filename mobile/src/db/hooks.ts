@@ -1,6 +1,6 @@
 import { useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { buildInsights, localDayBounds, previousPeriodDays, type InsightPeriod, type Insights } from '@/core';
 import { todayLocal } from '@/core';
 import {
@@ -32,6 +32,19 @@ import {
   type SmartInvoiceReceipt,
 } from './repos';
 
+// A little longer than the 220ms tab transition in (tabs)/_layout.tsx.
+const REFRESH_DELAY_MS = 260;
+
+/** Cheap structural equality for the small rows these hooks return. */
+function sameData(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  try {
+    return JSON.stringify(a) === JSON.stringify(b);
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Screen-level read hooks. They refresh on focus, so recording a sale on one
  * screen updates Home and Sales when you navigate back, without a global store.
@@ -47,6 +60,8 @@ function useQuery<T>(
   // True once the first read has finished, so a refresh on refocus keeps the
   // old content on screen instead of flashing the loading placeholders again.
   const [loaded, setLoaded] = useState(false);
+  // Mirrors `loaded` for the focus effect, which must not re-run when it flips.
+  const loadedRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
   // A literal dependency list keeps the lint rule happy; the key encodes the
@@ -56,25 +71,40 @@ function useQuery<T>(
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
-      setLoading(true);
-      run(db)
-        .then((result) => {
-          if (!cancelled) {
-            setData(result);
+      const read = () => {
+        run(db)
+          .then((result) => {
+            if (cancelled) return;
+            // Skip the re-render when a refresh brings back the same rows, which
+            // is the usual case when you just flip between tabs.
+            setData((current) => (sameData(current, result) ? current : result));
             setError(null);
-          }
-        })
-        .catch((cause: unknown) => {
-          if (!cancelled) setError(cause instanceof Error ? cause.message : 'Could not read the database');
-        })
-        .finally(() => {
-          if (!cancelled) {
-            setLoading(false);
-            setLoaded(true);
-          }
-        });
+          })
+          .catch((cause: unknown) => {
+            if (!cancelled) setError(cause instanceof Error ? cause.message : 'Could not read the database');
+          })
+          .finally(() => {
+            if (!cancelled) {
+              loadedRef.current = true;
+              setLoading(false);
+              setLoaded(true);
+            }
+          });
+      };
+      // The first read runs at once so the screen fills on its first paint. A
+      // refresh on coming back waits until the tab transition has finished, so
+      // the database read and re-render never land in the middle of the slide.
+      if (!loadedRef.current) {
+        setLoading(true);
+        read();
+        return () => {
+          cancelled = true;
+        };
+      }
+      const timer = setTimeout(read, REFRESH_DELAY_MS);
       return () => {
         cancelled = true;
+        clearTimeout(timer);
       };
       // `run` is a fresh closure each render; tick and depKey are the reload keys.
       // eslint-disable-next-line react-hooks/exhaustive-deps
