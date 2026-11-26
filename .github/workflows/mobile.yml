@@ -60,6 +60,9 @@ jobs:
       # the developer address 10.0.2.2, which only works in an emulator.
       # Override with a repository variable named MOBILE_API_URL.
       EXPO_PUBLIC_API_URL: ${{ vars.MOBILE_API_URL || 'https://xrj6hnz51i.execute-api.eu-north-1.amazonaws.com' }}
+      # Sample-data tools (Reconcile > "Add sample messages") stay out of the build
+      # unless the repository variable MOBILE_DEMO_TOOLS is set to 1.
+      EXPO_PUBLIC_DEMO_TOOLS: ${{ vars.MOBILE_DEMO_TOOLS || '' }}
       # Newer than the last build, so the APK installs over the previous one.
       APP_VERSION_CODE: ${{ github.run_number }}
     steps:

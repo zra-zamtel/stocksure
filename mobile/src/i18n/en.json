@@ -772,5 +772,19 @@
   "shop.restore.offline": "No internet right now. Connect and try again. Nothing is lost: your shop is safe on the server.",
   "shop.restore.failed": "We couldn't get your shop just now. Try again in a moment.",
   "shop.restore.retry": "Try again",
-  "shop.restore.note": "If this is a new account, there is nothing to restore yet and setup starts next."
+  "shop.restore.note": "If this is a new account, there is nothing to restore yet and setup starts next.",
+
+  "auth.signIn.pinLocked": "Too many wrong PINs. Try again in {time}.",
+  "auth.signIn.wait.seconds": "{count} seconds",
+  "auth.signIn.wait.minutes": "{count} minutes",
+  "auth.signIn.onlineRequired": "Too many wrong PINs. To keep your shop safe, sign in with your email and password to unlock this phone.",
+  "price.error.empty": "{field} is required.",
+  "price.error.malformed": "{field} must be a number like 150 or 150.50.",
+  "price.error.negative": "{field} cannot be negative.",
+  "price.error.zero": "{field} must be more than K0.",
+  "price.error.decimals": "{field} can have at most 2 decimal places.",
+  "price.error.tooLarge": "{field} is too large.",
+  "price.belowCost": "The sell price is below the buy price: you lose {loss} on every item sold.",
+  "sale.new.onlyLeft": "Only {count} left of {item}. You can't sell more than the stock on hand.",
+  "sale.new.overStock": "Only {count} in stock. Selling more needs your approval."
 }

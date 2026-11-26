@@ -47,6 +47,13 @@ To test a branch before it is merged: open a pull request and add the
 `build-apk` label, or run the workflow manually on that branch, then download
 the APK from the run's **Artifacts** section (kept for 30 days).
 
+## Demo builds
+
+Normal builds contain no sample data tools. For a demo build that has the
+Reconcile "Add sample messages (demo)" link, set the repository variable
+`MOBILE_DEMO_TOOLS` to `1` (same place as `MOBILE_API_URL`) and build again;
+remove the variable for normal builds.
+
 ## Which backend the app talks to
 
 The API address is built into the APK. It defaults to the deployed API in

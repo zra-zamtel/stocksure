@@ -1,30 +1,69 @@
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useAuth } from '@/auth/session';
 import { Avatar, displayName, Hint, Notice, OptionRow, PinBoxes, SectionDivider } from '@/components/auth';
 import { Logo, SetupStep } from '@/components/onboarding';
 import { Button, TextLink } from '@/components/ui';
 import { useI18n } from '@/i18n';
+import { waitLabelParts, type GuardStatus } from '@/lib/pin-guard';
 import { spacing } from '@/theme/tokens';
 
 export default function SignInScreen() {
   const { t } = useI18n();
   const router = useRouter();
-  const { ownerPreview, signIn, onboardingComplete, hasOwner, shopRestorePending } = useAuth();
+  const { ownerPreview, signIn, pinLock, onboardingComplete, hasOwner, shopRestorePending } = useAuth();
   const [pin, setPin] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [shakeKey, setShakeKey] = useState(0);
   const [submitting, setSubmitting] = useState(false);
+  // Too many wrong PINs lock the PIN for a while, and finally until the owner
+  // signs in with email. The countdown below is for display only; every
+  // attempt is checked again against the phone's own clock.
+  const [lockEndsAt, setLockEndsAt] = useState<number | null>(null);
+  const [onlineRequired, setOnlineRequired] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+
+  const applyLock = useCallback((status: GuardStatus) => {
+    setOnlineRequired(status.requiresOnline);
+    const current = Date.now();
+    setNow(current);
+    setLockEndsAt(status.remainingMs > 0 ? current + status.remainingMs : null);
+  }, []);
+
+  // A lock survives closing the app, so check it when the screen opens.
+  useEffect(() => {
+    void pinLock().then(applyLock);
+  }, [pinLock, applyLock]);
+
+  useEffect(() => {
+    if (lockEndsAt === null) return;
+    const timer = setInterval(() => {
+      const current = Date.now();
+      setNow(current);
+      if (current >= lockEndsAt) setLockEndsAt(null);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [lockEndsAt]);
+
+  const waitMs = lockEndsAt === null ? 0 : Math.max(0, lockEndsAt - now);
+  const locked = onlineRequired || waitMs > 0;
+  const wait = waitLabelParts(waitMs);
 
   async function handleSignIn() {
-    if (submitting || pin.length < 4) return;
+    if (submitting || locked || pin.length < 4) return;
     setError(null);
     setSubmitting(true);
     try {
       const result = await signIn(pin);
       if (result === 'wrong-pin') {
         setError(t('auth.signIn.wrongPin'));
+        setShakeKey((key) => key + 1);
+        setPin('');
+        return;
+      }
+      if (result === 'pin-locked' || result === 'online-required') {
+        applyLock(await pinLock());
         setShakeKey((key) => key + 1);
         setPin('');
         return;
@@ -70,7 +109,7 @@ export default function SignInScreen() {
       footer={
         <Button
           label={t('auth.signIn.action')}
-          disabled={pin.length < 4 || submitting}
+          disabled={pin.length < 4 || submitting || locked}
           onPress={() => void handleSignIn()}
         />
       }
@@ -83,9 +122,10 @@ export default function SignInScreen() {
             setPin(value);
             if (error) setError(null);
           }}
-          invalid={Boolean(error) && pin.length === 0}
+          invalid={(Boolean(error) || locked) && pin.length === 0}
           shakeKey={shakeKey}
           onSubmit={() => void handleSignIn()}
+          disabled={locked}
           autoFocus
         />
         {hasOwner ? (
@@ -95,6 +135,13 @@ export default function SignInScreen() {
         ) : null}
       </View>
 
+      {onlineRequired ? (
+        <Notice tone="warning">{t('auth.signIn.onlineRequired')}</Notice>
+      ) : waitMs > 0 ? (
+        <Notice tone="warning">
+          {t('auth.signIn.pinLocked', { time: t(`auth.signIn.wait.${wait.unit}`, { count: wait.count }) })}
+        </Notice>
+      ) : null}
       {error ? <Notice tone="error">{error}</Notice> : null}
       {hasOwner && !onboardingComplete && !shopRestorePending ? (
         <Notice tone="info">{t('auth.signIn.setupContinues')}</Notice>
