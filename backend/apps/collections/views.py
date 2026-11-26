@@ -13,7 +13,7 @@ from rest_framework.views import APIView
 from apps.core.shop_scope import ShopScopedMixin
 
 from .models import PaymentRequest
-from .providers import get_provider
+from .providers import ProviderError, ProviderStatus, get_provider
 from .serializers import PaymentRequestCreateSerializer, PaymentRequestSerializer
 
 logger = logging.getLogger(__name__)
@@ -30,10 +30,16 @@ def refresh(payment: PaymentRequest) -> PaymentRequest:
         if payment.is_final:
             return payment
         now = timezone.now()
-        result = get_provider().check(payment)
+        try:
+            result = get_provider().check(payment)
+        except Exception as exc:  # noqa: BLE001 - a blip or 429 while polling must not fail the sale
+            logger.warning("Request to pay %s status check failed: %s", payment.id, exc)
+            # Still pending, so the timeout below still applies.
+            result = ProviderStatus("pending")
         if result.status == "successful":
             payment.status = PaymentRequest.Status.SUCCESSFUL
-            payment.provider_reference = result.reference
+            # Keep the handle from start() if the provider sends no reference.
+            payment.provider_reference = result.reference or payment.provider_reference
             payment.completed_at = now
         elif result.status == "failed":
             payment.status = PaymentRequest.Status.FAILED
@@ -83,9 +89,17 @@ class RequestToPayView(ShopScopedMixin, APIView):
         except Exception as exc:  # noqa: BLE001 - report the provider failure to the counter
             logger.warning("Request to pay %s could not start: %s", payment.id, exc)
             payment.status = PaymentRequest.Status.FAILED
-            payment.reason = "The payment service could not be reached. Try again."
+            payment.reason = (
+                str(exc)[:200]
+                if isinstance(exc, ProviderError)
+                else "The payment service could not be reached. Try again."
+            )
             payment.completed_at = timezone.now()
             payment.save()
+        else:
+            # A provider may have noted its own handle for the request.
+            if payment.provider_reference:
+                payment.save(update_fields=["provider_reference", "updated_at"])
         return Response(PaymentRequestSerializer(payment).data, status=status.HTTP_201_CREATED)
 
 
