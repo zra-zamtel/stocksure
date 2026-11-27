@@ -1,15 +1,18 @@
 import { useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '@/auth/session';
-import { SETUP_STEPS, SetupStep } from '@/components/onboarding';
-import { Button, Card, FormError, HelpTip, SkeletonCard } from '@/components/ui';
+import { BigTile, ProductTile } from '@/components/big-ui';
+import { SETUP_STEPS, SetupStep, StepSection } from '@/components/onboarding';
+import { Button, FormError, SkeletonCard, TextLink } from '@/components/ui';
 import { taxRules } from '@/data/fake';
 import { useProducts, useShop } from '@/db/hooks';
 import { completeOnboarding, ensureTaxPeriod } from '@/db/repos';
 import { useI18n } from '@/i18n';
-import { colors, spacing, themed, typeScale } from '@/theme/tokens';
+import { colors, spacing, themed, touch, typeScale } from '@/theme/tokens';
+
+const TILE_SIZE = touch.big + spacing.lg;
 
 export default function FirstProductsScreen() {
   const { t } = useI18n();
@@ -23,6 +26,7 @@ export default function FirstProductsScreen() {
 
   const count = products.length;
   const usesBarcodes = shop?.usesBarcodes ?? false;
+  const countLine = t(count === 1 ? 'onboarding.products.addedOne' : 'onboarding.products.added', { count });
 
   async function finish() {
     if (saving) return;
@@ -56,35 +60,57 @@ export default function FirstProductsScreen() {
         count > 0 ? (
           <Button label={t('onboarding.products.finish')} disabled={saving} loading={saving} onPress={finish} />
         ) : (
-          <Button label={t('onboarding.products.addNow')} onPress={addProduct} />
+          <TextLink label={t('onboarding.products.later')} onPress={finish} />
         )
       }
     >
-      {count > 0 ? (
-        <Card>
-          <Text style={styles.count}>
-            {t(count === 1 ? 'onboarding.products.addedOne' : 'onboarding.products.added', { count })}
-          </Text>
-        </Card>
-      ) : null}
-      {initialLoading ? <SkeletonCard lines={1} /> : null}
-      {!initialLoading && count === 0 ? <HelpTip>{t('onboarding.products.tip')}</HelpTip> : null}
-
-      <View style={styles.actions}>
-        {count > 0 ? (
-          <Button label={t('onboarding.products.addAnother')} variant="secondary" onPress={addProduct} />
-        ) : null}
+      <StepSection>{t('onboarding.products.ask')}</StepSection>
+      <View style={styles.tiles}>
+        <BigTile
+          icon="add_a_photo"
+          label={t('onboarding.products.addNow')}
+          tone="primary"
+          onPress={addProduct}
+        />
         {usesBarcodes ? (
-          <Button
+          <BigTile
+            icon="barcode_scanner"
             label={t('onboarding.products.scan')}
-            variant="secondary"
             onPress={() => router.push({ pathname: '/scan', params: { from: 'onboarding' } })}
           />
         ) : null}
-        {count === 0 ? (
-          <Button label={t('onboarding.products.later')} variant="secondary" disabled={saving} loading={saving} onPress={finish} />
-        ) : null}
       </View>
+
+      {initialLoading ? <SkeletonCard lines={1} /> : null}
+
+      {count > 0 ? (
+        <>
+          <StepSection>{t('onboarding.products.yours')}</StepSection>
+          <Text style={styles.count}>{countLine}</Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            accessible
+            accessibilityLabel={countLine}
+            contentContainerStyle={styles.strip}
+          >
+            {products.map((p) => (
+              <View key={p.id} style={styles.item}>
+                <ProductTile
+                  id={p.id}
+                  name={p.name}
+                  category={p.category}
+                  photoUri={p.photoUri}
+                  size={TILE_SIZE}
+                />
+                <Text style={styles.name} numberOfLines={2}>
+                  {p.name}
+                </Text>
+              </View>
+            ))}
+          </ScrollView>
+        </>
+      ) : null}
 
       {error ? <FormError message={error} /> : null}
     </SetupStep>
@@ -92,6 +118,9 @@ export default function FirstProductsScreen() {
 }
 
 const styles = themed(() => StyleSheet.create({
+  tiles: { flexDirection: 'row', gap: spacing.md },
   count: { fontSize: typeScale.body, fontWeight: '700', color: colors.text },
-  actions: { gap: spacing.md, marginTop: spacing.md },
+  strip: { gap: spacing.md },
+  item: { width: TILE_SIZE, gap: spacing.xs },
+  name: { fontSize: typeScale.caption, color: colors.text },
 }));
