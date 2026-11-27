@@ -1080,5 +1080,22 @@
   "money.cash.balanced": "Balanced",
   "money.cash.over": "Over {amount}",
   "money.cash.short": "Short {amount}",
-  "money.cash.save": "Save count"
+  "money.cash.save": "Save count",
+
+  "tax.ask": "How much tax to put aside?",
+  "tax.owe": "You may owe",
+  "tax.by": "by {date}",
+  "tax.noDate": "No due date yet",
+  "tax.estimateNote": "An estimate, not a tax return.",
+  "tax.putAside": "Put money aside",
+  "tax.how": "How we got this",
+  "tax.jar.label": "{saved} set aside of {owed}",
+  "tax.jar.of": "set aside of {owed}",
+  "tax.jar.covered": "Covered",
+  "tax.jar.short": "Short {amount}",
+  "tax.jar.over": "{amount} extra",
+  "tax.pot.putAsideAmount": "Put aside {amount}",
+  "tax.pot.confirmPayTitle": "Record ZRA payment?",
+  "tax.pot.confirmPayBody": "Only do this after you have paid ZRA. It empties the pot ({amount}).",
+  "tax.pot.confirmPay": "Record payment"
 }
