@@ -23,6 +23,7 @@ import { useReconciliation } from '@/db/hooks';
 import { DEMO_TOOLS } from '@/lib/demo';
 import { ignorePayment, injectDemoMessages, markSalePaid, saveCashCount, voidSale } from '@/db/repos';
 import { useI18n } from '@/i18n';
+import { useFlash } from '@/lib/use-flash';
 import { formatKwacha, formatTime } from '@/lib/format';
 import { markVisited } from '@/lib/getting-started';
 import { colors, elevation, fonts, iconSize, radii, spacing, themed, touch, typeScale } from '@/theme/tokens';
@@ -51,7 +52,8 @@ export default function ReconcileScreen() {
 
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
+  // "Done" notices fade on their own; errors stay until dealt with.
+  const [message, setMessage] = useFlash();
   const [countedDraft, setCountedDraft] = useState<string | null>(null);
   const [noteDraft, setNoteDraft] = useState<string | null>(null);
   const [cashHint, setCashHint] = useState<string | null>(null);

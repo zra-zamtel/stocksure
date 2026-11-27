@@ -37,6 +37,7 @@ import {
 import { useMovements, useProducts, useShop } from '@/db/hooks';
 import { restockVariant, setProductPhoto, setVariantBarcode, type MovementRow } from '@/db/repos';
 import { useI18n } from '@/i18n';
+import { useFlash } from '@/lib/use-flash';
 import { formatDay, formatKwacha, formatTime, localDayKey } from '@/lib/format';
 import { labelHtml } from '@/lib/label';
 import { discardPhoto, takeProductPhoto } from '@/lib/photos';
@@ -81,7 +82,8 @@ export default function ProductScreen() {
   // A new delivery can carry its own expiry and batch; empty keeps the current ones.
   const [restockExpiry, setRestockExpiry] = useState('');
   const [restockBatch, setRestockBatch] = useState('');
-  const [message, setMessage] = useState<string | null>(null);
+  // "Done" notices fade on their own; errors stay until dealt with.
+  const [message, setMessage] = useFlash();
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   // Which photo button is working, so only that one shows its spinner.
