@@ -1,21 +1,30 @@
 import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { useCallback, useState } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Notice } from '@/components/auth';
 import { SmartInvoicePanel } from '@/components/smart-invoice-panel';
-import { Button, Card, HelpTip, LoadingList, Pill, Row, Screen, SectionTitle } from '@/components/ui';
+import { TaxJar } from '@/components/tax-jar';
+import { Button, Card, HelpTip, Icon, LoadingList, Row, Screen } from '@/components/ui';
 import { estimateTurnoverTax, potStatus } from '@/core';
 import { useTaxSnapshot } from '@/db/hooks';
 import { taxRules } from '@/data/fake';
 import { useI18n } from '@/i18n';
-import { formatKwacha } from '@/lib/format';
+import { formatDay, formatKwacha } from '@/lib/format';
 import { markVisited } from '@/lib/getting-started';
-import { colors, spacing, typeScale } from '@/theme/tokens';
+import { colors, elevation, fonts, iconSize, radii, spacing, themed, touch, typeScale } from '@/theme/tokens';
 
+/**
+ * Tax in one sentence: how much you may owe and by when, a jar that shows how
+ * much is already set aside, and one button to put more aside. How the
+ * estimate was worked out (turnover, rate, Smart Invoice) waits behind
+ * "How we got this". The numbers are the same estimate as before.
+ */
 export default function TaxScreen() {
   const { t } = useI18n();
   const router = useRouter();
   const { data: snapshot, initialLoading } = useTaxSnapshot();
-  // Opening this tab ticks "See your tax estimate" on the Home start list.
+  const [howOpen, setHowOpen] = useState(false);
+  // Opening this tab ticks "See your tax estimate" on the start list.
   useFocusEffect(useCallback(() => markVisited('tax'), []));
   const estimate = estimateTurnoverTax(snapshot.turnover, taxRules, snapshot.yearToDate);
   const pot = potStatus(estimate.estimatedTax, snapshot.potBalance);
@@ -32,71 +41,106 @@ export default function TaxScreen() {
   return (
     <Screen
       title={t('tax.title')}
-      subtitle={period ? `${period.startsOn} – ${period.endsOn}` : undefined}
+      subtitle={period ? `${formatDay(period.startsOn)} – ${formatDay(period.endsOn)}` : undefined}
+      footer={<Button label={t('tax.putAside')} icon="savings" onPress={() => router.push('/tax/pot')} />}
     >
       {estimate.turnover === 0 ? <HelpTip icon="info">{t('tax.empty.tip')}</HelpTip> : null}
 
-      <Card>
-        <Row label={t('tax.turnover')} value={formatKwacha(estimate.turnover)} />
-        <Row label={t('tax.rate')} value={`${(estimate.rate * 100).toFixed(1)}%`} />
-        <Row label={t('tax.estimate')} value={formatKwacha(estimate.estimatedTax)} emphasis />
-        <Row label={t('tax.due')} value={period?.dueOn ?? t('common.notYet')} />
-        {estimate.incomeTax ? (
-          <Text style={styles.disclaimer}>
-            {t('tax.incomeTax', { amount: formatKwacha(estimate.threshold) })}
+      <View
+        style={styles.hero}
+        accessible
+        accessibilityLabel={`${t('tax.owe')} ${formatKwacha(estimate.estimatedTax)}, ${
+          period?.dueOn ? t('tax.by', { date: formatDay(period.dueOn) }) : t('tax.noDate')
+        }. ${t('tax.estimateNote')}`}
+      >
+        <View style={styles.heroTop}>
+          <Icon name="account_balance" size={iconSize.lg} color={colors.onInkMuted} />
+          <Text style={styles.heroLabel}>{t('tax.owe')}</Text>
+        </View>
+        <Text style={styles.heroValue} numberOfLines={1} adjustsFontSizeToFit>
+          {formatKwacha(estimate.estimatedTax)}
+        </Text>
+        <View style={styles.heroStat}>
+          <Icon name="calendar_month" size={iconSize.md} color={colors.onInkMuted} />
+          <Text style={styles.heroMeta}>
+            {period?.dueOn ? t('tax.by', { date: formatDay(period.dueOn) }) : t('tax.noDate')}
           </Text>
-        ) : null}
-        <Text style={styles.disclaimer}>{t('tax.warning')}</Text>
+        </View>
+        <Text style={styles.heroNote}>{t('tax.estimateNote')}</Text>
+      </View>
+
+      <Card>
+        <TaxJar saved={snapshot.potBalance} owed={estimate.estimatedTax} state={pot.state} />
       </Card>
 
       {snapshot.unresolvedSales > 0 ? (
-        <Card style={styles.warningCard}>
-          <View style={styles.warningRow}>
-            <Pill label="!" tone="warning" />
-            <Text style={styles.warningText}>
-              {t('tax.unreconciled')} ({snapshot.unresolvedSales})
-            </Text>
-          </View>
-        </Card>
+        <Notice tone="warning">
+          {t('tax.unreconciled')} ({snapshot.unresolvedSales})
+        </Notice>
       ) : null}
 
-      <SectionTitle>{t('tax.pot.title')}</SectionTitle>
-      <Card>
-        <Row label={t('tax.pot.balance')} value={formatKwacha(snapshot.potBalance)} emphasis />
-        <Row
-          label={
-            pot.state === 'short'
-              ? t('tax.pot.short')
-              : pot.state === 'over'
-                ? t('tax.pot.over')
-                : t('tax.pot.covered')
-          }
-          value={formatKwacha(Math.abs(pot.difference))}
-        />
-        <Pill
-          label={
-            pot.state === 'short'
-              ? t('tax.pot.short')
-              : pot.state === 'over'
-                ? t('tax.pot.over')
-                : t('tax.pot.covered')
-          }
-          tone={pot.state === 'short' ? 'warning' : pot.state === 'over' ? 'info' : 'success'}
-        />
-        <Button label={t('tax.pot.topUp')} variant="secondary" onPress={() => router.push('/tax/pot')} />
-        <Button label={t('tax.pot.payZra')} onPress={() => router.push('/tax/pot')} />
-        <Text style={styles.disclaimer}>{t('tax.pot.simulated')}</Text>
-      </Card>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={t('tax.how')}
+        accessibilityState={{ expanded: howOpen }}
+        onPress={() => setHowOpen((open) => !open)}
+        android_ripple={{ color: colors.ripple }}
+        style={styles.howToggle}
+      >
+        <Icon name="help" size={iconSize.lg} color={colors.primaryInk} />
+        <Text style={styles.howText}>{t('tax.how')}</Text>
+        <Icon name={howOpen ? 'expand_less' : 'expand_more'} size={iconSize.lg} color={colors.primaryInk} />
+      </Pressable>
 
-      <SectionTitle>{t('si.title')}</SectionTitle>
-      <SmartInvoicePanel compact />
+      {howOpen ? (
+        <>
+          <Card>
+            <Row label={t('tax.turnover')} value={formatKwacha(estimate.turnover)} />
+            <Row label={t('tax.rate')} value={`${(estimate.rate * 100).toFixed(1)}%`} />
+            {estimate.incomeTax ? (
+              <Text style={styles.caption}>{t('tax.incomeTax', { amount: formatKwacha(estimate.threshold) })}</Text>
+            ) : null}
+            <Text style={styles.caption}>{t('tax.warning')}</Text>
+          </Card>
+          <SmartInvoicePanel compact />
+        </>
+      ) : null}
     </Screen>
   );
 }
 
-const styles = StyleSheet.create({
-  disclaimer: { fontSize: typeScale.caption, color: colors.textMuted, marginTop: spacing.xs },
-  warningCard: { backgroundColor: colors.warningSoft },
-  warningRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  warningText: { flex: 1, fontSize: typeScale.label, color: colors.warning, fontWeight: '600' },
-});
+const styles = themed(() => StyleSheet.create({
+  hero: {
+    backgroundColor: colors.ink,
+    borderRadius: radii.xl,
+    padding: spacing.xl,
+    gap: spacing.sm,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.inkLine,
+    ...elevation.raised,
+  },
+  heroTop: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  heroLabel: { flex: 1, fontFamily: fonts.display, fontSize: typeScale.heading, color: colors.onInkMuted },
+  heroValue: {
+    fontFamily: fonts.display,
+    fontSize: typeScale.money,
+    lineHeight: typeScale.money + 8,
+    letterSpacing: -1,
+    color: colors.onInk,
+    fontVariant: ['tabular-nums'],
+  },
+  heroStat: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  heroMeta: { fontSize: typeScale.body, color: colors.onInk, fontWeight: '600' },
+  heroNote: { fontSize: typeScale.caption, color: colors.onInkMuted },
+  howToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    minHeight: touch.big,
+    paddingHorizontal: spacing.xs,
+    borderRadius: radii.md,
+    overflow: 'hidden',
+  },
+  howText: { flex: 1, fontSize: typeScale.body, fontWeight: '700', color: colors.primaryInk },
+  caption: { fontSize: typeScale.caption, color: colors.textMuted, marginTop: spacing.xs },
+}));

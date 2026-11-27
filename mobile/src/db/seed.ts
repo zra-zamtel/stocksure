@@ -38,12 +38,13 @@ export async function seedDemoShop(db: SQLiteDatabase): Promise<void> {
 
   await db.withTransactionAsync(async () => {
     await db.runAsync(
-      `INSERT INTO shop (id, name, type, town, currency, language, uses_barcodes, low_stock_default,
+      `INSERT INTO shop (id, name, type, profile_id, town, currency, language, uses_barcodes, low_stock_default,
          turnover_tax_registered, tpin, providers_json, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       shop.id,
       shop.name,
       shop.type,
+      shop.profileId,
       shop.town,
       shop.currency,
       shop.language,
@@ -59,8 +60,8 @@ export async function seedDemoShop(db: SQLiteDatabase): Promise<void> {
     for (const product of products) {
       await db.runAsync(
         `INSERT INTO product (id, name, category, photo_uri, default_buy_price, default_sell_price,
-           discount_json, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           discount_json, unit, sale_warning, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         product.id,
         product.name,
         product.category ?? null,
@@ -68,6 +69,8 @@ export async function seedDemoShop(db: SQLiteDatabase): Promise<void> {
         product.defaultBuyPrice,
         product.defaultSellPrice,
         product.discount ? JSON.stringify(product.discount) : null,
+        product.unit,
+        product.saleWarning ?? null,
         product.createdAt,
         product.updatedAt
       );
@@ -75,8 +78,8 @@ export async function seedDemoShop(db: SQLiteDatabase): Promise<void> {
       for (const variant of product.variants) {
         await db.runAsync(
           `INSERT INTO product_variant (id, product_id, size, colour, barcode, buy_price, sell_price,
-             low_stock_level, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             low_stock_level, expiry_date, batch_no, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           variant.id,
           variant.productId,
           variant.size ?? null,
@@ -85,6 +88,8 @@ export async function seedDemoShop(db: SQLiteDatabase): Promise<void> {
           variant.buyPrice,
           variant.sellPrice,
           variant.lowStockLevel,
+          variant.expiryDate ?? null,
+          variant.batchNo ?? null,
           variant.createdAt,
           variant.updatedAt
         );

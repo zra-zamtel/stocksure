@@ -13,6 +13,15 @@ export type StockReason = 'opening' | 'restock' | 'sale' | 'void' | 'correction'
 export type SaleStatus = 'active' | 'void';
 export type ReconcileStatus = 'matched' | 'sale_no_payment' | 'payment_no_sale' | 'unresolved';
 export type ShopType = 'clothes' | 'shoes' | 'general' | 'other';
+/** The trade the shop is in. Drives catalogue labels and defaults; `ShopType` stays as the legacy sync/USSD field. */
+export type ProfileId =
+  | 'fashion'
+  | 'salaula'
+  | 'health_beauty'
+  | 'bar'
+  | 'grocery'
+  | 'electronics'
+  | 'general';
 export type DiscountType = 'percent' | 'fixed';
 export type StockState = 'out' | 'low' | 'ok';
 
@@ -37,7 +46,9 @@ export interface Staff extends BaseRecord {
 
 export interface Shop extends BaseRecord {
   name: string;
+  /** Legacy mirror of the profile, kept for sync and USSD. */
   type: ShopType;
+  profileId: ProfileId;
   town: string;
   currency: 'ZMW';
   language: 'en' | 'ny';
@@ -46,6 +57,11 @@ export interface Shop extends BaseRecord {
   turnoverTaxRegistered: boolean;
   tpin?: string;
   providers: Provider[];
+}
+
+export interface VariantAttribute {
+  key: string;
+  value: string;
 }
 
 export interface ProductDiscount {
@@ -58,12 +74,19 @@ export interface ProductDiscount {
 
 export interface ProductVariant extends BaseRecord {
   productId: Id;
+  /** The profile's axis values, e.g. [{ key: 'pack', value: 'Crate' }]. Optional so old fixtures compile; repos always fill it. */
+  attributes?: VariantAttribute[];
+  /** Legacy mirror of attributes[0]; old payloads, USSD and the backend read it. */
   size?: string;
+  /** Legacy mirror of attributes[1]. */
   colour?: string;
   barcode?: string;
   buyPrice: Ngwee;
   sellPrice: Ngwee;
   lowStockLevel: number;
+  /** YYYY-MM-DD; only trades with the expiry module set it. */
+  expiryDate?: string;
+  batchNo?: string;
 }
 
 export interface Product extends BaseRecord {
@@ -73,6 +96,10 @@ export interface Product extends BaseRecord {
   defaultBuyPrice: Ngwee;
   defaultSellPrice: Ngwee;
   discount?: ProductDiscount;
+  /** How it is counted and sold: 'piece', 'bottle', 'strip', 'kg'... */
+  unit: string;
+  /** Shown before the sale is recorded, e.g. 'Rx only' or '18+'. */
+  saleWarning?: string;
   variants: ProductVariant[];
 }
 

@@ -6,7 +6,7 @@ import { Notice } from '@/components/auth';
 import { Button, Card, Screen } from '@/components/ui';
 import { useI18n } from '@/i18n';
 import { ApiError } from '@/lib/api';
-import { colors, spacing, typeScale } from '@/theme/tokens';
+import { colors, spacing, themed, typeScale } from '@/theme/tokens';
 
 /**
  * An owner on a phone with no shop data (a new phone, a reinstall) gets the
@@ -87,9 +87,9 @@ export default function ShopPendingScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   body: { fontSize: typeScale.body, color: colors.text, flex: 1 },
   muted: { fontSize: typeScale.label, color: colors.textMuted },
   working: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   footer: { gap: spacing.sm },
-});
+}));

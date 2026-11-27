@@ -1,15 +1,16 @@
 import { useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useEffect, useRef, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '@/auth/session';
-import { Button, Card, Choice, Field, FormError, HelpTip, Row } from '@/components/ui';
-import { SETUP_STEPS, SetupStep } from '@/components/onboarding';
+import { Button, Field, FormError, Icon } from '@/components/ui';
+import { NetworkMark } from '@/components/network-mark';
+import { OptionCard, OptionGrid, SETUP_STEPS, SetupStep, StepSection } from '@/components/onboarding';
 import { isValidTpin } from '@/core';
 import { useShop } from '@/db/hooks';
 import { saveMoneySettings } from '@/db/repos';
 import { useI18n } from '@/i18n';
-import { colors, spacing, typeScale } from '@/theme/tokens';
+import { colors, fonts, radii, spacing, themed, touch, typeScale } from '@/theme/tokens';
 
 const PROVIDERS = ['MTN', 'Airtel', 'Zamtel'] as const;
 
@@ -43,7 +44,7 @@ export default function MoneyScreen() {
   async function handleNext() {
     if (saving) return;
     setError(null);
-    if (tpin.trim() && !isValidTpin(tpin)) {
+    if (registered && tpin.trim() && !isValidTpin(tpin)) {
       setError(t('onboarding.money.tpinInvalid'));
       return;
     }
@@ -53,7 +54,7 @@ export default function MoneyScreen() {
       await saveMoneySettings(db, {
         providers,
         turnoverTaxRegistered: registered,
-        tpin: tpin.trim() || undefined,
+        tpin: registered ? tpin.trim() || undefined : undefined,
       });
       await refresh();
       router.push('/onboarding/first-products');
@@ -74,55 +75,82 @@ export default function MoneyScreen() {
       backLabel={t('common.back')}
       footer={<Button label={t('common.next')} disabled={saving} loading={saving} onPress={handleNext} />}
     >
-      <Card>
-        <Row label={t('onboarding.money.currency')} value="ZMW (K)" />
-      </Card>
-
-      <Text style={styles.sectionLabel}>{t('onboarding.money.providers')}</Text>
-      <View style={styles.group}>
-        {PROVIDERS.map((provider) => (
-          <Choice
-            key={provider}
-            label={provider}
-            selected={providers.includes(provider)}
-            onPress={() => toggle(provider)}
-          />
-        ))}
+      <StepSection>{t('onboarding.money.networksAsk')}</StepSection>
+      <View style={styles.networks}>
+        {PROVIDERS.map((provider) => {
+          const selected = providers.includes(provider);
+          return (
+            <Pressable
+              key={provider}
+              accessibilityRole="button"
+              accessibilityLabel={provider}
+              accessibilityState={{ checked: selected }}
+              android_ripple={{ color: colors.ripple }}
+              onPress={() => toggle(provider)}
+              style={[styles.network, selected ? styles.networkOn : styles.networkOff]}
+            >
+              <NetworkMark provider={provider} size={touch.big} />
+              <Text style={styles.networkName}>{provider}</Text>
+              {selected ? (
+                <View style={styles.check}>
+                  <Icon name="check_circle" size={20} color={colors.primary} />
+                </View>
+              ) : null}
+            </Pressable>
+          );
+        })}
       </View>
 
-      <Text style={styles.sectionLabel}>{t('onboarding.money.registered')}</Text>
-      <View style={styles.row}>
-        <View style={styles.rowChoice}>
-          <Choice label={t('common.yes')} selected={registered} onPress={() => setRegistered(true)} />
-        </View>
-        <View style={styles.rowChoice}>
-          <Choice label={t('common.no')} selected={!registered} onPress={() => setRegistered(false)} />
-        </View>
-      </View>
+      <StepSection>{t('onboarding.money.taxAsk')}</StepSection>
+      <OptionGrid>
+        <OptionCard
+          icon="account_balance"
+          title={t('onboarding.money.taxYes')}
+          selected={registered}
+          onPress={() => setRegistered(true)}
+        />
+        <OptionCard
+          icon="do_not_disturb_on"
+          title={t('onboarding.money.taxNo')}
+          selected={!registered}
+          onPress={() => setRegistered(false)}
+        />
+      </OptionGrid>
 
-      <HelpTip>{t('onboarding.money.registeredTip')}</HelpTip>
-
-      <Card>
+      {registered ? (
         <Field
-          label={t('onboarding.money.tpin')}
+          label={t('onboarding.money.taxNumber')}
           value={tpin}
           onChangeText={(value) => setTpin(value.replace(/\D/g, ''))}
-          placeholder={t('common.optional')}
           keyboardType="numeric"
           maxLength={10}
+          hint={t('onboarding.money.taxNumberHint')}
         />
-        <Text style={styles.hint}>{t('onboarding.money.tpinHint')}</Text>
-      </Card>
+      ) : null}
 
       {error ? <FormError message={error} /> : null}
     </SetupStep>
   );
 }
 
-const styles = StyleSheet.create({
-  sectionLabel: { fontSize: typeScale.label, fontWeight: '600', color: colors.textMuted },
-  group: { gap: spacing.sm },
-  row: { flexDirection: 'row', gap: spacing.md },
-  rowChoice: { flex: 1 },
-  hint: { fontSize: typeScale.label, color: colors.textMuted },
-});
+const styles = themed(() => StyleSheet.create({
+  networks: { flexDirection: 'row', gap: spacing.sm },
+  network: {
+    flex: 1,
+    minHeight: touch.big * 2,
+    borderRadius: radii.xl,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    overflow: 'hidden',
+  },
+  networkOff: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    padding: spacing.sm + 2 - StyleSheet.hairlineWidth,
+  },
+  networkOn: { borderWidth: 2, borderColor: colors.primary, padding: spacing.sm },
+  networkName: { fontFamily: fonts.display, fontSize: typeScale.body, color: colors.text },
+  check: { position: 'absolute', top: spacing.xs, right: spacing.xs },
+}));

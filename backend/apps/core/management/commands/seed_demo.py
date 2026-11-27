@@ -33,6 +33,10 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--reset", action="store_true", help="Delete the demo shop and users first.")
+        parser.add_argument(
+            "--history", action="store_true",
+            help="Also seed ~7 months of phone-shop trading history for the Trading Record demo.",
+        )
 
     @transaction.atomic
     def handle(self, *args, **opts):
@@ -163,6 +167,9 @@ class Command(BaseCommand):
             due_date=today + timedelta(days=20), approach="daily",
         )
         pot.contribute(shop=shop, target=target, amount=10, source=TaxPotTransaction.Source.VOLUNTARY, user=owner)
+
+        if opts["history"]:
+            call_command("seed_trading_history", shop=sync_shop.id, stdout=self.stdout)
 
         self.stdout.write(self.style.SUCCESS("Demo shop ready: Kabwe Shoe Palace (20 pairs, Full mode)."))
         self.stdout.write(f"  Owner      {OWNER_PHONE} / {OWNER_PASSWORD}")

@@ -4,7 +4,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button } from '@/components/ui';
 import { useI18n } from '@/i18n';
-import { colors, spacing, typeScale } from '@/theme/tokens';
+import { colors, spacing, themed, typeScale } from '@/theme/tokens';
 
 // Retail formats only: QR, PDF417 and friends are not product codes.
 const BARCODE_TYPES = [
@@ -94,7 +94,7 @@ export function BarcodeScanner({ onScanned, onClose }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000000' },
   overlay: { flex: 1, justifyContent: 'space-between', padding: spacing.lg },
   topRow: { flexDirection: 'row', gap: spacing.md },
@@ -117,4 +117,4 @@ const styles = StyleSheet.create({
   },
   title: { fontSize: typeScale.title, fontWeight: '700', color: colors.text },
   hint: { fontSize: typeScale.body, color: colors.textMuted },
-});
+}));

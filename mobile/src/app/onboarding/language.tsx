@@ -1,11 +1,14 @@
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
+import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import { LanguageBubbles, Logo } from '@/components/onboarding';
+import { Notice } from '@/components/auth';
 import { Button, Choice, HelpTip, Screen } from '@/components/ui';
 import { LANGUAGE_LABELS, useI18n, type Language } from '@/i18n';
-import { colors, spacing, typeScale } from '@/theme/tokens';
+import { consumeHandedOver } from '@/lib/hand-over-store';
+import { colors, spacing, themed, typeScale } from '@/theme/tokens';
 
 // A Zambian street market, faded at the bottom into the paper colour so the
 // screen reads as one page rather than a photo stuck on top.
@@ -14,6 +17,8 @@ const MARKET = require('../../../assets/images/market-hero.jpg');
 export default function LanguageScreen() {
   const { t, language, setLanguage } = useI18n();
   const router = useRouter();
+  // Read once: right after a hand-over, say the phone was cleared.
+  const [handedOver] = useState(consumeHandedOver);
 
   return (
     <Screen footer={<Button label={t('common.next')} onPress={() => router.push('/onboarding/account')} />}>
@@ -35,6 +40,8 @@ export default function LanguageScreen() {
         <Text style={styles.subtitle}>{t('onboarding.language.subtitle')}</Text>
       </Animated.View>
 
+      {handedOver ? <Notice tone="success">{t('handOver.done')}</Notice> : null}
+
       <LanguageBubbles language={language} />
 
       <View style={styles.choices} accessibilityRole="radiogroup">
@@ -53,7 +60,7 @@ export default function LanguageScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   // Bleed past the screen's side and top padding so the picture runs edge to edge.
   hero: { marginHorizontal: -spacing.lg, marginTop: -spacing.lg },
   heroImage: { width: '100%', aspectRatio: 1200 / 670 },
@@ -61,4 +68,4 @@ const styles = StyleSheet.create({
   title: { fontSize: typeScale.display, fontWeight: '800', color: colors.text, textAlign: 'center', letterSpacing: -0.4 },
   subtitle: { fontSize: typeScale.body, color: colors.textMuted, textAlign: 'center' },
   choices: { gap: spacing.md },
-});
+}));

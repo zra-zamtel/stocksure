@@ -5,6 +5,8 @@ import {
   completeOnboarding,
   createOwner,
   createProduct,
+  createProductWithVariants,
+  expiringVariants,
   createStaff,
   ensureTaxPeriod,
   findVariantByBarcode,
@@ -33,6 +35,7 @@ import {
   saveCashCount,
   saveMoneySettings,
   saveShopDetails,
+  setProductPhoto,
   setVariantBarcode,
   taxSnapshot,
   topUpTaxPot,
@@ -73,7 +76,7 @@ beforeEach(async () => {
 afterEach(() => db.close());
 
 async function shop(usesBarcodes = false) {
-  await saveShopDetails(db, { name: 'Chiwala Fashions', type: 'clothes', town: 'Lusaka', language: 'en', usesBarcodes });
+  await saveShopDetails(db, { name: 'Chiwala Fashions', profileId: 'fashion', town: 'Lusaka', language: 'en', usesBarcodes });
 }
 
 async function product(openingQuantity = 10, extra: Partial<Parameters<typeof createProduct>[1]> = {}) {
@@ -152,6 +155,39 @@ describe('IT-DB migrations and schema', () => {
     }
   });
 
+  it('IT-DB-04b upgrades a v9 phone and backfills each shop profile from its type', async () => {
+    const old = openBlankDb();
+    try {
+      await old.execAsync('PRAGMA foreign_keys = ON;');
+      for (let version = 0; version < 9; version += 1) await old.execAsync(migrations[version]);
+      await old.execAsync('PRAGMA user_version = 9;');
+      const insert = (id: string, type: string) =>
+        old.runAsync(
+          `INSERT INTO shop (id, name, type, town, created_at, updated_at) VALUES (?, 'Shop', ?, 'Lusaka', 'x', 'x')`,
+          id,
+          type
+        );
+      await insert('s_clothes', 'clothes');
+      await insert('s_shoes', 'shoes');
+      await insert('s_general', 'general');
+      await insert('s_other', 'other');
+
+      await initializeDatabase(old);
+
+      const rows = await old.getAllAsync<{ id: string; profile_id: string }>(
+        'SELECT id, profile_id FROM shop ORDER BY id'
+      );
+      expect(rows).toEqual([
+        { id: 's_clothes', profile_id: 'fashion' },
+        { id: 's_general', profile_id: 'general' },
+        { id: 's_other', profile_id: 'general' },
+        { id: 's_shoes', profile_id: 'fashion' },
+      ]);
+    } finally {
+      old.close();
+    }
+  });
+
   it('IT-DB-05 rejects a zero stock movement and an unknown reason', async () => {
     const { variantId } = await product();
     const insert = (qty: number, reason: string) =>
@@ -191,18 +227,43 @@ describe('IT-DB migrations and schema', () => {
 
 describe('IT-ONB onboarding and account', () => {
   it('IT-ONB-01 creates the shop once and updates the same row afterwards', async () => {
-    const first = await saveShopDetails(db, { name: ' Shop ', type: 'general', town: ' Ndola ', language: 'en', usesBarcodes: false });
-    const second = await saveShopDetails(db, { name: 'Shop 2', type: 'shoes', town: 'Kitwe', language: 'ny', usesBarcodes: true });
+    const first = await saveShopDetails(db, { name: ' Shop ', profileId: 'general', town: ' Ndola ', language: 'en', usesBarcodes: false });
+    const second = await saveShopDetails(db, { name: 'Shop 2', profileId: 'fashion', town: 'Kitwe', language: 'ny', usesBarcodes: true });
     expect(second).toBe(first);
     expect(await count(db, 'shop')).toBe(1);
-    expect(await getShop(db)).toMatchObject({ name: 'Shop 2', town: 'Kitwe', language: 'ny', usesBarcodes: true, onboardingCompleted: false });
+    expect(await getShop(db)).toMatchObject({ name: 'Shop 2', type: 'clothes', profileId: 'fashion', town: 'Kitwe', language: 'ny', usesBarcodes: true, onboardingCompleted: false });
     expect(await count(db, 'sync_queue', "entity = 'shop' AND operation = 'create'")).toBe(1);
     expect(await count(db, 'sync_queue', "entity = 'shop' AND operation = 'update'")).toBe(1);
   });
 
+  it('IT-ONB-01b stores the profile and writes its legacy type for sync and USSD', async () => {
+    await saveShopDetails(db, { name: 'Glow', profileId: 'health_beauty', town: 'Lusaka', language: 'en', usesBarcodes: true });
+    expect(await getShop(db)).toMatchObject({ type: 'other', profileId: 'health_beauty' });
+    const create = await db.getFirstAsync<{ payload: string }>(
+      "SELECT payload FROM sync_queue WHERE entity = 'shop' AND operation = 'create'"
+    );
+    expect(JSON.parse(create?.payload ?? '{}')).toMatchObject({ type: 'other', profileId: 'health_beauty' });
+
+    // A later edit (Settings) changes the profile and keeps the legacy mirror in step.
+    await saveShopDetails(db, { name: 'Glow', profileId: 'bar', town: 'Lusaka', language: 'en', usesBarcodes: true });
+    expect(await getShop(db)).toMatchObject({ type: 'other', profileId: 'bar' });
+    const update = await db.getFirstAsync<{ payload: string }>(
+      "SELECT payload FROM sync_queue WHERE entity = 'shop' AND operation = 'update'"
+    );
+    expect(JSON.parse(update?.payload ?? '{}')).toMatchObject({ type: 'other', profileId: 'bar' });
+  });
+
+  it('IT-ONB-01c falls back from the legacy type when a row has no usable profile', async () => {
+    await saveShopDetails(db, { name: 'Old', profileId: 'fashion', town: 'Lusaka', language: 'en', usesBarcodes: false });
+    await db.runAsync('UPDATE shop SET profile_id = NULL');
+    expect((await getShop(db))?.profileId).toBe('fashion');
+    await db.runAsync("UPDATE shop SET profile_id = 'restaurant', type = 'general'");
+    expect((await getShop(db))?.profileId).toBe('general');
+  });
+
   it('IT-ONB-02 trims and requires the shop name and town', async () => {
-    await expect(saveShopDetails(db, { name: '  ', type: 'other', town: 'Lusaka', language: 'en', usesBarcodes: false })).rejects.toThrow('Shop name');
-    await expect(saveShopDetails(db, { name: 'A', type: 'other', town: ' ', language: 'en', usesBarcodes: false })).rejects.toThrow('Town');
+    await expect(saveShopDetails(db, { name: '  ', profileId: 'general', town: 'Lusaka', language: 'en', usesBarcodes: false })).rejects.toThrow('Shop name');
+    await expect(saveShopDetails(db, { name: 'A', profileId: 'general', town: ' ', language: 'en', usesBarcodes: false })).rejects.toThrow('Town');
     expect(await count(db, 'shop')).toBe(0);
   });
 
@@ -334,7 +395,7 @@ describe('IT-ONB onboarding and account', () => {
         email: 'b@example.com',
         pinHash: 'b',
       })
-    ).rejects.toThrow('different owner');
+    ).rejects.toThrow('belongs to another shop');
 
     expect(await getOwner(db)).toMatchObject({ id: 'owner_1', email: 'a@example.com' });
   });
@@ -426,10 +487,29 @@ describe('IT-STAFF staff identity', () => {
     expect((await getSaleDetail(db, ownerSale.saleId))?.recordedByName).toBe('Elton');
     expect((await getSaleDetail(db, staffSale.saleId))?.recordedByName).toBe('Given');
     expect((await listSales(db)).map((sale) => sale.recordedByName).sort()).toEqual(['Elton', 'Given']);
+    // The sales list says how each sale was paid, and stock history says who sold.
+    expect((await listSales(db)).map((sale) => sale.paymentMethod)).toEqual(['cash', 'cash']);
+    const sold = (await listMovements(db, variantId)).filter((m) => m.reason === 'sale');
+    expect(sold.map((m) => m.byName).sort()).toEqual(['Elton', 'Given']);
   });
 });
 
 describe('IT-PROD products and stock', () => {
+  it('IT-PROD-00 stores the profile axis values in the legacy size and colour slots', async () => {
+    const { variantId } = await product(2, { name: 'Castle Lager', barcode: '6001234500018', size: ' Crate ', colour: '330 ml' });
+    const row = await db.getFirstAsync<{ size: string; colour: string }>(
+      'SELECT size, colour FROM product_variant WHERE id = ?',
+      variantId
+    );
+    expect(row).toEqual({ size: 'Crate', colour: '330 ml' });
+    const queued = await db.getFirstAsync<{ payload: string }>(
+      "SELECT payload FROM sync_queue WHERE entity = 'product_variant' AND entity_id = ?",
+      variantId
+    );
+    expect(JSON.parse(queued?.payload ?? '{}')).toMatchObject({ size: 'Crate', colour: '330 ml' });
+    expect((await findVariantByBarcode(db, '6001234500018'))?.variantLabel).toBe('Crate · 330 ml');
+  });
+
   it('IT-PROD-01 records opening stock as a movement and queues the product, variant and movement', async () => {
     const { productId, variantId } = await product(12);
     expect(await stockOf(db, variantId)).toBe(12);
@@ -522,6 +602,327 @@ describe('IT-PROD products and stock', () => {
     await db.runAsync("UPDATE product SET discount_json = '{oops' WHERE id = ?", productId);
     const [listed] = await listProductsWithStock(db);
     expect(listed.discount).toBeUndefined();
+  });
+});
+
+describe('IT-PRODF trade-specific product fields', () => {
+  it('IT-PRODF-01 stores unit, sale warning, expiry and batch, and reads them back', async () => {
+    const { productId, variantId } = await product(5, {
+      name: 'Amoxil',
+      size: '500 mg',
+      colour: 'Strip of 10',
+      unit: 'strip',
+      saleWarning: ' Rx only ',
+      expiryDate: '2027-06-30',
+      batchNo: 'B12',
+    });
+    const listed = (await listProductsWithStock(db)).find((item) => item.id === productId);
+    expect(listed).toMatchObject({ unit: 'strip', saleWarning: 'Rx only' });
+    expect(listed?.variants[0]).toMatchObject({ id: variantId, expiryDate: '2027-06-30', batchNo: 'B12' });
+
+    const queuedProduct = await db.getFirstAsync<{ payload: string }>(
+      "SELECT payload FROM sync_queue WHERE entity = 'product' AND entity_id = ?",
+      productId
+    );
+    expect(JSON.parse(queuedProduct?.payload ?? '{}')).toMatchObject({ unit: 'strip', saleWarning: 'Rx only' });
+    const queuedVariant = await db.getFirstAsync<{ payload: string }>(
+      "SELECT payload FROM sync_queue WHERE entity = 'product_variant' AND entity_id = ?",
+      variantId
+    );
+    expect(JSON.parse(queuedVariant?.payload ?? '{}')).toMatchObject({ expiryDate: '2027-06-30', batchNo: 'B12' });
+  });
+
+  it('IT-PRODF-02 gives older products a piece unit and no expiry', async () => {
+    const { productId } = await product(2);
+    await db.runAsync('UPDATE product SET unit = NULL WHERE id = ?', productId);
+    const listed = (await listProductsWithStock(db)).find((item) => item.id === productId);
+    expect(listed).toMatchObject({ unit: 'piece' });
+    expect(listed?.saleWarning).toBeUndefined();
+    expect(listed?.variants[0].expiryDate).toBeUndefined();
+  });
+
+  it('IT-PRODF-04 refuses an impossible expiry date and saves nothing', async () => {
+    await expect(product(1, { name: 'Bad date', expiryDate: '2027-02-30' })).rejects.toThrow('Expiry date');
+    expect(await count(db, 'product')).toBe(0);
+  });
+
+  it('IT-PRODF-05 restock sets the new delivery expiry and batch, and queues only what changed', async () => {
+    const { variantId } = await product(3, { name: 'Panadol', expiryDate: '2026-12-01', batchNo: 'OLD' });
+    await restockVariant(db, { variantId, quantity: 10, expiryDate: '2027-12-01', batchNo: 'NEW' });
+    const row = await db.getFirstAsync<{ expiry_date: string; batch_no: string; buy_price: number }>(
+      'SELECT expiry_date, batch_no, buy_price FROM product_variant WHERE id = ?',
+      variantId
+    );
+    expect(row).toEqual({ expiry_date: '2027-12-01', batch_no: 'NEW', buy_price: 5000 });
+    const update = await db.getFirstAsync<{ payload: string }>(
+      "SELECT payload FROM sync_queue WHERE entity = 'product_variant' AND operation = 'update' AND entity_id = ?",
+      variantId
+    );
+    const payload = JSON.parse(update?.payload ?? '{}');
+    expect(payload).toMatchObject({ id: variantId, expiryDate: '2027-12-01', batchNo: 'NEW' });
+    expect(payload).not.toHaveProperty('buyPrice');
+
+    await expect(restockVariant(db, { variantId, quantity: 1, expiryDate: 'next year' })).rejects.toThrow('Expiry date');
+  });
+
+  it('IT-PRODF-06 upgrades a v10 phone without touching its products', async () => {
+    const old = openBlankDb();
+    try {
+      await old.execAsync('PRAGMA foreign_keys = ON;');
+      for (let version = 0; version < 10; version += 1) await old.execAsync(migrations[version]);
+      await old.execAsync('PRAGMA user_version = 10;');
+      await old.runAsync(
+        `INSERT INTO product (id, name, default_buy_price, default_sell_price, created_at, updated_at)
+         VALUES ('p1', 'Old shirt', 100, 200, 'x', 'x')`
+      );
+      await old.runAsync(
+        `INSERT INTO product_variant (id, product_id, size, buy_price, sell_price, created_at, updated_at)
+         VALUES ('v1', 'p1', 'M', 100, 200, 'x', 'x')`
+      );
+
+      await initializeDatabase(old);
+
+      expect(
+        await old.getFirstAsync('SELECT unit, sale_warning FROM product WHERE id = ?', 'p1')
+      ).toEqual({ unit: null, sale_warning: null });
+      expect(
+        await old.getFirstAsync('SELECT size, expiry_date, batch_no FROM product_variant WHERE id = ?', 'v1')
+      ).toEqual({ size: 'M', expiry_date: null, batch_no: null });
+    } finally {
+      old.close();
+    }
+  });
+});
+
+describe('IT-VAR products with several variants', () => {
+  const pack = (value: string, size = '') => [
+    { key: 'pack', value },
+    { key: 'size', value: size },
+  ];
+  const lager = (variants: Parameters<typeof createProductWithVariants>[1]['variants']) =>
+    createProductWithVariants(db, { name: 'Castle Lager', category: 'Beer', unit: 'bottle', saleWarning: '18+', variants });
+
+  it('IT-VAR-01 saves each variant with its own price, stock, barcode and attributes', async () => {
+    await shop();
+    const { productId, variantIds } = await lager([
+      { attributes: pack('Shot'), buyPrice: 300, sellPrice: 500, openingQuantity: 0 },
+      { attributes: pack('Bottle', '330 ml'), barcode: '6001234500018', buyPrice: 1200, sellPrice: 1800, openingQuantity: 24 },
+      { attributes: pack('Crate'), buyPrice: 26000, sellPrice: 36000, openingQuantity: 3, lowStockLevel: 1 },
+    ]);
+    expect(variantIds).toHaveLength(3);
+
+    const listed = (await listProductsWithStock(db)).find((item) => item.id === productId);
+    // Variants come back in the order they were entered; the first sets the default prices.
+    expect(listed).toMatchObject({ name: 'Castle Lager', unit: 'bottle', saleWarning: '18+', defaultSellPrice: 500, stock: 27 });
+    expect(listed?.variants.map((variant) => [variant.attributes, variant.sellPrice, variant.quantity])).toEqual([
+      [[{ key: 'pack', value: 'Shot' }], 500, 0],
+      [[{ key: 'pack', value: 'Bottle' }, { key: 'size', value: '330 ml' }], 1800, 24],
+      [[{ key: 'pack', value: 'Crate' }], 36000, 3],
+    ]);
+
+    // Legacy mirrors follow axis position; attributes_json keeps the keys.
+    const rows = await db.getAllAsync<{ size: string | null; colour: string | null; attributes_json: string }>(
+      'SELECT size, colour, attributes_json FROM product_variant WHERE product_id = ? ORDER BY created_at, size',
+      productId
+    );
+    expect(rows.map((row) => [row.size, row.colour])).toEqual(
+      expect.arrayContaining([['Bottle', '330 ml'], ['Crate', null], ['Shot', null]])
+    );
+    expect(await count(db, 'stock_movement', "reason = 'opening'")).toBe(2);
+    expect(await count(db, 'sync_queue', "entity = 'product_variant'")).toBe(3);
+    const queued = await db.getFirstAsync<{ payload: string }>(
+      "SELECT payload FROM sync_queue WHERE entity = 'product_variant' AND entity_id = ?",
+      variantIds[2]
+    );
+    expect(JSON.parse(queued?.payload ?? '{}')).toMatchObject({
+      productId,
+      size: 'Crate',
+      colour: null,
+      attributes: [{ key: 'pack', value: 'Crate' }],
+      lowStockLevel: 1,
+    });
+  });
+
+  it('IT-VAR-02 selling one variant takes stock from that variant only', async () => {
+    await shop();
+    const { variantIds } = await lager([
+      { attributes: pack('Bottle'), buyPrice: 5000, sellPrice: 8000, openingQuantity: 10 },
+      { attributes: pack('Crate'), buyPrice: 5000, sellPrice: 8000, openingQuantity: 4 },
+      { attributes: pack('Can'), buyPrice: 5000, sellPrice: 8000, openingQuantity: 6 },
+    ]);
+    await recordSale(db, cashSale(variantIds[1], 2));
+    expect([await stockOf(db, variantIds[0]), await stockOf(db, variantIds[1]), await stockOf(db, variantIds[2])]).toEqual([10, 2, 6]);
+  });
+
+  it('IT-VAR-03 refuses the same variant twice, ignoring case, and saves nothing', async () => {
+    await shop();
+    await expect(
+      lager([
+        { attributes: pack('Crate'), buyPrice: 1, sellPrice: 2, openingQuantity: 1 },
+        { attributes: pack(' crate '), buyPrice: 1, sellPrice: 2, openingQuantity: 1 },
+      ])
+    ).rejects.toThrow('Two variants are the same: crate');
+    await expect(
+      createProductWithVariants(db, {
+        name: 'Plain',
+        variants: [
+          { attributes: [], buyPrice: 1, sellPrice: 2, openingQuantity: 1 },
+          { attributes: [], buyPrice: 1, sellPrice: 2, openingQuantity: 1 },
+        ],
+      })
+    ).rejects.toThrow('Each variant needs its own size or type');
+    await expect(createProductWithVariants(db, { name: 'Empty', variants: [] })).rejects.toThrow('at least one variant');
+    expect(await count(db, 'product')).toBe(0);
+    expect(await count(db, 'sync_queue', "entity <> 'shop'")).toBe(0);
+  });
+
+  it('IT-VAR-04 refuses a barcode used twice in the form or already in the shop', async () => {
+    await shop();
+    await expect(
+      lager([
+        { attributes: pack('Bottle'), barcode: '012345678905', buyPrice: 1, sellPrice: 2, openingQuantity: 1 },
+        { attributes: pack('Can'), barcode: '0012345678905', buyPrice: 1, sellPrice: 2, openingQuantity: 1 },
+      ])
+    ).rejects.toThrow('Two variants have the same barcode');
+    await product(1, { barcode: '6001234500018' });
+    await expect(
+      lager([
+        { attributes: pack('Bottle'), buyPrice: 1, sellPrice: 2, openingQuantity: 1 },
+        { attributes: pack('Can'), barcode: '6001234500018', buyPrice: 1, sellPrice: 2, openingQuantity: 1 },
+      ])
+    ).rejects.toThrow('already belongs to another product');
+    expect(await count(db, 'product')).toBe(1);
+  });
+
+  it('IT-VAR-05 gives each variant its own barcode when the shop uses barcodes', async () => {
+    await shop(true);
+    const { barcodes } = await lager([
+      { attributes: pack('Bottle'), buyPrice: 1, sellPrice: 2, openingQuantity: 1 },
+      { attributes: pack('Crate'), buyPrice: 1, sellPrice: 2, openingQuantity: 1 },
+      { attributes: pack('Can'), barcode: '6001234500018', buyPrice: 1, sellPrice: 2, openingQuantity: 1 },
+    ]);
+    expect(barcodes[2]).toBe('6001234500018');
+    expect(isInStoreBarcode(barcodes[0]!)).toBe(true);
+    expect(isInStoreBarcode(barcodes[1]!)).toBe(true);
+    expect(new Set(barcodes).size).toBe(3);
+  });
+
+  it('IT-VAR-06 labels low stock, scans and sale lines from the attributes', async () => {
+    await shop();
+    const { variantIds } = await lager([
+      { attributes: pack('Crate', '330 ml'), barcode: '6001234500018', buyPrice: 5000, sellPrice: 8000, openingQuantity: 1, lowStockLevel: 2 },
+    ]);
+    expect((await lowStockVariants(db)).map((row) => row.label)).toEqual(['Castle Lager · Crate · 330 ml']);
+    expect((await findVariantByBarcode(db, '6001234500018'))?.variantLabel).toBe('Crate · 330 ml');
+    const { saleId } = await recordSale(db, cashSale(variantIds[0]));
+    expect((await getSaleDetail(db, saleId))?.lines[0].label).toBe('Castle Lager · Crate · 330 ml');
+  });
+
+  it('IT-VAR-07 still reads older variants that only have size and colour', async () => {
+    await shop();
+    const { productId, variantId } = await product(1, { size: 'M', colour: 'Blue' });
+    await db.runAsync('UPDATE product_variant SET attributes_json = NULL WHERE id = ?', variantId);
+    const listed = (await listProductsWithStock(db)).find((item) => item.id === productId);
+    expect(listed?.variants[0].attributes).toEqual([
+      { key: 'size', value: 'M' },
+      { key: 'colour', value: 'Blue' },
+    ]);
+    expect((await lowStockVariants(db)).map((row) => row.label)).toEqual(['School shirt · M · Blue']);
+  });
+
+  it('IT-VAR-08 keeps an empty first axis out of the size column', async () => {
+    await shop();
+    const { variantId } = await product(1, { colour: 'Red' });
+    expect(
+      await db.getFirstAsync('SELECT size, colour, attributes_json FROM product_variant WHERE id = ?', variantId)
+    ).toEqual({ size: null, colour: 'Red', attributes_json: '[{"key":"colour","value":"Red"}]' });
+  });
+
+  it('IT-VAR-09 upgrades a v11 phone without touching its variants', async () => {
+    const old = openBlankDb();
+    try {
+      await old.execAsync('PRAGMA foreign_keys = ON;');
+      for (let version = 0; version < 11; version += 1) await old.execAsync(migrations[version]);
+      await old.execAsync('PRAGMA user_version = 11;');
+      await old.runAsync(
+        `INSERT INTO product (id, name, default_buy_price, default_sell_price, created_at, updated_at)
+         VALUES ('p1', 'Old shirt', 100, 200, 'x', 'x')`
+      );
+      await old.runAsync(
+        `INSERT INTO product_variant (id, product_id, size, colour, buy_price, sell_price, created_at, updated_at)
+         VALUES ('v1', 'p1', 'M', 'Blue', 100, 200, 'x', 'x')`
+      );
+      await initializeDatabase(old);
+      expect(
+        await old.getFirstAsync('SELECT size, colour, attributes_json FROM product_variant WHERE id = ?', 'v1')
+      ).toEqual({ size: 'M', colour: 'Blue', attributes_json: null });
+    } finally {
+      old.close();
+    }
+  });
+});
+
+describe('IT-PHOTO product photos', () => {
+  it('IT-PHOTO-01 saves a photo with a new product and reads it back', async () => {
+    await shop();
+    const { productId } = await createProductWithVariants(db, {
+      name: 'Dress',
+      photoUri: 'file:///data/product-photos/p1.jpg',
+      variants: [{ attributes: [], buyPrice: 10000, sellPrice: 15000, openingQuantity: 5 }],
+    });
+    const listed = (await listProductsWithStock(db)).find((item) => item.id === productId);
+    expect(listed?.photoUri).toBe('file:///data/product-photos/p1.jpg');
+    const queued = await db.getFirstAsync<{ payload: string }>(
+      "SELECT payload FROM sync_queue WHERE entity = 'product' AND entity_id = ?",
+      productId
+    );
+    expect(JSON.parse(queued?.payload ?? '{}')).toMatchObject({ photoUri: 'file:///data/product-photos/p1.jpg' });
+  });
+
+  it('IT-PHOTO-02 adds a photo later and syncs only that change', async () => {
+    await shop();
+    const { productId } = await product(2);
+    expect((await listProductsWithStock(db)).find((item) => item.id === productId)?.photoUri).toBeUndefined();
+
+    await setProductPhoto(db, productId, ' file:///x/p2.jpg ');
+    expect((await listProductsWithStock(db)).find((item) => item.id === productId)?.photoUri).toBe('file:///x/p2.jpg');
+    const update = await db.getFirstAsync<{ payload: string }>(
+      "SELECT payload FROM sync_queue WHERE entity = 'product' AND operation = 'update' AND entity_id = ?",
+      productId
+    );
+    const payload = JSON.parse(update?.payload ?? '{}');
+    expect(payload).toMatchObject({ id: productId, photoUri: 'file:///x/p2.jpg' });
+    expect(payload).not.toHaveProperty('name');
+
+    await expect(setProductPhoto(db, productId, '  ')).rejects.toThrow('No photo');
+    await expect(setProductPhoto(db, 'missing', 'file:///y.jpg')).rejects.toThrow('not found');
+  });
+});
+
+describe('IT-EXP expiring stock', () => {
+  const today = '2026-11-27';
+
+  it('IT-EXP-01 lists stock on hand that has expired or expires within 30 days, soonest first', async () => {
+    await shop();
+    const { variantIds } = await createProductWithVariants(db, {
+      name: 'Panadol',
+      variants: [
+        { attributes: [{ key: 'pack', value: 'Strip' }], buyPrice: 1, sellPrice: 2, openingQuantity: 4, expiryDate: '2026-12-20' },
+        { attributes: [{ key: 'pack', value: 'Box' }], buyPrice: 1, sellPrice: 2, openingQuantity: 2, expiryDate: '2026-11-01' },
+        { attributes: [{ key: 'pack', value: 'Bottle' }], buyPrice: 1, sellPrice: 2, openingQuantity: 5, expiryDate: '2027-06-30' },
+        { attributes: [{ key: 'pack', value: 'Sachet' }], buyPrice: 1, sellPrice: 2, openingQuantity: 0, expiryDate: '2026-11-02' },
+      ],
+    });
+    await product(3, { name: 'No expiry' });
+
+    expect(await expiringVariants(db, today)).toEqual([
+      { variantId: variantIds[1], productId: expect.any(String), label: 'Panadol · Box', expiryDate: '2026-11-01', quantity: 2 },
+      { variantId: variantIds[0], productId: expect.any(String), label: 'Panadol · Strip', expiryDate: '2026-12-20', quantity: 4 },
+    ]);
+
+    // Once sold out it drops off the list.
+    await recordSale(db, cashSale(variantIds[1], 2));
+    expect((await expiringVariants(db, today)).map((row) => row.variantId)).toEqual([variantIds[0]]);
   });
 });
 

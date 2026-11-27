@@ -4,7 +4,7 @@ import { Pressable, StyleSheet, Text, View, type LayoutChangeEvent } from 'react
 import Animated, { useAnimatedStyle, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
 import { niceTicks } from '@/core';
 import { Icon } from './ui';
-import { chart, colors, radii, spacing, touch, typeScale } from '../theme/tokens';
+import { chart, colors, radii, spacing, themed, touch, typeScale } from '../theme/tokens';
 
 /**
  * Small chart kit for the Insights screen, built from plain views so it needs
@@ -393,7 +393,7 @@ export function ChartCard({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   // Column chart
   columnChart: { gap: spacing.sm },
   readout: { minHeight: 20, justifyContent: 'center' },
@@ -492,9 +492,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  toggleItemActive: { backgroundColor: colors.charcoal },
+  toggleItemActive: { backgroundColor: colors.inverse },
   toggleText: { fontSize: typeScale.label, fontWeight: '700', color: colors.textMuted },
-  toggleTextActive: { color: colors.primaryText },
+  toggleTextActive: { color: colors.onInverse },
 
   // Card
   card: {
@@ -508,4 +508,4 @@ const styles = StyleSheet.create({
   cardHead: { gap: spacing.xxs },
   cardTitle: { fontSize: typeScale.heading, fontWeight: '800', color: colors.text },
   cardTakeaway: { fontSize: typeScale.body, color: colors.textMuted, lineHeight: 21 },
-});
+}));

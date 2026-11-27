@@ -4,8 +4,9 @@ import { StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '@/auth/session';
 import { useSmartInvoice } from '@/db/hooks';
 import { useI18n } from '@/i18n';
+import { formatDateTime } from '@/lib/format';
 import { getSmartInvoiceSaleOnServer, type SmartInvoiceSent } from '@/lib/api';
-import { colors, spacing, typeScale } from '@/theme/tokens';
+import { colors, spacing, themed, typeScale } from '@/theme/tokens';
 import { Card, Pill, Row, SectionTitle, TextLink } from './ui';
 
 /** Signatures read better in groups of four: TQZM-KL57-AGBM-STPO. */
@@ -84,7 +85,7 @@ export function SmartInvoiceCard({ saleId }: { saleId: string }) {
             <Row label={t('si.card.signature')} value={group(sale.receiptSignature)} />
             <Row label={t('si.device')} value={sale.sdcId ?? '-'} />
             {sale.publishedAt ? (
-              <Row label={t('si.card.sentAt')} value={sale.publishedAt.slice(0, 16).replace('T', ' ')} />
+              <Row label={t('si.card.sentAt')} value={formatDateTime(sale.publishedAt)} />
             ) : null}
           </>
         ) : null}
@@ -127,10 +128,10 @@ export function SmartInvoiceCard({ saleId }: { saleId: string }) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   head: { flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap' },
   muted: { fontSize: typeScale.label, color: colors.textMuted },
-  sent: { gap: spacing.xs, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, paddingTop: spacing.sm },
+  sent: { gap: spacing.xs, marginTop: spacing.sm },
   sentTitle: { fontSize: typeScale.label, fontWeight: '800', color: colors.text },
   code: { fontSize: typeScale.caption, color: colors.textMuted, fontFamily: 'monospace' },
-});
+}));

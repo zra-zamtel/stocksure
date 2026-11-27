@@ -8,6 +8,7 @@ export * from './barcode';
 export * from './ids';
 export * from './identity';
 export * from './permissions';
-export * from './plan';
 export * from './insights';
 export * from './momo-message';
+export * from './profiles';
+export * from './product-fields';

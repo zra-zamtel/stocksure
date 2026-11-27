@@ -1,3 +1,4 @@
+import json
 import logging
 from datetime import date, datetime
 
@@ -107,7 +108,10 @@ def _date(payload, *keys, required=True, default=None):
     value = _get(payload, *keys, default=default)
     if isinstance(value, date):
         return value
-    parsed = parse_date(str(value or ""))
+    try:
+        parsed = parse_date(str(value or ""))
+    except ValueError:  # well-formed but impossible, e.g. 2027-02-30
+        parsed = None
     if parsed is None:
         if required:
             raise SyncError(f"{keys[0]} must be YYYY-MM-DD.")
@@ -282,6 +286,12 @@ def _fill_shop(shop: Shop, payload: dict, ids: dict, *, partial: bool = False) -
         shop.name = _text(payload, "name", required=True, max_length=150)
     if sent("type"):
         shop.type = _text(payload, "type", default="other", max_length=20)
+    profile_id = _text(payload, "profileId", "profile_id", default="", max_length=30)
+    if profile_id:
+        shop.profile_id = profile_id
+    elif not partial:
+        # An older phone sends no profile: derive it from the legacy type, as the phone does.
+        shop.profile_id = "fashion" if shop.type in ("clothes", "shoes") else "general"
     if sent("town"):
         shop.town = _text(payload, "town", default="", max_length=80)
     if sent("currency"):
@@ -378,53 +388,126 @@ def tax_period_payload(period: TaxPeriod) -> dict:
     }
 
 
-def upsert_product(payload, shop: Shop) -> Product:
+def upsert_product(payload, shop: Shop, *, partial: bool = False) -> Product:
     ids = _record(payload)
     product = Product.objects.filter(id=ids["id"]).first()
     if product and product.shop_id != shop.id:
         raise SyncError("That product belongs to another shop.")
     if product is None:
         product = Product(id=ids["id"], shop=shop, created_at=ids["created_at"])
-    product.name = _text(payload, "name", required=True, max_length=150)
-    product.category = _text(payload, "category", default="", max_length=80)
-    product.photo_uri = _text(payload, "photoUri", "photo_uri", default="", max_length=255)
-    product.default_buy_price = _int(
-        payload, "defaultBuyPrice", "default_buy_price", default=0, minimum=0
-    )
-    product.default_sell_price = _int(
-        payload, "defaultSellPrice", "default_sell_price", default=0, minimum=0
-    )
-    discount = _get(payload, "discountJson", "discount_json")
-    if discount is not None and not isinstance(discount, dict | list):
-        raise SyncError("discountJson must be a JSON object or list.")
-    product.discount_json = discount
+        partial = False
+    # An update carries only what changed on the phone; everything else stays.
+
+    def sent(*keys) -> bool:
+        return not partial or any(key in payload for key in keys)
+
+    if sent("name"):
+        product.name = _text(payload, "name", required=True, max_length=150)
+    if sent("category"):
+        product.category = _text(payload, "category", default="", max_length=80)
+    if sent("photoUri", "photo_uri"):
+        product.photo_uri = _text(payload, "photoUri", "photo_uri", default="", max_length=255)
+    if sent("defaultBuyPrice", "default_buy_price"):
+        product.default_buy_price = _int(
+            payload, "defaultBuyPrice", "default_buy_price", default=0, minimum=0
+        )
+    if sent("defaultSellPrice", "default_sell_price"):
+        product.default_sell_price = _int(
+            payload, "defaultSellPrice", "default_sell_price", default=0, minimum=0
+        )
+    if sent("discountJson", "discount_json"):
+        discount = _get(payload, "discountJson", "discount_json")
+        if discount is not None and not isinstance(discount, dict | list):
+            raise SyncError("discountJson must be a JSON object or list.")
+        product.discount_json = discount
+    if sent("unit"):
+        product.unit = _text(payload, "unit", default="", max_length=20)
+    if sent("saleWarning", "sale_warning"):
+        product.sale_warning = _text(payload, "saleWarning", "sale_warning", default="", max_length=60)
     product.updated_at = ids["updated_at"]
     product.save()
     return product
 
 
-def upsert_variant(payload, shop: Shop) -> ProductVariant:
+MAX_ATTRIBUTES = 2
+
+
+def _attributes(payload) -> list[dict] | None:
+    """A variant's attribute list, or None when the payload has none. Malformed
+    entries are dropped rather than failing the batch, so a newer phone that
+    sends something unexpected still syncs its stock and sales."""
+    raw = _get(payload, "attributes", "attributesJson", "attributes_json")
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except ValueError:
+            return []
+    if not isinstance(raw, list):
+        return []
+    cleaned = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        key, value = item.get("key"), item.get("value")
+        if isinstance(key, str) and isinstance(value, str) and key.strip() and value.strip():
+            cleaned.append({"key": key.strip()[:30], "value": value.strip()[:40]})
+    return cleaned[:MAX_ATTRIBUTES]
+
+
+def upsert_variant(payload, shop: Shop, *, partial: bool = False) -> ProductVariant:
     ids = _record(payload)
-    product_id = _text(payload, "productId", "product_id", required=True, max_length=64)
-    product = Product.objects.filter(id=product_id, shop=shop).first()
-    if product is None:
-        raise SyncError("productId does not exist in this shop.")
     variant = ProductVariant.objects.filter(id=ids["id"]).first()
     if variant and variant.shop_id != shop.id:
         raise SyncError("That variant belongs to another shop.")
     if variant is None:
-        variant = ProductVariant(
-            id=ids["id"], shop=shop, product=product, created_at=ids["created_at"]
+        partial = False
+    # An update carries only what changed on the phone (a restock sends the new
+    # buy price or expiry, "generate barcode" sends the barcode); the rest stays.
+
+    def sent(*keys) -> bool:
+        return not partial or any(key in payload for key in keys)
+
+    if sent("productId", "product_id"):
+        product_id = _text(payload, "productId", "product_id", required=True, max_length=64)
+        product = Product.objects.filter(id=product_id, shop=shop).first()
+        if product is None:
+            raise SyncError("productId does not exist in this shop.")
+        if variant is None:
+            variant = ProductVariant(
+                id=ids["id"], shop=shop, product=product, created_at=ids["created_at"]
+            )
+        variant.product = product
+    if sent("size"):
+        variant.size = _text(payload, "size", default="", max_length=20)
+    if sent("colour", "color"):
+        variant.colour = _text(payload, "colour", "color", default="", max_length=40)
+    if sent("barcode"):
+        variant.barcode = _text(payload, "barcode", default="", max_length=64)
+    if sent("buyPrice", "buy_price"):
+        variant.buy_price = _int(payload, "buyPrice", "buy_price", default=0, minimum=0)
+    if sent("sellPrice", "sell_price"):
+        variant.sell_price = _int(payload, "sellPrice", "sell_price", default=0, minimum=0)
+    if sent("lowStockLevel", "low_stock_level"):
+        variant.low_stock_level = _int(
+            payload, "lowStockLevel", "low_stock_level", default=3, minimum=0
         )
-    variant.product = product
-    variant.size = _text(payload, "size", default="", max_length=20)
-    variant.colour = _text(payload, "colour", "color", default="", max_length=40)
-    variant.barcode = _text(payload, "barcode", default="", max_length=64)
-    variant.buy_price = _int(payload, "buyPrice", "buy_price", default=0, minimum=0)
-    variant.sell_price = _int(payload, "sellPrice", "sell_price", default=0, minimum=0)
-    variant.low_stock_level = _int(
-        payload, "lowStockLevel", "low_stock_level", default=3, minimum=0
-    )
+    if sent("expiryDate", "expiry_date"):
+        variant.expiry_date = _date(payload, "expiryDate", "expiry_date", required=False)
+        if variant.expiry_date is None and _get(payload, "expiryDate", "expiry_date") not in (None, ""):
+            raise SyncError("expiryDate must be YYYY-MM-DD.")
+    if sent("batchNo", "batch_no"):
+        variant.batch_no = _text(payload, "batchNo", "batch_no", default="", max_length=60)
+    attributes = _attributes(payload)
+    if attributes is not None:
+        variant.attributes_json = attributes
+        # Older readers (USSD, admin, reports) use size and colour: fill them
+        # from the attributes when the payload left them out.
+        if "size" not in payload and attributes:
+            variant.size = attributes[0]["value"][:20]
+        if not any(key in payload for key in ("colour", "color")) and len(attributes) > 1:
+            variant.colour = attributes[1]["value"][:40]
     variant.updated_at = ids["updated_at"]
     variant.save()
     return variant
@@ -794,8 +877,12 @@ def upsert_tax_pot_entry(payload: dict, shop: Shop) -> TaxPotEntry:
     return row
 
 
-def apply_change(change: dict, user: User, queue_id: str = "") -> Shop:
-    """Validate and upsert one change. Raises SyncError with a phone-readable reason."""
+def apply_change(change: dict, user: User, queue_id: str = "", shop_id: str | None = None) -> Shop:
+    """Validate and upsert one change. Raises SyncError with a phone-readable reason.
+
+    ``shop_id`` is the phone's shop (the X-Shop-ID header). Without it the
+    user's first shop is used, which is only safe while each owner has one.
+    """
     entity = _text(change, "entity", required=True, max_length=32)
     entity_id = _text(change, "entityId", "entity_id", required=True, max_length=64)
     operation = _text(change, "operation", required=True, max_length=8)
@@ -821,9 +908,14 @@ def apply_change(change: dict, user: User, queue_id: str = "") -> Shop:
 
     with transaction.atomic():
         if entity == "shop":
+            if shop_id and _get(payload, "id") not in (None, shop_id):
+                raise SyncError("This change belongs to another shop.")
             shop = upsert_shop(payload, user)
         else:
-            shop = resolve_shop(user, _get(payload, "shopId", "shop_id"))
+            row_shop = _get(payload, "shopId", "shop_id")
+            if shop_id and row_shop and row_shop != shop_id:
+                raise SyncError("This change belongs to another shop.")
+            shop = resolve_shop(user, row_shop or shop_id)
             shop = _require_shop(shop)
             owner = is_owner(user, shop)
             if (
@@ -837,9 +929,9 @@ def apply_change(change: dict, user: User, queue_id: str = "") -> Shop:
             if not owner:
                 check_staff_change(entity, operation, payload, entity_id, shop)
             if entity == "product":
-                upsert_product(payload, shop)
+                upsert_product(payload, shop, partial=operation == "update")
             elif entity == "product_variant":
-                upsert_variant(payload, shop)
+                upsert_variant(payload, shop, partial=operation == "update")
             elif entity == "stock_movement":
                 if operation == "update":
                     raise SyncError("Stock movements are append-only.")

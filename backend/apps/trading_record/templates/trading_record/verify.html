@@ -1,0 +1,187 @@
+{% load trading_record %}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>StockSure Trading Record</title>
+<style>
+  /* StockSure brand tokens (mobile/src/theme/tokens.ts): paper, charcoal, sand. */
+  :root { --bg:#F5F0E6; --card:#FBF8F2; --alt:#EDE5D6; --line:#D8CBB3; --ink:#1E1E1C; --muted:#6B655B;
+          --t1:#1E7A3C; --t1bg:#E6F4EA; --t2:#0B4A8F; --t2bg:#E7F0FB; --t3:#6B655B; --t3bg:#EDE5D6; --t3bar:#B9AB90;
+          --bad:#B3261E; --badbg:#FBEAE8; --focus:#2F6BFF; color-scheme: light dark; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#141312; --card:#1D1C1A; --alt:#292724; --line:#3B3833; --ink:#F2EDE3; --muted:#ABA396;
+            --t1:#71D49B; --t1bg:#14301F; --t2:#94BCF2; --t2bg:#172536; --t3:#ABA396; --t3bg:#292724; --t3bar:#5E584F;
+            --bad:#FF8F87; --badbg:#3A1D1A; --focus:#94BCF2; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  main { max-width:760px; margin:0 auto; padding:20px 16px 48px; }
+  header { display:flex; justify-content:space-between; align-items:baseline; gap:12px; flex-wrap:wrap; }
+  .brand { font-weight:700; letter-spacing:.02em; }
+  .muted { color:var(--muted); }
+  .small { font-size:14px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:16px; margin-top:16px; }
+  .status { display:flex; gap:10px; align-items:flex-start; border-radius:16px; padding:14px 16px; margin-top:16px; font-weight:600; }
+  .status svg { flex:none; width:22px; height:22px; margin-top:1px; }
+  .status.valid { background:var(--t1bg); color:var(--t1); }
+  .status.bad { background:var(--badbg); color:var(--bad); }
+  h1 { font-size:24px; line-height:1.25; margin:4px 0 2px; }
+  h2 { font-size:13px; margin:0 0 12px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); }
+  .bar { display:flex; gap:2px; height:14px; border-radius:999px; overflow:hidden; margin-bottom:14px; background:var(--alt); }
+  .bar span { min-width:4px; }
+  .lines { display:grid; gap:8px; }
+  .line { display:grid; grid-template-columns:24px 1fr auto; gap:2px 12px; padding:12px; border-radius:12px; align-items:start; }
+  .line svg { width:22px; height:22px; grid-row:1 / span 2; margin-top:1px; }
+  .line .lab { font-weight:700; }
+  .line .amt { font-weight:700; font-variant-numeric:tabular-nums; text-align:right; color:var(--ink); white-space:nowrap; }
+  .line .why { grid-column:2 / -1; font-size:14px; color:var(--muted); }
+  .l1 { background:var(--t1bg); color:var(--t1); } .l2 { background:var(--t2bg); color:var(--t2); } .l3 { background:var(--t3bg); color:var(--t3); }
+  .pct { font-weight:600; color:var(--muted); font-size:14px; }
+  .total { display:flex; justify-content:space-between; margin-top:12px; padding-top:12px; border-top:1px solid var(--line); font-weight:700; font-variant-numeric:tabular-nums; }
+  .scroll { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  table { width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums; font-size:14px; }
+  caption { text-align:left; color:var(--muted); font-size:13px; padding-bottom:6px; }
+  th, td { padding:8px; text-align:right; border-bottom:1px solid var(--line); white-space:nowrap; }
+  th:first-child, td:first-child { text-align:left; }
+  th { color:var(--muted); font-weight:600; font-size:13px; }
+  dl { display:grid; grid-template-columns:auto 1fr; gap:6px 16px; margin:0; }
+  dt { color:var(--muted); } dd { margin:0; }
+  code { font-family:ui-monospace,Consolas,monospace; font-size:13px; word-break:break-all; }
+  .seal { font-family:ui-monospace,Consolas,monospace; font-size:22px; font-weight:700; letter-spacing:.06em; }
+  ul { margin:6px 0 0; padding-left:18px; }
+  a { color:inherit; text-underline-offset:3px; }
+  a:focus-visible { outline:3px solid var(--focus); outline-offset:2px; border-radius:4px; }
+  @media print { body { background:#fff; } .card, .status { break-inside:avoid; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <span class="brand">StockSure · Trading Record</span>
+    <span class="muted small">Verification page</span>
+  </header>
+
+  {% if result.status == "valid" %}
+    <div class="status valid" role="status"><svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm-1.2 14.2-3.5-3.5 1.4-1.4 2.1 2.1 4.9-4.9 1.4 1.4-6.3 6.3Z"/></svg><span>Valid. The figures below are exactly what StockSure sealed on {{ p.issued_at|nicedate }}.</span></div>
+
+    <section class="card">
+      <h1>{{ p.business.name }}</h1>
+      <div class="muted">{% if p.business.town %}{{ p.business.town }} · {% endif %}{% if p.business.owner_name %}Owner: {{ p.business.owner_name }}{% endif %}</div>
+      <div style="margin-top:8px">Period: <strong>{{ p.period.start|nicedate }} – {{ p.period.end|nicedate }}</strong> ({{ p.period.months }} months)</div>
+      <div class="muted small">Link valid until {{ p.expires_at|nicedate }}. Shared by the owner; they can withdraw it at any time.</div>
+    </section>
+
+    <section class="card">
+      <h2>Sales by strength of evidence</h2>
+      <div class="bar" aria-hidden="true">{% if p.totals.recorded_sales %}<span style="flex:{{ p.totals.mobile_money_matched }};background:var(--t1)"></span><span style="flex:{{ p.totals.cash_balanced_close }};background:var(--t2)"></span><span style="flex:{{ p.totals.recorded_only }};background:var(--t3bar)"></span>{% endif %}</div>
+      <div class="lines">
+        <div class="line l1">
+          <svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d="M12 2 4 5v6c0 5 3.4 9.7 8 11 4.6-1.3 8-6 8-11V5l-8-3Zm-1.2 14.2-3.5-3.5 1.4-1.4 2.1 2.1 4.9-4.9 1.4 1.4-6.3 6.3Z"/></svg>
+          <span class="lab">Mobile money matched</span>
+          <span class="amt">{{ p.totals.mobile_money_matched|kwacha }} <span class="pct">{{ p.totals.mobile_money_matched|share:p.totals.recorded_sales }}</span></span>
+          <span class="why">Matched to a provider confirmation SMS stored on the phone: amount, reference and time agree with a recorded sale. No provider API was consulted.</span>
+        </div>
+        <div class="line l2">
+          <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18M5 21h14M6 7h12M6 7l-3 7a3 3 0 0 0 6 0L6 7Zm12 0-3 7a3 3 0 0 0 6 0l-3-7Z"/></svg>
+          <span class="lab">Cash, balanced close</span>
+          <span class="amt">{{ p.totals.cash_balanced_close|kwacha }} <span class="pct">{{ p.totals.cash_balanced_close|share:p.totals.recorded_sales }}</span></span>
+          <span class="why">Cash taken on days when the counted cash equalled the expected cash ({{ p.cash_closes.days_balanced }} of {{ p.cash_closes.days_closed }} closed days). A consistency check, not independent proof.</span>
+        </div>
+        <div class="line l3">
+          <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h10M4 11h10M4 16h6M14.5 19.5 20 14l-2-2-5.5 5.5-.5 2.5 2.5-.5Z"/></svg>
+          <span class="lab">Recorded only</span>
+          <span class="amt">{{ p.totals.recorded_only|kwacha }} <span class="pct">{{ p.totals.recorded_only|share:p.totals.recorded_sales }}</span></span>
+          <span class="why">Entered by the shop and not corroborated by either check above. Self-reported.</span>
+        </div>
+      </div>
+      <div class="total"><span>All recorded sales</span><span>{{ p.totals.recorded_sales|kwacha }}</span></div>
+      <div class="muted small">{{ p.totals.sale_count }} sales on {{ p.totals.trading_days }} trading days. Voided sales are excluded.</div>
+    </section>
+
+    <section class="card">
+      <h2>Month by month</h2>
+      <div class="scroll">
+      <table>
+        <caption>Amounts in Kwacha. Each month splits into the same three lines.</caption>
+        <thead><tr><th scope="col">Month</th><th scope="col">Recorded</th><th scope="col">MoMo matched</th><th scope="col">Cash balanced</th><th scope="col">Recorded only</th><th scope="col">Days</th></tr></thead>
+        <tbody>
+        {% for m in p.months %}
+          <tr><td>{{ m.month|month_label }}</td><td>{{ m.recorded_sales|kwacha }}</td><td>{{ m.mobile_money_matched|kwacha }}</td><td>{{ m.cash_balanced_close|kwacha }}</td><td>{{ m.recorded_only|kwacha }}</td><td>{{ m.trading_days }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>When the data reached StockSure</h2>
+      <dl>
+        <dt>First synced</dt><dd>{{ p.data.first_synced_at|nicedate }}</dd>
+        <dt>Data through</dt><dd>{{ p.data.data_through|nicedate }}</dd>
+        <dt>Synced late</dt><dd>{{ p.data.synced_late_value|kwacha }} of sales first reached the server more than {{ p.data.late_sync_days }} days after they were recorded{% if p.data.sync_time_unknown_value %}; {{ p.data.sync_time_unknown_value|kwacha }} has no sync time{% endif %}.</dd>
+      </dl>
+      <p class="muted small">Late or back-filled history is weaker evidence than sales synced on the day.</p>
+    </section>
+
+    {% if p.margin %}
+    <section class="card">
+      <h2>Gross margin (shared by the owner)</h2>
+      <dl>
+        <dt>Sales</dt><dd>{{ p.margin.revenue|kwacha }}</dd>
+        <dt>Cost of goods</dt><dd>{{ p.margin.cost_of_goods|kwacha }}</dd>
+        <dt>Gross margin</dt><dd>{{ p.margin.gross_margin|kwacha }} ({{ p.margin.gross_margin_bp|bp_percent }})</dd>
+      </dl>
+      <p class="muted small">{{ p.margin.note }}</p>
+    </section>
+    {% endif %}
+
+    {% if p.tax %}
+    <section class="card">
+      <h2>Tax (draft estimate, supporting only)</h2>
+      {% if p.tax.periods %}
+      <div class="scroll">
+      <table>
+        <thead><tr><th>Period</th><th>Declared turnover</th><th>Corroborated</th><th>Variance</th></tr></thead>
+        <tbody>
+        {% for t in p.tax.periods %}
+          <tr><td>{{ t.starts_on|nicedate }} – {{ t.ends_on|nicedate }}</td><td>{{ t.declared_turnover|kwacha }}</td><td>{{ t.corroborated_sales|kwacha }}</td><td>{{ t.variance_vs_corroborated|kwacha }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      </div>
+      {% else %}<p class="muted">No tax periods fall fully inside this period.</p>{% endif %}
+      <ul class="small muted"><li>{{ p.tax.filing }}</li><li>Amendments: {{ p.tax.amendments }}</li><li>{{ p.tax.note }}</li></ul>
+    </section>
+    {% endif %}
+
+    <section class="card">
+      <h2>What this is not</h2>
+      <ul>{% for line in p.not_this %}<li>{{ line }}</li>{% endfor %}</ul>
+      <p class="muted small">Totals only: no customer names, payer phone numbers or product details are shared. Shared with the owner's consent under the Zambia Data Protection Act, 2021.</p>
+    </section>
+
+    <section class="card">
+      <h2>Seal</h2>
+      <div class="seal">{{ result.seal }}</div>
+      <p class="small muted">The printed record should show the same seal. This page re-computed the {{ result.hashAlgorithm }} hash of the stored figures and it matches:</p>
+      <code>{{ result.payloadHash }}</code>
+      <p class="small"><a href="{{ json_url }}" rel="nofollow">Machine-readable version (JSON)</a></p>
+    </section>
+
+  {% elif result.status == "revoked" %}
+    <div class="status bad" role="alert"><svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm1 15h-2v-2h2v2Zm0-4h-2V7h2v6Z"/></svg><span>This trading record was withdrawn by the shop owner on {{ result.revokedAt|nicedate }}. Its figures are no longer shown.</span></div>
+  {% elif result.status == "expired" %}
+    <div class="status bad" role="alert"><svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm1 15h-2v-2h2v2Zm0-4h-2V7h2v6Z"/></svg><span>This trading record expired on {{ result.expiresAt|nicedate }}. Ask the shop owner to share a new one.</span></div>
+  {% elif result.status == "tampered" %}
+    <div class="status bad" role="alert"><svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm1 15h-2v-2h2v2Zm0-4h-2V7h2v6Z"/></svg><span>The stored figures no longer match their seal. Do not rely on this record.</span></div>
+  {% else %}
+    <div class="status bad" role="alert"><svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm1 15h-2v-2h2v2Zm0-4h-2V7h2v6Z"/></svg><span>No trading record matches this link. Check that the whole link or QR code was used.</span></div>
+  {% endif %}
+
+  <p class="muted small" style="margin-top:20px">StockSure is a stock, sales and money record-keeping app for small shops in Zambia. This page confirms what the shop's records show; it is not a recommendation to lend.</p>
+</main>
+</body>
+</html>

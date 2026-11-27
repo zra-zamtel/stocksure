@@ -1,15 +1,38 @@
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '@/auth/session';
-import { Button, EmptyState, ErrorState, Icon, IconButton, LoadingList, Pill, Screen } from '@/components/ui';
+import { RestockSheet } from '@/components/stock/restock-sheet';
+import { StockCard } from '@/components/stock/stock-card';
+import {
+  Button,
+  Choice,
+  EmptyState,
+  ErrorState,
+  IconButton,
+  LoadingList,
+  Screen,
+  SearchField,
+  StatTile,
+} from '@/components/ui';
+import { expiryStatus, profileForShop, todayLocal } from '@/core';
 import { useProducts, useShop } from '@/db/hooks';
 import type { ProductWithStock } from '@/db/repos';
 import { useI18n } from '@/i18n';
-import { formatKwacha } from '@/lib/format';
-import { colors, radii, spacing, touch, typeScale } from '@/theme/tokens';
+import { colors, fonts, spacing, themed, typeScale } from '@/theme/tokens';
 
-type Filter = 'all' | 'low' | 'out';
+type Filter = 'all' | 'low' | 'out' | 'expiring';
+
+/** Has stock on hand that is past its expiry or within the warning window. */
+function isExpiring(product: ProductWithStock, today: string): boolean {
+  return product.variants.some((variant) => {
+    const status = expiryStatus(variant.expiryDate, today);
+    return variant.quantity > 0 && (status === 'expired' || status === 'soon');
+  });
+}
+
+// Out first, then low: what needs restocking is at the top.
+const STATE_ORDER = { out: 0, low: 1, ok: 2 } as const;
 
 function worstState(product: ProductWithStock): 'ok' | 'low' | 'out' {
   return product.variants.reduce<'ok' | 'low' | 'out'>((worst, variant) => {
@@ -21,8 +44,7 @@ function worstState(product: ProductWithStock): 'ok' | 'low' | 'out' {
 
 /**
  * The stock list. Three counts at the top double as filters, so "what is
- * running out?" is one tap. Each product is a single row; tapping it opens the
- * product, where restocking lives.
+ * running out?" is one tap. Each product is a card; owners tap one to add stock.
  */
 export default function ProductsScreen() {
   const { t } = useI18n();
@@ -31,21 +53,50 @@ export default function ProductsScreen() {
   const { data: products, initialLoading, error, reload } = useProducts();
   const { data: shop } = useShop();
   const [query, setQuery] = useState('');
-  const [filter, setFilter] = useState<Filter>('all');
+  // Home's "N more" opens the list already narrowed to what it was about.
+  const { filter: initialFilter } = useLocalSearchParams<{ filter?: string }>();
+  const asFilter = (value?: string): Filter =>
+    value === 'low' || value === 'out' || value === 'expiring' ? value : 'all';
+  const [filter, setFilter] = useState<Filter>(asFilter(initialFilter));
+  // The tab stays mounted, so a later "See stock" from Home must still apply.
+  const [seenFilter, setSeenFilter] = useState(initialFilter);
+  if (initialFilter !== seenFilter) {
+    setSeenFilter(initialFilter);
+    if (initialFilter) setFilter(asFilter(initialFilter));
+  }
+  // null = every category.
+  const [category, setCategory] = useState<string | null>(null);
+  const [restocking, setRestocking] = useState<ProductWithStock | null>(null);
 
+  const profile = profileForShop(shop);
+  const showsExpiry = profile.modules.includes('expiry');
+  const today = todayLocal();
   const managesProducts = can('products.manage');
   const states = new Map(products.map((product) => [product.id, worstState(product)]));
+  const expiring = new Set(products.filter((product) => isExpiring(product, today)).map((product) => product.id));
   const counts = {
     all: products.length,
     low: products.filter((product) => states.get(product.id) === 'low').length,
     out: products.filter((product) => states.get(product.id) === 'out').length,
+    expiring: expiring.size,
   };
+  const categories = [...new Set(products.map((product) => product.category?.trim()).filter((name): name is string => !!name))].sort(
+    (a, b) => a.localeCompare(b)
+  );
 
   const needle = query.trim().toLowerCase();
   const visible = products.filter((product) => {
-    if (filter !== 'all' && states.get(product.id) !== filter) return false;
+    if (filter === 'expiring' ? !expiring.has(product.id) : filter !== 'all' && states.get(product.id) !== filter) {
+      return false;
+    }
+    if (category && product.category?.trim() !== category) return false;
     if (!needle) return true;
-    return [product.name, product.category ?? '', ...product.variants.map((variant) => variant.barcode ?? '')]
+    return [
+      product.name,
+      product.category ?? '',
+      ...product.variants.map((variant) => variant.barcode ?? ''),
+      ...product.variants.flatMap((variant) => variant.attributes.map((attribute) => attribute.value)),
+    ]
       .join(' ')
       .toLowerCase()
       .includes(needle);
@@ -100,45 +151,68 @@ export default function ProductsScreen() {
       }
       footer={
         managesProducts ? (
-          <Button label={t('products.addProduct')} onPress={addProduct} />
+          <Button label={t('products.addProduct')} icon="add" onPress={addProduct} />
         ) : undefined
       }
     >
       <View style={styles.counts} accessibilityRole="radiogroup">
-        <Count
+        <StatTile
           label={t('products.filter.all')}
           value={counts.all}
-          active={filter === 'all'}
+          icon="inventory_2"
+          selected={filter === 'all'}
           onPress={() => setFilter('all')}
         />
-        <Count
+        <StatTile
           label={t('products.filter.low')}
           value={counts.low}
-          tone="warning"
-          active={filter === 'low'}
+          icon="trending_down"
+          tone={counts.low > 0 ? 'warning' : 'neutral'}
+          selected={filter === 'low'}
           onPress={() => setFilter('low')}
         />
-        <Count
+        <StatTile
           label={t('products.filter.out')}
           value={counts.out}
-          tone="danger"
-          active={filter === 'out'}
+          icon="remove_shopping_cart"
+          tone={counts.out > 0 ? 'danger' : 'neutral'}
+          selected={filter === 'out'}
           onPress={() => setFilter('out')}
         />
+        {showsExpiry ? (
+          <StatTile
+            label={t('products.filter.expiring')}
+            value={counts.expiring}
+            icon="event"
+            tone={counts.expiring > 0 ? 'warning' : 'neutral'}
+            selected={filter === 'expiring'}
+            onPress={() => setFilter('expiring')}
+          />
+        ) : null}
       </View>
 
-      <View style={styles.search}>
-        <Icon name="search" size={20} color={colors.textMuted} />
-        <TextInput
-          value={query}
-          onChangeText={setQuery}
-          placeholder={t('products.searchPlaceholder')}
-          placeholderTextColor={colors.textMuted}
-          accessibilityLabel={t('products.searchPlaceholder')}
-          style={styles.searchInput}
-          autoCorrect={false}
-        />
-      </View>
+      {managesProducts ? <Text style={styles.ask}>{t('stock.ask')}</Text> : null}
+
+      {categories.length > 1 ? (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categories}>
+          <Choice label={t('products.category.all')} selected={category === null} onPress={() => setCategory(null)} />
+          {categories.map((name) => (
+            <Choice
+              key={name}
+              label={name}
+              selected={category === name}
+              onPress={() => setCategory((current) => (current === name ? null : name))}
+            />
+          ))}
+        </ScrollView>
+      ) : null}
+
+      <SearchField
+        value={query}
+        onChangeText={setQuery}
+        label={t('products.searchPlaceholder')}
+        clearLabel={t('common.clearSearch')}
+      />
 
       {visible.length === 0 ? (
         needle ? (
@@ -149,182 +223,48 @@ export default function ProductsScreen() {
             secondary={{ label: t('products.noMatch.clear'), icon: 'close', onPress: () => setQuery('') }}
           />
         ) : (
-          <View style={styles.empty}>
-            <Icon name="inventory_2" size={40} color={colors.border} />
-            <Text style={styles.emptyText}>{t('products.noMatch')}</Text>
-          </View>
+          <EmptyState
+            icon="inventory_2"
+            message={t('products.noMatch')}
+            secondary={{
+              label: t('products.showAll'),
+              icon: 'apps',
+              onPress: () => {
+                setFilter('all');
+                setCategory(null);
+              },
+            }}
+          />
         )
       ) : null}
 
-      <View style={styles.list}>
-        {visible.map((product) => {
-          const state = states.get(product.id) ?? 'ok';
-          const barcode = product.variants.find((variant) => variant.barcode)?.barcode;
-          const meta = [
-            product.variants.length > 1
-              ? t('products.variantCount', { count: product.variants.length })
-              : null,
-            product.category,
-            barcode,
-          ]
-            .filter(Boolean)
-            .join(' · ');
-          const row = (
-            <>
-              <View style={styles.rowMain}>
-                <Text style={styles.name} numberOfLines={1}>
-                  {product.name}
-                </Text>
-                {meta ? (
-                  <Text style={styles.meta} numberOfLines={1}>
-                    {meta}
-                  </Text>
-                ) : null}
-              </View>
-              <View style={styles.rowSide}>
-                <Text style={styles.price} numberOfLines={1}>
-                  {formatKwacha(product.defaultSellPrice)}
-                </Text>
-                <Pill
-                  label={
-                    state === 'out' ? t('products.filter.out') : t('products.left', { count: product.stock })
-                  }
-                  tone={state === 'out' ? 'danger' : state === 'low' ? 'warning' : 'neutral'}
-                />
-              </View>
-              {managesProducts ? <Icon name="chevron_right" color={colors.textMuted} /> : null}
-            </>
-          );
+      {visible.length > 0 ? (
+        <View style={styles.grid}>
+          {[...visible]
+            .sort(
+              (a, b) =>
+                STATE_ORDER[states.get(a.id) ?? 'ok'] - STATE_ORDER[states.get(b.id) ?? 'ok'] ||
+                a.name.localeCompare(b.name)
+            )
+            .map((product) => (
+              <StockCard
+                key={product.id}
+                product={product}
+                state={states.get(product.id) ?? 'ok'}
+                onPress={managesProducts ? () => setRestocking(product) : undefined}
+              />
+            ))}
+        </View>
+      ) : null}
 
-          return managesProducts ? (
-            <Pressable
-              key={product.id}
-              accessibilityRole="button"
-              onPress={() => router.push(`/product/${product.id}`)}
-              style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
-            >
-              {row}
-            </Pressable>
-          ) : (
-            <View key={product.id} style={styles.row}>
-              {row}
-            </View>
-          );
-        })}
-      </View>
+      <RestockSheet product={restocking} onClose={() => setRestocking(null)} onSaved={reload} />
     </Screen>
   );
 }
 
-function Count({
-  label,
-  value,
-  tone,
-  active,
-  onPress,
-}: {
-  label: string;
-  value: number;
-  tone?: 'warning' | 'danger';
-  active: boolean;
-  onPress: () => void;
-}) {
-  const ink = value > 0 && tone ? (tone === 'danger' ? colors.danger : colors.warning) : colors.text;
-  return (
-    <Pressable
-      accessibilityRole="radio"
-      accessibilityState={{ selected: active }}
-      accessibilityLabel={`${label}: ${value}`}
-      onPress={onPress}
-      style={[styles.count, active && styles.countActive]}
-    >
-      <Text style={[styles.countValue, { color: ink }]}>{value}</Text>
-      <Text style={styles.countLabel} numberOfLines={1}>
-        {label}
-      </Text>
-    </Pressable>
-  );
-}
-
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   counts: { flexDirection: 'row', gap: spacing.sm },
-  count: {
-    flex: 1,
-    minHeight: touch.minHeight + spacing.xl,
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    justifyContent: 'center',
-  },
-  countActive: {
-    borderColor: colors.primary,
-    borderWidth: 2,
-    backgroundColor: colors.primarySoft,
-  },
-  countValue: {
-    fontSize: typeScale.title,
-    fontWeight: '800',
-    fontVariant: ['tabular-nums'],
-  },
-  countLabel: {
-    fontSize: typeScale.label,
-    color: colors.textMuted,
-    fontWeight: '600',
-  },
-  search: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    minHeight: touch.minHeight,
-    borderRadius: radii.pill,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    paddingHorizontal: spacing.lg,
-  },
-  searchInput: {
-    flex: 1,
-    minHeight: touch.minHeight,
-    fontSize: typeScale.body,
-    color: colors.text,
-  },
-  list: { gap: spacing.sm },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    minHeight: touch.minHeight + spacing.lg,
-    paddingVertical: spacing.md,
-    paddingLeft: spacing.lg,
-    paddingRight: spacing.sm,
-    borderRadius: radii.lg,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-  },
-  rowPressed: { backgroundColor: colors.surfaceAlt },
-  rowMain: { flex: 1, gap: 2 },
-  name: { fontSize: typeScale.body, fontWeight: '700', color: colors.text },
-  meta: { fontSize: typeScale.label, color: colors.textMuted },
-  rowSide: { alignItems: 'flex-end', gap: spacing.xs },
-  price: {
-    fontSize: typeScale.body,
-    fontWeight: '700',
-    color: colors.text,
-    fontVariant: ['tabular-nums'],
-  },
-  muted: { fontSize: typeScale.label, color: colors.textMuted },
-  empty: {
-    alignItems: 'center',
-    gap: spacing.sm,
-    paddingVertical: spacing.xxl,
-  },
-  emptyText: {
-    fontSize: typeScale.body,
-    color: colors.textMuted,
-    textAlign: 'center',
-  },
-});
+  categories: { flexDirection: 'row', gap: spacing.sm },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  ask: { fontFamily: fonts.display, fontSize: typeScale.heading, color: colors.text },
+}));

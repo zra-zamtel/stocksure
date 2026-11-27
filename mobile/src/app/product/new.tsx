@@ -3,19 +3,41 @@ import * as Sharing from 'expo-sharing';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useRef, useState, type ComponentRef } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { captureRef } from 'react-native-view-shot';
 import { usePermissionGuard } from '@/auth/permissions';
 import { BarcodeLabel } from '@/components/barcode-label';
-import { Button, Card, Field, Screen, SectionTitle } from '@/components/ui';
-import { isValidEan13, normaliseBarcode, parsePrice, sanitisePriceInput, type PriceError } from '@/core';
+import { BigTile, PressScale, ProductTile, StepDots } from '@/components/big-ui';
+import { Button, Card, Choice, Field, FormError, Icon, Screen } from '@/components/ui';
+import { VariantDraftCard } from '@/components/variant-draft-card';
+import {
+  isValidEan13,
+  normaliseBarcode,
+  parsePrice,
+  profileForShop,
+  SALE_WARNING_AGE,
+  SALE_WARNING_RX,
+  sanitisePriceInput,
+} from '@/core';
 import { useShop } from '@/db/hooks';
-import { createProduct } from '@/db/repos';
+import { createProductWithVariants } from '@/db/repos';
 import { useI18n } from '@/i18n';
 import { formatKwacha } from '@/lib/format';
 import { labelHtml } from '@/lib/label';
-import { colors, spacing, typeScale } from '@/theme/tokens';
+import { discardPhoto, takeProductPhoto, type PhotoSource } from '@/lib/photos';
+import { draftsToVariants, emptyDraft, nextDraft, type DraftProblem, type DraftVariant } from '@/lib/variant-drafts';
+import { colors, fonts, iconSize, radii, spacing, themed, touch, typeScale } from '@/theme/tokens';
 
+const STEPS = ['photo', 'name', 'price', 'count'] as const;
+type Step = (typeof STEPS)[number];
+const QUICK_COUNTS = [1, 5, 10];
+
+/**
+ * Adding a product, one question per screen: a photo, its name, what it
+ * costs, how many there are. Everything else (sizes, barcode, unit, warning,
+ * expiry, more variants) waits under "More details" on the last step, so the
+ * common case is four taps and some typing.
+ */
 export default function NewProductScreen() {
   const { t } = useI18n();
   const router = useRouter();
@@ -24,29 +46,127 @@ export default function NewProductScreen() {
   const { barcode: scannedBarcode, from } = useLocalSearchParams<{ barcode?: string; from?: string }>();
   const { data: shop } = useShop();
   const onboarding = from === 'onboarding';
+  // The trade decides which variant fields and category suggestions show.
+  const profile = profileForShop(shop);
 
+  const [step, setStep] = useState<Step>('photo');
+  const [photoUri, setPhotoUri] = useState<string | null>(null);
+  const [photoBusy, setPhotoBusy] = useState(false);
   const [name, setName] = useState('');
   const [category, setCategory] = useState('');
-  const [barcode, setBarcode] = useState(scannedBarcode ?? '');
-  const [buyPrice, setBuyPrice] = useState('');
-  const [sellPrice, setSellPrice] = useState('');
-  const [quantity, setQuantity] = useState('1');
-  const [lowStock, setLowStock] = useState('');
+  // null until the owner picks one, so the profile's default applies once the shop loads.
+  const [unitDraft, setUnitDraft] = useState<string | null>(null);
+  const [saleWarning, setSaleWarning] = useState('');
+  // One row per variant. A scanned code fills the first.
+  const nextKey = useRef(1);
+  const [drafts, setDrafts] = useState<DraftVariant[]>(() => [emptyDraft('v0', scannedBarcode ?? '')]);
+  const [moreOpen, setMoreOpen] = useState(Boolean(scannedBarcode));
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   const labelRef = useRef<ComponentRef<typeof View>>(null);
   const usesBarcodes = shop?.usesBarcodes ?? false;
-  // Compare what will actually be saved: a 12-digit UPC-A is stored padded to EAN-13.
-  const savedCode = barcode.trim() === '' ? '' : normaliseBarcode(barcode);
+  const unit = unitDraft ?? profile.defaultUnit;
+  const usesExpiry = profile.modules.includes('expiry');
+  const usesBatch = profile.modules.includes('batch');
+  const usesSaleWarning = profile.modules.includes('saleWarning');
+  const lowStockDefault = shop?.lowStockDefault ?? 3;
+  const firstAxis = profile.axes[0];
+  const first = drafts[0];
+  const extras = drafts.slice(1);
+  const stepIndex = STEPS.indexOf(step);
+
+  // The share/print label card covers the single-variant case; with several
+  // variants, each label is printed from the product page.
+  const single = drafts.length === 1 ? first : null;
+  const savedCode = single && single.barcode.trim() !== '' ? normaliseBarcode(single.barcode) : '';
   const scannable = savedCode !== '' && isValidEan13(savedCode);
 
-  const priceMessage = (field: string, code: PriceError) => t(`price.error.${code}`, { field });
-  // Selling below what it cost is allowed, but the owner is told while typing.
-  const typedBuy = parsePrice(buyPrice);
-  const typedSell = parsePrice(sellPrice);
-  const lossPerUnit = typedBuy.ok && typedSell.ok && typedSell.ngwee < typedBuy.ngwee ? typedBuy.ngwee - typedSell.ngwee : 0;
+  // Profit per item while pricing, so a typo shows before saving.
+  const buy = parsePrice(first.buyPrice);
+  const sell = parsePrice(first.sellPrice);
+  const margin = buy.ok && sell.ok ? sell.ngwee - buy.ngwee : null;
+  const mood: 'good' | 'even' | 'bad' | null =
+    margin === null ? null : margin > 0 ? 'good' : margin === 0 ? 'even' : 'bad';
+
+  function updateFirst(patch: Partial<DraftVariant>) {
+    setDrafts((current) => [{ ...current[0], ...patch }, ...current.slice(1)]);
+  }
+
+  function updateDraft(key: string, next: DraftVariant) {
+    setDrafts((current) => current.map((draft) => (draft.key === key ? next : draft)));
+  }
+
+  function addDraft() {
+    const key = `v${nextKey.current++}`;
+    setDrafts((current) => [...current, nextDraft(current[current.length - 1], key)]);
+  }
+
+  function removeDraft(key: string) {
+    setDrafts((current) => (current.length > 1 ? current.filter((draft) => draft.key !== key) : current));
+  }
+
+  async function pickPhoto(source: PhotoSource) {
+    setError(null);
+    setPhotoBusy(true);
+    try {
+      const result = await takeProductPhoto(source, name || 'product');
+      if (result.status === 'saved') {
+        // A retake replaces the earlier photo; do not leave it on the phone.
+        discardPhoto(photoUri);
+        setPhotoUri(result.uri);
+      }
+      if (result.status === 'denied') setError(t('product.photo.denied'));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : t('product.photo.failed'));
+    } finally {
+      setPhotoBusy(false);
+    }
+  }
+
+  function problemMessage(problem: DraftProblem): string {
+    const row = drafts.length > 1 ? t('product.new.variantN', { n: problem.row }) + ': ' : '';
+    switch (problem.code) {
+      case 'buyPrice':
+        return row + t(`price.error.${problem.priceError}`, { field: t('products.buyPrice') });
+      case 'sellPrice':
+        return row + t(`price.error.${problem.priceError}`, { field: t('products.sellPrice') });
+      case 'quantity':
+        return row + t('product.new.error.qty');
+      case 'expiry':
+        return row + t('product.new.error.expiry');
+      case 'noAxisValue':
+        return row + t('product.new.error.noAxisValue', { axis: firstAxis ? t(firstAxis.labelKey) : '' });
+      case 'duplicateVariant':
+        return t('product.new.error.duplicateVariant', { a: problem.otherRow, b: problem.row });
+      case 'duplicateBarcode':
+        return t('product.new.error.duplicateBarcode', { a: problem.otherRow, b: problem.row });
+    }
+  }
+
+  /** Checks only what this step asked, so the owner fixes it where they typed it. */
+  function stepError(current: Step): string | null {
+    if (current === 'name' && !name.trim()) return t('product.ask.name');
+    if (current === 'price') {
+      if (!buy.ok) return t(`price.error.${buy.error}`, { field: t('products.buyPrice') });
+      if (!sell.ok) return t(`price.error.${sell.error}`, { field: t('products.sellPrice') });
+    }
+    return null;
+  }
+
+  function goNext() {
+    const problem = stepError(step);
+    setError(problem);
+    if (problem) return;
+    setStep(STEPS[Math.min(STEPS.length - 1, stepIndex + 1)]);
+  }
+
+  function goBack() {
+    setError(null);
+    if (stepIndex === 0) router.back();
+    else setStep(STEPS[stepIndex - 1]);
+  }
 
   async function handleSave() {
     setError(null);
@@ -59,34 +179,45 @@ export default function NewProductScreen() {
       return;
     }
 
-    const buyResult = parsePrice(buyPrice);
-    const sellResult = parsePrice(sellPrice);
-    const opening = Number.parseInt(quantity, 10);
-
-    if (!name.trim()) return setError('Product name is required');
-    if (!buyResult.ok) return setError(priceMessage(t('products.buyPrice'), buyResult.error));
-    if (!sellResult.ok) return setError(priceMessage(t('products.sellPrice'), sellResult.error));
-    if (!Number.isInteger(opening) || opening < 0) return setError('Opening quantity must be a whole number');
-    const buy = buyResult.ngwee;
-    const sell = sellResult.ngwee;
+    if (!name.trim()) {
+      setStep('name');
+      setError(t('product.ask.name'));
+      return;
+    }
+    const result = draftsToVariants(drafts, {
+      axes: profile.axes,
+      usesBarcodes,
+      usesExpiry,
+      usesBatch,
+      lowStockDefault: shop?.lowStockDefault,
+    });
+    if (!result.ok) {
+      // A problem with the first item's price belongs on the price step.
+      if (result.problem.row === 1 && (result.problem.code === 'buyPrice' || result.problem.code === 'sellPrice')) {
+        setStep('price');
+      } else if (result.problem.code !== 'quantity' || result.problem.row !== 1) {
+        setMoreOpen(true);
+      }
+      setError(problemMessage(result.problem));
+      return;
+    }
 
     setSaving(true);
     try {
-      const result = await createProduct(db, {
+      const created = await createProductWithVariants(db, {
         name,
         category: category.trim() || undefined,
-        barcode: barcode.trim() || undefined,
-        buyPrice: buy,
-        sellPrice: sell,
-        openingQuantity: opening,
-        lowStockLevel: Number.parseInt(lowStock, 10) || shop?.lowStockDefault,
+        unit,
+        saleWarning: usesSaleWarning ? saleWarning || undefined : undefined,
+        photoUri: photoUri ?? undefined,
+        variants: result.variants,
       });
       if (onboarding) {
         // Return to the setup screen that opened this form, dismissing any
         // intermediate scan/form screens and refreshing its product count.
         router.dismissTo('/onboarding/first-products');
       } else {
-        router.replace(`/product/${result.productId}`);
+        router.replace(`/product/${created.productId}`);
       }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not save the product');
@@ -101,10 +232,7 @@ export default function NewProductScreen() {
     try {
       const uri = await captureRef(labelRef, { format: 'png', quality: 1, result: 'tmpfile' });
       if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(uri, {
-          mimeType: 'image/png',
-          dialogTitle: t('products.shareLabel'),
-        });
+        await Sharing.shareAsync(uri, { mimeType: 'image/png', dialogTitle: t('products.shareLabel') });
         setMessage(t('products.labelShared'));
       } else {
         setError('Sharing is not available on this device');
@@ -115,9 +243,9 @@ export default function NewProductScreen() {
   }
 
   async function handlePrintLabel() {
-    if (!scannable) return;
+    if (!scannable || !single) return;
     setError(null);
-    const printPrice = parsePrice(sellPrice);
+    const printPrice = parsePrice(single.sellPrice);
     const priceText = printPrice.ok ? formatKwacha(printPrice.ngwee) : '';
     try {
       await Print.printAsync({
@@ -133,86 +261,328 @@ export default function NewProductScreen() {
     }
   }
 
+  const last = step === 'count';
+  const footer = (
+    <View style={styles.footer}>
+      <PressScale onPress={goBack} accessibilityLabel={t('product.previous')} style={styles.backButton}>
+        <Icon name="arrow_back" size={iconSize.lg} color={colors.text} />
+      </PressScale>
+      <View style={styles.footerMain}>
+        {last ? (
+          <Button label={t('products.saveProduct')} icon="check" disabled={saving} loading={saving} onPress={handleSave} />
+        ) : (
+          <Button
+            label={step === 'photo' && !photoUri ? t('product.skip') : t('product.next')}
+            icon="arrow_forward"
+            onPress={goNext}
+          />
+        )}
+      </View>
+    </View>
+  );
+
   return (
-    <Screen
-      title={t('product.new.title')}
-      footer={<Button label={t('products.saveProduct')} disabled={saving} loading={saving} onPress={handleSave} />}
-    >
-      {usesBarcodes ? (
-        <Button
-          label={t('products.scanBarcode')}
-          variant="secondary"
-          onPress={() =>
-            router.push(from ? { pathname: '/scan', params: { from } } : '/scan')
-          }
+    <Screen back title={t('product.new.title')} footer={footer}>
+      <View style={styles.progress}>
+        <StepDots
+          count={STEPS.length}
+          current={stepIndex}
+          label={t('product.step', { current: stepIndex + 1, count: STEPS.length })}
         />
+      </View>
+
+      {step === 'photo' ? (
+        <>
+          <Text style={styles.ask}>{t('product.ask.photo')}</Text>
+          <View style={styles.photo}>
+            <ProductTile id="new-product" name={name || category} category={category} photoUri={photoUri} size={touch.big * 3} />
+          </View>
+          <View style={styles.tiles}>
+            <BigTile
+              icon="photo_camera"
+              label={photoUri ? t('product.photo.retake') : t('product.photo.take')}
+              tone="primary"
+              onPress={() => void pickPhoto('camera')}
+            />
+            <BigTile icon="photo_library" label={t('product.photo.gallery')} onPress={() => void pickPhoto('library')} />
+          </View>
+          {photoBusy ? <Text style={styles.muted}>{t('state.loading')}</Text> : null}
+          {/* Scanning opens a fresh form, so offer it only before anything is entered. */}
+          {usesBarcodes && !photoUri && !name.trim() ? (
+            <Button
+              label={t('products.scanBarcode')}
+              icon="barcode_scanner"
+              variant="secondary"
+              onPress={() => router.push(from ? { pathname: '/scan', params: { from } } : '/scan')}
+            />
+          ) : null}
+        </>
       ) : null}
 
-      <SectionTitle>{t('product.new.name')}</SectionTitle>
-      <Card>
-        <Field label={t('product.new.name')} value={name} onChangeText={setName} placeholder="Black school shoes, size 42" required />
-        <Field label={t('product.new.category')} value={category} onChangeText={setCategory} placeholder="Shoes" />
-        <Field
-          label={t('product.new.barcode')}
-          value={barcode}
-          onChangeText={setBarcode}
-          placeholder={usesBarcodes ? t('products.barcodeAuto') : t('common.optional')}
-          keyboardType="numeric"
-        />
-      </Card>
+      {step === 'name' ? (
+        <>
+          <Text style={styles.ask}>{t('product.ask.name')}</Text>
+          <Field
+            label={t('product.new.name')}
+            value={name}
+            onChangeText={setName}
+            placeholder={t('product.new.namePlaceholder')}
+            autoFocus
+            required
+          />
+          <View style={styles.chips}>
+            {profile.categories.map((suggestion) => (
+              <Choice
+                key={suggestion}
+                label={suggestion}
+                selected={suggestion === category}
+                onPress={() => setCategory((current) => (current === suggestion ? '' : suggestion))}
+              />
+            ))}
+          </View>
+        </>
+      ) : null}
 
-      {barcode.trim() !== '' ? (
-        <Card>
-          {scannable ? (
+      {step === 'price' ? (
+        <>
+          <Text style={styles.ask}>{t('product.ask.price')}</Text>
+          <Field
+            label={t('product.buy')}
+            value={first.buyPrice}
+            onChangeText={(value) => updateFirst({ buyPrice: sanitisePriceInput(value) })}
+            placeholder={t('product.new.buyPlaceholder')}
+            keyboardType="decimal-pad"
+            prefix="K"
+            autoFocus
+            required
+          />
+          <Field
+            label={t('product.sell')}
+            value={first.sellPrice}
+            onChangeText={(value) => updateFirst({ sellPrice: sanitisePriceInput(value) })}
+            placeholder={t('product.new.sellPlaceholder')}
+            keyboardType="decimal-pad"
+            prefix="K"
+            required
+          />
+          {mood && margin !== null ? (
+            <View style={styles.profit} accessibilityLiveRegion="polite">
+              {/* An arrow, not only a colour: up for profit, down for a loss, flat for none. */}
+              <Icon
+                name={mood === 'good' ? 'trending_up' : mood === 'bad' ? 'trending_down' : 'trending_flat'}
+                size={iconSize.xl}
+                color={mood === 'good' ? colors.success : mood === 'bad' ? colors.danger : colors.warning}
+              />
+              <Text style={[styles.profitText, mood === 'bad' && styles.loss, mood === 'even' && styles.even]}>
+                {mood === 'good'
+                  ? t('product.profit.good', { amount: formatKwacha(margin) })
+                  : mood === 'bad'
+                    ? t('product.profit.bad', { amount: formatKwacha(-margin) })
+                    : t('product.profit.even')}
+              </Text>
+            </View>
+          ) : null}
+        </>
+      ) : null}
+
+      {step === 'count' ? (
+        <>
+          <Text style={styles.ask}>{t('product.ask.count')}</Text>
+          <View style={styles.countRow}>
+            <ProductTile id="new-product" name={name} category={category} photoUri={photoUri} size={touch.big} />
+            <Text style={styles.countValue} numberOfLines={1} adjustsFontSizeToFit>
+              {first.quantity === '' ? '0' : first.quantity}
+            </Text>
+          </View>
+          <View style={styles.quick}>
+            {QUICK_COUNTS.map((n) => (
+              <PressScale
+                key={n}
+                onPress={() => updateFirst({ quantity: String((Number.parseInt(first.quantity, 10) || 0) + n) })}
+                accessibilityLabel={`+${n}`}
+                style={styles.quickButton}
+              >
+                <Text style={styles.quickText}>+{n}</Text>
+              </PressScale>
+            ))}
+          </View>
+          <Field
+            label={t('product.new.openingQty')}
+            value={first.quantity}
+            onChangeText={(value) => updateFirst({ quantity: value.replace(/\D/g, '') })}
+            placeholder="0"
+            keyboardType="numeric"
+            required
+          />
+
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={t('product.more')}
+            accessibilityState={{ expanded: moreOpen }}
+            onPress={() => setMoreOpen((open) => !open)}
+            android_ripple={{ color: colors.ripple }}
+            style={styles.moreToggle}
+          >
+            <Icon name="tune" size={iconSize.lg} color={colors.primaryInk} />
+            <Text style={styles.moreText}>{t('product.more')}</Text>
+            <Icon name={moreOpen ? 'expand_less' : 'expand_more'} size={iconSize.lg} color={colors.primaryInk} />
+          </Pressable>
+
+          {moreOpen ? (
             <>
-              <BarcodeLabel code={savedCode} viewRef={labelRef} />
-              <View style={styles.labelActions}>
-                <View style={styles.rowButton}>
-                  <Button label={t('products.shareLabel')} variant="secondary" onPress={handleShareLabel} />
-                </View>
-                <View style={styles.rowButton}>
-                  <Button label={t('products.printLabel')} variant="secondary" onPress={handlePrintLabel} />
-                </View>
-              </View>
+              <Card>
+                <Field
+                  label={t('product.new.category')}
+                  value={category}
+                  onChangeText={setCategory}
+                  placeholder={profile.categories[0] ?? t('product.new.categoryPlaceholder')}
+                />
+                {profile.units.length > 1 ? (
+                  <View style={styles.group}>
+                    <Text style={styles.label}>{t('product.new.unit')}</Text>
+                    <View style={styles.chips}>
+                      {profile.units.map((option) => (
+                        <Choice key={option} label={option} selected={option === unit} onPress={() => setUnitDraft(option)} />
+                      ))}
+                    </View>
+                  </View>
+                ) : null}
+                {usesSaleWarning ? (
+                  <View style={styles.group}>
+                    <Text style={styles.label}>{t('product.new.saleWarning')}</Text>
+                    <View style={styles.chips}>
+                      <Choice label={t('product.new.saleWarning.none')} selected={saleWarning === ''} onPress={() => setSaleWarning('')} />
+                      <Choice
+                        label={t('product.new.saleWarning.rx')}
+                        selected={saleWarning === SALE_WARNING_RX}
+                        onPress={() => setSaleWarning(SALE_WARNING_RX)}
+                      />
+                      <Choice
+                        label={t('product.new.saleWarning.age')}
+                        selected={saleWarning === SALE_WARNING_AGE}
+                        onPress={() => setSaleWarning(SALE_WARNING_AGE)}
+                      />
+                    </View>
+                  </View>
+                ) : null}
+              </Card>
+
+              <VariantDraftCard
+                draft={first}
+                onChange={(next) => updateDraft(first.key, next)}
+                title={drafts.length > 1 ? t('product.new.variantN', { n: 1 }) : undefined}
+                axes={profile.axes}
+                usesBarcodes={usesBarcodes}
+                usesExpiry={usesExpiry}
+                usesBatch={usesBatch}
+                lowStockDefault={lowStockDefault}
+                extrasOnly
+              />
+              {extras.map((draft, index) => (
+                <VariantDraftCard
+                  key={draft.key}
+                  draft={draft}
+                  onChange={(next) => updateDraft(draft.key, next)}
+                  title={t('product.new.variantN', { n: index + 2 })}
+                  onRemove={() => removeDraft(draft.key)}
+                  axes={profile.axes}
+                  usesBarcodes={usesBarcodes}
+                  usesExpiry={usesExpiry}
+                  usesBatch={usesBatch}
+                  lowStockDefault={lowStockDefault}
+                />
+              ))}
+              {firstAxis ? (
+                <Button
+                  label={t('product.new.addVariant', { axis: t(firstAxis.labelKey).toLowerCase() })}
+                  icon="add"
+                  variant="secondary"
+                  onPress={addDraft}
+                />
+              ) : null}
+
+              {usesBarcodes && single && single.barcode.trim() !== '' ? (
+                <Card>
+                  {scannable ? (
+                    <>
+                      <BarcodeLabel code={savedCode} viewRef={labelRef} />
+                      <View style={styles.labelActions}>
+                        <View style={styles.rowButton}>
+                          <Button label={t('products.shareLabel')} variant="secondary" onPress={handleShareLabel} />
+                        </View>
+                        <View style={styles.rowButton}>
+                          <Button label={t('products.printLabel')} variant="secondary" onPress={handlePrintLabel} />
+                        </View>
+                      </View>
+                    </>
+                  ) : (
+                    <Text style={styles.muted}>{t('products.notScannable')}</Text>
+                  )}
+                  {message ? <Text style={styles.success}>{message}</Text> : null}
+                </Card>
+              ) : null}
             </>
-          ) : (
-            <Text style={styles.muted}>{t('products.notScannable')}</Text>
-          )}
-          {message ? <Text style={styles.success}>{message}</Text> : null}
-        </Card>
+          ) : null}
+        </>
       ) : null}
 
-      <SectionTitle>{t('products.buyPrice')}</SectionTitle>
-      <Card>
-        <Field label={t('products.buyPrice')} value={buyPrice} onChangeText={(v) => setBuyPrice(sanitisePriceInput(v))} placeholder="180.00" keyboardType="decimal-pad" required />
-        <Field label={t('products.sellPrice')} value={sellPrice} onChangeText={(v) => setSellPrice(sanitisePriceInput(v))} placeholder="280.00" keyboardType="decimal-pad" required />
-        {lossPerUnit > 0 ? (
-          <Text style={styles.warning}>{t('price.belowCost', { loss: formatKwacha(lossPerUnit) })}</Text>
-        ) : null}
-      </Card>
-
-      <SectionTitle>{t('products.inStock')}</SectionTitle>
-      <Card>
-        <Field label={t('product.new.openingQty')} value={quantity} onChangeText={(v) => setQuantity(v.replace(/\D/g, ''))} keyboardType="numeric" required />
-        <Field
-          label={t('product.new.lowStock')}
-          value={lowStock}
-          onChangeText={(v) => setLowStock(v.replace(/\D/g, ''))}
-          placeholder={String(shop?.lowStockDefault ?? 3)}
-          keyboardType="numeric"
-        />
-      </Card>
-
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {error ? <FormError message={error} /> : null}
     </Screen>
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
+  progress: { alignItems: 'center' },
+  ask: { fontFamily: fonts.display, fontSize: typeScale.title, color: colors.text },
+  photo: { alignItems: 'center', paddingVertical: spacing.sm },
+  tiles: { flexDirection: 'row', gap: spacing.sm },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  group: { gap: spacing.sm },
+  label: { fontSize: typeScale.label, color: colors.textMuted, fontWeight: '600' },
+  profit: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  profitText: { flex: 1, fontFamily: fonts.display, fontSize: typeScale.heading, color: colors.success },
+  loss: { color: colors.danger },
+  even: { color: colors.warning },
+  countRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.lg },
+  countValue: {
+    flex: 1,
+    fontFamily: fonts.display,
+    fontSize: typeScale.money,
+    color: colors.text,
+    fontVariant: ['tabular-nums'],
+  },
+  quick: { flexDirection: 'row', gap: spacing.sm },
+  quickButton: {
+    flex: 1,
+    minHeight: touch.big,
+    borderRadius: radii.lg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primarySoft,
+  },
+  quickText: { fontFamily: fonts.display, fontSize: typeScale.title, color: colors.primaryInk },
+  moreToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    minHeight: touch.big,
+    paddingHorizontal: spacing.xs,
+    borderRadius: radii.md,
+    overflow: 'hidden',
+  },
+  moreText: { flex: 1, fontSize: typeScale.body, fontWeight: '700', color: colors.primaryInk },
+  footer: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  footerMain: { flex: 1 },
+  backButton: {
+    width: touch.big,
+    height: touch.big,
+    borderRadius: radii.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surfaceAlt,
+  },
   rowButton: { flex: 1 },
   labelActions: { flexDirection: 'row', gap: spacing.md },
-  muted: { fontSize: typeScale.label, color: colors.textMuted },
+  muted: { fontSize: typeScale.body, color: colors.textMuted },
   success: { fontSize: typeScale.label, color: colors.success, fontWeight: '600' },
-  error: { fontSize: typeScale.label, color: colors.danger, fontWeight: '600' },
-  warning: { fontSize: typeScale.label, color: colors.warning, fontWeight: '600' },
-});
+}));

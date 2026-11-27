@@ -76,6 +76,7 @@ export const SCREEN_PERMISSIONS = {
   tax: 'tax.view',
   taxPot: 'tax.view',
   insights: 'money.insights',
+  tradingRecord: 'money.insights',
   paymentMessage: 'reconcile.resolve',
   productNew: 'products.manage',
   productDetail: 'products.manage',

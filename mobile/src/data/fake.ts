@@ -11,6 +11,7 @@ import type {
   TaxPotEntry,
   TaxRules,
 } from '@/core/types';
+import { variantLabel } from '@/core/profiles';
 
 const kwacha = (amount: number) => Math.round(amount * 100);
 const at = (time: string) => `2026-11-17T${time}:00+02:00`;
@@ -35,6 +36,7 @@ export const shop: Shop = {
   updatedAt: at('07:00'),
   name: 'Chiwala Fashions',
   type: 'clothes',
+  profileId: 'fashion',
   town: 'Lusaka',
   currency: 'ZMW',
   language: 'en',
@@ -55,6 +57,7 @@ export const products: Product[] = [
     defaultBuyPrice: kwacha(180),
     defaultSellPrice: kwacha(280),
     discount: { enabled: true, type: 'percent', value: 10 },
+    unit: 'piece',
     variants: [
       { id: 'var-1', createdAt: at('07:10'), updatedAt: at('07:10'), productId: 'prod-1', size: '40', barcode: '6001234500018', buyPrice: kwacha(180), sellPrice: kwacha(280), lowStockLevel: 3 },
       { id: 'var-2', createdAt: at('07:10'), updatedAt: at('07:10'), productId: 'prod-1', size: '42', barcode: '6001234500025', buyPrice: kwacha(180), sellPrice: kwacha(280), lowStockLevel: 3 },
@@ -68,6 +71,7 @@ export const products: Product[] = [
     category: 'Clothes',
     defaultBuyPrice: kwacha(90),
     defaultSellPrice: kwacha(160),
+    unit: 'piece',
     variants: [
       { id: 'var-3', createdAt: at('07:12'), updatedAt: at('07:12'), productId: 'prod-2', size: 'M', barcode: '6001234500032', buyPrice: kwacha(90), sellPrice: kwacha(160), lowStockLevel: 3 },
       { id: 'var-4', createdAt: at('07:12'), updatedAt: at('07:12'), productId: 'prod-2', size: 'L', barcode: '6001234500049', buyPrice: kwacha(90), sellPrice: kwacha(160), lowStockLevel: 3 },
@@ -81,6 +85,7 @@ export const products: Product[] = [
     category: 'Accessories',
     defaultBuyPrice: kwacha(250),
     defaultSellPrice: kwacha(450),
+    unit: 'piece',
     variants: [
       { id: 'var-5', createdAt: at('07:15'), updatedAt: at('07:15'), productId: 'prod-3', colour: 'Brown', barcode: '2000000000015', buyPrice: kwacha(250), sellPrice: kwacha(450), lowStockLevel: 2 },
     ],
@@ -93,6 +98,7 @@ export const products: Product[] = [
     category: 'Accessories',
     defaultBuyPrice: kwacha(25),
     defaultSellPrice: kwacha(60),
+    unit: 'piece',
     variants: [
       { id: 'var-6', createdAt: at('07:18'), updatedAt: at('07:18'), productId: 'prod-4', colour: 'White', barcode: '2000000000022', buyPrice: kwacha(25), sellPrice: kwacha(60), lowStockLevel: 5 },
     ],
@@ -105,6 +111,7 @@ export const products: Product[] = [
     category: 'Shoes',
     defaultBuyPrice: kwacha(200),
     defaultSellPrice: kwacha(320),
+    unit: 'piece',
     variants: [
       { id: 'var-7', createdAt: at('07:20'), updatedAt: at('07:20'), productId: 'prod-5', size: '41', barcode: '2000000000039', buyPrice: kwacha(200), sellPrice: kwacha(320), lowStockLevel: 3 },
     ],
@@ -343,7 +350,7 @@ export function lowStockItems(): { variantId: string; label: string; quantity: n
     product.variants.flatMap((variant) => {
       const quantity = stockOnHand(variant.id);
       if (quantity > variant.lowStockLevel) return [];
-      const label = [product.name, variant.size, variant.colour].filter(Boolean).join(' · ');
+      const label = variantLabel(product.name, variant);
       return [{ variantId: variant.id, label, quantity, level: variant.lowStockLevel }];
     })
   );

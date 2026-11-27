@@ -196,6 +196,47 @@ class SyncBase(TestCase):
 
 
 class SyncTestCase(SyncBase):
+    def push_to(self, shop_id, changes, user=None):
+        """Push with the phone's X-Shop-ID header."""
+        return self.client.post(
+            "/api/v1/sync/push",
+            data=json.dumps({"deviceId": "dev_1", "batchId": "batch_1", "changes": changes}),
+            content_type="application/json",
+            HTTP_X_SHOP_ID=shop_id,
+            **(auth(user or self.owner)),
+        )
+
+    def test_push_with_shop_header_lands_in_that_shop(self):
+        response = self.push_to(
+            "shop_1",
+            [
+                self.change("q_shop", "shop", "shop_1", shop_payload()),
+                self.change("q_product", "product", "prod_1", product_payload()),
+            ],
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["rejected"], [])
+        self.assertEqual(Product.objects.get(id="prod_1").shop_id, "shop_1")
+
+    def test_push_refuses_a_shop_row_for_another_shop_than_the_header(self):
+        response = self.push_to("shop_other", [self.change("q_shop", "shop", "shop_1", shop_payload())])
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["accepted"], [])
+        self.assertIn("another shop", response.json()["rejected"][0]["reason"])
+
+    def test_push_with_an_unknown_shop_header_does_not_fall_back_to_the_first_shop(self):
+        self.push_schema()
+
+        response = self.push_to(
+            "shop_not_mine",
+            [self.change("q_p2", "product", "prod_2", product_payload(id="prod_2"))],
+        )
+
+        self.assertEqual(response.json()["accepted"], [])
+        self.assertFalse(Product.objects.filter(id="prod_2").exists())
+
     def test_push_shop_stores_text_id_and_ngwee(self):
         response = self.push([self.change("q_shop", "shop", "shop_1", shop_payload())])
 
@@ -511,6 +552,210 @@ class SyncTestCase(SyncBase):
         answer = handle("0971234567", "2*1")
         self.assertTrue(answer.startswith("END Low stock 1/1, 1 out"), answer)
         self.assertIn("Sneaker 41 Black: 0", answer)
+
+    # ---- shop profiles and trade-specific product fields ----
+
+    def test_shop_profile_is_stored_and_kept_on_partial_updates(self):
+        response = self.push([self.change("q_shop", "shop", "shop_1", shop_payload(type="other", profileId="health_beauty"))])
+        self.assertEqual(response.json()["rejected"], [])
+        self.assertEqual(Shop.objects.get(id="shop_1").profile_id, "health_beauty")
+
+        self.push(
+            [self.change("q_shop2", "shop", "shop_1", {"id": "shop_1", "town": "Ndola", "updatedAt": NOW}, operation="update")]
+        )
+        shop = Shop.objects.get(id="shop_1")
+        self.assertEqual((shop.town, shop.profile_id), ("Ndola", "health_beauty"))
+
+        self.push(
+            [self.change("q_shop3", "shop", "shop_1", {"id": "shop_1", "profile_id": "bar", "updatedAt": NOW}, operation="update")]
+        )
+        self.assertEqual(Shop.objects.get(id="shop_1").profile_id, "bar")
+
+    def test_shop_without_a_profile_takes_one_from_its_type(self):
+        self.push_schema()  # an older phone: type "shoes", no profileId
+        self.assertEqual(Shop.objects.get(id="shop_1").profile_id, "fashion")
+
+    def test_product_and_variant_fields_round_trip(self):
+        response = self.push(
+            [
+                self.change("q_shop", "shop", "shop_1", shop_payload()),
+                self.change(
+                    "q_product",
+                    "product",
+                    "prod_1",
+                    product_payload(unit="strip", saleWarning="Rx only"),
+                ),
+                self.change(
+                    "q_variant",
+                    "product_variant",
+                    "var_1",
+                    variant_payload(expiryDate="2027-06-30", batchNo="B12"),
+                ),
+            ]
+        )
+        self.assertEqual(response.json()["rejected"], [])
+        product = Product.objects.get(id="prod_1")
+        self.assertEqual((product.unit, product.sale_warning), ("strip", "Rx only"))
+        variant = ProductVariant.objects.get(id="var_1")
+        self.assertEqual((variant.expiry_date, variant.batch_no), (date(2027, 6, 30), "B12"))
+
+        pulled = {
+            change["entity"]: change["payload"]
+            for change in self.client.get("/api/v1/sync/pull?cursor=0", **auth(self.owner)).json()["changes"]
+        }
+        self.assertEqual(pulled["product"]["saleWarning"], "Rx only")
+        self.assertEqual(pulled["product_variant"]["expiryDate"], "2027-06-30")
+
+    def test_older_payloads_get_the_defaults(self):
+        self.push_schema()
+        product = Product.objects.get(id="prod_1")
+        self.assertEqual((product.unit, product.sale_warning), ("", ""))
+        variant = ProductVariant.objects.get(id="var_1")
+        self.assertEqual((variant.expiry_date, variant.batch_no), (None, ""))
+
+    def test_partial_variant_update_keeps_the_other_fields(self):
+        # A restock sends only what changed; it used to be rejected for missing productId.
+        self.push_schema()
+        response = self.push(
+            [
+                self.change(
+                    "q_restock",
+                    "product_variant",
+                    "var_1",
+                    {"id": "var_1", "buyPrice": 31000, "expiryDate": "2028-01-31", "updatedAt": NOW},
+                    operation="update",
+                ),
+                self.change(
+                    "q_code",
+                    "product_variant",
+                    "var_1",
+                    {"id": "var_1", "barcode": "2000000000015", "updatedAt": NOW},
+                    operation="update",
+                ),
+            ]
+        )
+        self.assertEqual(response.json()["rejected"], [])
+        variant = ProductVariant.objects.get(id="var_1")
+        self.assertEqual(variant.buy_price, 31000)
+        self.assertEqual(variant.expiry_date, date(2028, 1, 31))
+        self.assertEqual(variant.barcode, "2000000000015")
+        self.assertEqual((variant.product_id, variant.size, variant.colour, variant.sell_price), ("prod_1", "41", "Black", 45000))
+
+    def test_partial_product_update_keeps_the_other_fields(self):
+        self.push(
+            [
+                self.change("q_shop", "shop", "shop_1", shop_payload()),
+                self.change("q_product", "product", "prod_1", product_payload(unit="bottle", saleWarning="18+")),
+            ]
+        )
+        response = self.push(
+            [self.change("q_p2", "product", "prod_1", {"id": "prod_1", "defaultSellPrice": 50000, "updatedAt": NOW}, operation="update")]
+        )
+        self.assertEqual(response.json()["rejected"], [])
+        product = Product.objects.get(id="prod_1")
+        self.assertEqual((product.name, product.default_sell_price, product.unit, product.sale_warning), ("Sneaker", 50000, "bottle", "18+"))
+
+    def test_an_impossible_expiry_date_is_rejected(self):
+        self.push_schema()
+        response = self.push(
+            [self.change("q_bad", "product_variant", "var_1", {"id": "var_1", "expiryDate": "2027-02-30", "updatedAt": NOW}, operation="update")]
+        )
+        self.assertIn("expiryDate", response.json()["rejected"][0]["reason"])
+        self.assertIsNone(ProductVariant.objects.get(id="var_1").expiry_date)
+
+    # ---- variant attributes ----
+
+    def test_variant_attributes_round_trip_with_their_mirrors(self):
+        attributes = [{"key": "pack", "value": "Crate"}, {"key": "size", "value": "330 ml"}]
+        response = self.push(
+            [
+                self.change("q_shop", "shop", "shop_1", shop_payload(type="other", profileId="bar")),
+                self.change("q_product", "product", "prod_1", product_payload(name="Castle Lager")),
+                self.change(
+                    "q_variant",
+                    "product_variant",
+                    "var_1",
+                    variant_payload(size="Crate", colour="330 ml", attributes=attributes),
+                ),
+            ]
+        )
+        self.assertEqual(response.json()["rejected"], [])
+        variant = ProductVariant.objects.get(id="var_1")
+        self.assertEqual(variant.attributes_json, attributes)
+        self.assertEqual(str(variant), "Castle Lager Crate 330 ml")
+
+        pulled = [
+            change["payload"]
+            for change in self.client.get("/api/v1/sync/pull?cursor=0", **auth(self.owner)).json()["changes"]
+            if change["entity"] == "product_variant"
+        ]
+        self.assertEqual(pulled[0]["attributes"], attributes)
+
+    def test_attributes_fill_size_and_colour_when_they_are_missing(self):
+        payload = variant_payload(attributes=[{"key": "shade", "value": "Medium"}, {"key": "pack", "value": "50 ml"}])
+        del payload["size"]
+        del payload["colour"]
+        self.push(
+            [
+                self.change("q_shop", "shop", "shop_1", shop_payload()),
+                self.change("q_product", "product", "prod_1", product_payload()),
+                self.change("q_variant", "product_variant", "var_1", payload),
+            ]
+        )
+        variant = ProductVariant.objects.get(id="var_1")
+        self.assertEqual((variant.size, variant.colour), ("Medium", "50 ml"))
+
+    def test_malformed_attributes_are_dropped_not_fatal(self):
+        messy = [
+            {"key": "pack", "value": " Bottle "},
+            "Crate",
+            {"key": "size"},
+            {"key": "", "value": "x"},
+            {"key": "colour", "value": "Green"},
+            {"key": "extra", "value": "ignored, only two are kept"},
+        ]
+        response = self.push(
+            [
+                self.change("q_shop", "shop", "shop_1", shop_payload()),
+                self.change("q_product", "product", "prod_1", product_payload()),
+                self.change("q_variant", "product_variant", "var_1", variant_payload(attributes=messy)),
+            ]
+        )
+        self.assertEqual(response.json()["rejected"], [])
+        self.assertEqual(
+            ProductVariant.objects.get(id="var_1").attributes_json,
+            [{"key": "pack", "value": "Bottle"}, {"key": "colour", "value": "Green"}],
+        )
+
+    def test_older_variant_payloads_still_apply_and_keep_attributes_on_update(self):
+        self.push_schema()  # no attributes at all
+        variant = ProductVariant.objects.get(id="var_1")
+        self.assertEqual(variant.attributes_json, [])
+        self.assertEqual(str(variant), "Sneaker 41 Black")
+
+        ProductVariant.objects.filter(id="var_1").update(attributes_json=[{"key": "size", "value": "41"}])
+        self.push(
+            [self.change("q_up", "product_variant", "var_1", {"id": "var_1", "sellPrice": 46000, "updatedAt": NOW}, operation="update")]
+        )
+        variant = ProductVariant.objects.get(id="var_1")
+        self.assertEqual((variant.sell_price, variant.attributes_json), (46000, [{"key": "size", "value": "41"}]))
+
+    def test_ussd_stock_line_uses_the_attributes(self):
+        from apps.ussd.services import handle
+
+        self.push(
+            [
+                self.change("q_shop", "shop", "shop_1", shop_payload()),
+                self.change("q_product", "product", "prod_1", product_payload(name="Lager")),
+                self.change(
+                    "q_variant",
+                    "product_variant",
+                    "var_1",
+                    variant_payload(size="", colour="", attributes=[{"key": "pack", "value": "Crate"}]),
+                ),
+            ]
+        )
+        self.assertIn("Lager Crate: 0", handle("0971234567", "2*1"))
 
     def test_ussd_check_stock_by_barcode(self):
         from apps.ussd.services import handle

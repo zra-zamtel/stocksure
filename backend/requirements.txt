@@ -8,7 +8,11 @@ dj-database-url>=2.3,<4.0
 psycopg[binary]>=3.2,<4.0
 Pillow>=10.4
 python-dotenv>=1.1,<2.0
+# Lipila request to pay (apps.collections.providers.LipilaProvider)
+httpx>=0.28,<1.0
 whitenoise>=6.7
+# Trading Record verification QR code (pure Python, no native deps)
+segno>=1.6,<2.0
 # Optional: only needed if AI_INVOICE_READER=apps.integrations.ai.AnthropicInvoiceReader
 anthropic>=0.40
 # AWS Lambda deployment

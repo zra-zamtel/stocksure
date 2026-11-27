@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { enqueueSync, getSmartInvoiceLink, listSmartInvoiceReceipts } from './repos';
-import { applyPulledChange, pullChanges, pushOutbox } from './sync';
+import { applyPulledChange, pullChanges, pushOutbox, rememberShopOwnerId, shopOwnerId } from './sync';
 import { count, openTestDb, type TestDb } from '@/test/sqlite';
 
 vi.mock('react-native', () => ({ Platform: { OS: 'android' } }));
@@ -171,6 +171,169 @@ describe('IT-SYNC pull and apply', () => {
     expect(shop?.tpin).toBe('1002003004');
   });
 
+  it('applies a pulled shop profile, and keeps it when a later change leaves it out', async () => {
+    respond(200, {
+      changes: [
+        {
+          entity: 'shop',
+          entityId: 'shop_1',
+          operation: 'create',
+          payload: { id: 'shop_1', name: 'Glow', type: 'other', profileId: 'health_beauty', town: 'Kabwe', providers: [], createdAt: NOW, updatedAt: NOW },
+          cursor: '1',
+          clientCreatedAt: NOW,
+        },
+        {
+          // An older server or phone that does not know about profiles.
+          entity: 'shop',
+          entityId: 'shop_1',
+          operation: 'update',
+          payload: { id: 'shop_1', name: 'Glow Beauty', type: 'other', updatedAt: NOW },
+          cursor: '2',
+          clientCreatedAt: NOW,
+        },
+      ],
+      nextCursor: '2',
+      serverTime: NOW,
+    });
+
+    await pullChanges(db, 'jwt');
+
+    const shop = await db.getFirstAsync<{ name: string; type: string; profile_id: string }>(
+      'SELECT name, type, profile_id FROM shop WHERE id = ?',
+      'shop_1'
+    );
+    expect(shop).toEqual({ name: 'Glow Beauty', type: 'other', profile_id: 'health_beauty' });
+  });
+
+  it('accepts the snake_case profile_id spelling', async () => {
+    respond(200, {
+      changes: [
+        {
+          entity: 'shop',
+          entityId: 'shop_1',
+          operation: 'create',
+          payload: { id: 'shop_1', name: 'Bar', type: 'other', profile_id: 'bar', town: 'Kabwe', providers: [], createdAt: NOW, updatedAt: NOW },
+          cursor: '1',
+          clientCreatedAt: NOW,
+        },
+      ],
+      nextCursor: '1',
+      serverTime: NOW,
+    });
+
+    await pullChanges(db, 'jwt');
+
+    const shop = await db.getFirstAsync<{ profile_id: string }>('SELECT profile_id FROM shop WHERE id = ?', 'shop_1');
+    expect(shop?.profile_id).toBe('bar');
+  });
+
+  it('applies pulled product fields for unit, warning, expiry and batch', async () => {
+    await applyPulledChange(db, {
+      entity: 'shop',
+      entityId: 'shop_1',
+      operation: 'create',
+      payload: { id: 'shop_1', name: 'Glow', type: 'other', profileId: 'health_beauty', town: 'Kabwe', providers: [], createdAt: NOW, updatedAt: NOW },
+      cursor: '1',
+      clientCreatedAt: NOW,
+    });
+    await applyPulledChange(db, {
+      entity: 'product',
+      entityId: 'prod_1',
+      operation: 'create',
+      payload: {
+        id: 'prod_1',
+        name: 'Amoxil',
+        defaultBuyPrice: 1000,
+        defaultSellPrice: 2000,
+        unit: 'strip',
+        sale_warning: 'Rx only',
+        createdAt: NOW,
+        updatedAt: NOW,
+      },
+      cursor: '2',
+      clientCreatedAt: NOW,
+    });
+    await applyPulledChange(db, {
+      entity: 'product_variant',
+      entityId: 'var_1',
+      operation: 'create',
+      payload: {
+        id: 'var_1',
+        productId: 'prod_1',
+        buyPrice: 1000,
+        sellPrice: 2000,
+        lowStockLevel: 1,
+        expiryDate: '2027-06-30',
+        batchNo: 'B12',
+        createdAt: NOW,
+        updatedAt: NOW,
+      },
+      cursor: '3',
+      clientCreatedAt: NOW,
+    });
+    // A later restock update sends only what changed; the rest stays.
+    await applyPulledChange(db, {
+      entity: 'product_variant',
+      entityId: 'var_1',
+      operation: 'update',
+      payload: { id: 'var_1', expiry_date: '2028-01-31', updatedAt: NOW },
+      cursor: '4',
+      clientCreatedAt: NOW,
+    });
+    expect(
+      await db.getFirstAsync('SELECT unit, sale_warning FROM product WHERE id = ?', 'prod_1')
+    ).toEqual({ unit: 'strip', sale_warning: 'Rx only' });
+    expect(
+      await db.getFirstAsync('SELECT expiry_date, batch_no, buy_price FROM product_variant WHERE id = ?', 'var_1')
+    ).toEqual({ expiry_date: '2028-01-31', batch_no: 'B12', buy_price: 1000 });
+  });
+
+  it('stores a pulled variant\'s attributes, and keeps them when an update leaves them out', async () => {
+    await applyPulledChange(db, {
+      entity: 'shop',
+      entityId: 'shop_1',
+      operation: 'create',
+      payload: { id: 'shop_1', name: 'Bar', type: 'other', profileId: 'bar', town: 'Kabwe', providers: [], createdAt: NOW, updatedAt: NOW },
+      cursor: '1',
+      clientCreatedAt: NOW,
+    });
+    await applyPulledChange(db, {
+      entity: 'product',
+      entityId: 'prod_1',
+      operation: 'create',
+      payload: { id: 'prod_1', name: 'Castle Lager', defaultBuyPrice: 1, defaultSellPrice: 2, createdAt: NOW, updatedAt: NOW },
+      cursor: '2',
+      clientCreatedAt: NOW,
+    });
+    const attributes = [
+      { key: 'pack', value: 'Crate' },
+      { key: 'size', value: '330 ml' },
+    ];
+    await applyPulledChange(db, {
+      entity: 'product_variant',
+      entityId: 'var_1',
+      operation: 'create',
+      payload: { id: 'var_1', productId: 'prod_1', size: 'Crate', colour: '330 ml', attributes, buyPrice: 1, sellPrice: 2, createdAt: NOW, updatedAt: NOW },
+      cursor: '3',
+      clientCreatedAt: NOW,
+    });
+    await applyPulledChange(db, {
+      entity: 'product_variant',
+      entityId: 'var_1',
+      operation: 'update',
+      payload: { id: 'var_1', buyPrice: 3, updatedAt: NOW },
+      cursor: '4',
+      clientCreatedAt: NOW,
+    });
+
+    const row = await db.getFirstAsync<{ attributes_json: string; buy_price: number }>(
+      'SELECT attributes_json, buy_price FROM product_variant WHERE id = ?',
+      'var_1'
+    );
+    expect(JSON.parse(row?.attributes_json ?? 'null')).toEqual(attributes);
+    expect(row?.buy_price).toBe(3);
+  });
+
   it('applies a sale with its lines, payment and stock movement', async () => {
     const shop = {
       id: 'shop_1',
@@ -329,5 +492,58 @@ describe('IT-SYNC Smart Invoice receipts', () => {
     expect(receipts).toHaveLength(1);
     expect(receipts[0]).toMatchObject({ receiptType: 'S', receiptNo: 1, simulated: true });
     expect((await getSmartInvoiceLink(db))?.sdcId).toBe('SDC-SIM-ABC123');
+  });
+});
+
+describe('IT-SYNC one shop per phone', () => {
+  const shop = {
+    entity: 'shop',
+    entityId: 'shop_1',
+    operation: 'create' as const,
+    payload: {
+      id: 'shop_1',
+      name: 'Phone Shop',
+      type: 'shoes',
+      town: 'Kabwe',
+      currency: 'ZMW',
+      language: 'en',
+      usesBarcodes: false,
+      lowStockDefault: 3,
+      turnoverTaxRegistered: false,
+      providersJson: [],
+      onboardingCompleted: true,
+      createdAt: NOW,
+      updatedAt: NOW,
+    },
+    cursor: '1',
+    clientCreatedAt: NOW,
+  };
+
+  it("sends this phone's shop with every push and pull", async () => {
+    await applyPulledChange(db, shop);
+    await enqueueSync(db, 'product', 'prod_1', 'create', { id: 'prod_1' });
+    const pushMock = echoAccepted();
+    await pushOutbox(db, 'jwt');
+    const [, pushInit] = pushMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect((pushInit.headers as Record<string, string>)['X-Shop-ID']).toBe('shop_1');
+
+    const pullMock = respond(200, { changes: [], nextCursor: '1', serverTime: NOW });
+    await pullChanges(db, 'jwt');
+    const [, pullInit] = pullMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect((pullInit.headers as Record<string, string>)['X-Shop-ID']).toBe('shop_1');
+  });
+
+  it('sends no shop header from a phone with no shop yet', async () => {
+    await enqueueSync(db, 'shop', 'shop_1', 'create', { id: 'shop_1' });
+    const fetchMock = echoAccepted();
+    await pushOutbox(db, 'jwt');
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect((init.headers as Record<string, string>)['X-Shop-ID']).toBeUndefined();
+  });
+
+  it("knows which owner's shop a staff-only phone belongs to", async () => {
+    expect(await shopOwnerId(db)).toBeNull();
+    await rememberShopOwnerId(db, 'owner_1');
+    expect(await shopOwnerId(db)).toBe('owner_1');
   });
 });

@@ -86,6 +86,7 @@ INSTALLED_APPS = [
     "apps.sync",
     "apps.collections",
     "apps.smartinvoice",
+    "apps.trading_record",
 ]
 
 MIDDLEWARE = [
@@ -219,6 +220,7 @@ REST_FRAMEWORK = {
         "webhook": "300/min",
         "collections": "30/min",
         "collections_status": "240/min",
+        "trading-record": "10/min",
     },
 }
 
@@ -302,3 +304,19 @@ COLLECTIONS_PROVIDER = os.environ.get(
 )
 COLLECTIONS_SIMULATED_DELAY_SECONDS = int(os.environ.get("COLLECTIONS_SIMULATED_DELAY_SECONDS", "6"))
 COLLECTIONS_TIMEOUT_SECONDS = int(os.environ.get("COLLECTIONS_TIMEOUT_SECONDS", "120"))
+# The provider's fee, in percent of what it collects, passed on to the
+# customer so the shop nets the full sale. 0 passes nothing on. Lipila: 2.5.
+COLLECTIONS_CUSTOMER_FEE_PERCENT = os.environ.get("COLLECTIONS_CUSTOMER_FEE_PERCENT", "0")
+
+# Lipila mobile-money collections (COLLECTIONS_PROVIDER =
+# apps.collections.providers.LipilaProvider). api.lipila.dev is the sandbox and
+# blz.lipila.io is production; the key must match the host or Lipila returns 401.
+LIPILA_API_KEY = os.environ.get("LIPILA_API_KEY", "")
+# Absolute base for Trading Record share links (e.g. https://api.stocksure.example).
+# Empty: built from the request host.
+TRADING_RECORD_PUBLIC_URL = os.environ.get("TRADING_RECORD_PUBLIC_URL", "").strip()
+
+LIPILA_BASE_URL = os.environ.get("LIPILA_BASE_URL", "https://blz.lipila.io")
+LIPILA_TIMEOUT_SECONDS = int(os.environ.get("LIPILA_TIMEOUT_SECONDS", "15"))
+LIPILA_CALLBACK_URL = os.environ.get("LIPILA_CALLBACK_URL", "")
+LIPILA_NARRATION = os.environ.get("LIPILA_NARRATION", "StockSure sale")

@@ -45,8 +45,13 @@ Response:
   replayed batch is a no-op. Do not generate IDs server-side.
 - **Stock is append-only.** `stock_movement` rows are inserted, never updated
   or deleted, so two phones cannot overwrite each other's counts.
-- **Only `sale` ever updates.** Voiding is an update to `status` plus new
-  `stock_movement` rows, never a delete.
+- **Nothing is deleted.** Voiding a sale is an update to `status` plus new
+  `stock_movement` rows. `shop`, `product` and `product_variant` updates are
+  partial: the payload carries only the fields that changed (a restock sends
+  the new `buyPrice`, `expiryDate` or `batchNo`), and every field it leaves out
+  keeps its stored value.
+- **Unknown fields are ignored**, so a newer phone can ship before the server
+  knows a field.
 - **Reject, do not repair.** A malformed record is returned in `rejected` with a
   reason; the phone keeps it queued and shows it as unsynced.
 - **Server does not recompute money.** It validates shape and foreign keys, and
@@ -62,9 +67,9 @@ Every table has `id`, `created_at`, `updated_at`.
 | --- | --- |
 | `owner` | name, phone (unique), email (unique), password_hash, pin_hash |
 | `staff` | name, phone (unique), pin_hash, role (`owner` \| `staff`) |
-| `shop` | name, type, town, currency (`ZMW`), language (`en` \| `ny`), uses_barcodes (0/1), low_stock_default, turnover_tax_registered (0/1), tpin, providers_json |
-| `product` | name, category, photo_uri, default_buy_price, default_sell_price, discount_json |
-| `product_variant` | product_id, size, colour, barcode (unique when set), buy_price, sell_price, low_stock_level |
+| `shop` | name, type (legacy: `clothes` \| `shoes` \| `general` \| `other`), profile_id, town, currency (`ZMW`), language (`en` \| `ny`), uses_barcodes (0/1), low_stock_default, turnover_tax_registered (0/1), tpin, providers_json |
+| `product` | name, category, photo_uri, default_buy_price, default_sell_price, discount_json, unit, sale_warning |
+| `product_variant` | product_id, size, colour, attributes_json, barcode (unique when set), buy_price, sell_price, low_stock_level, expiry_date, batch_no |
 | `stock_movement` | variant_id, quantity_change (never 0), reason (`opening` \| `restock` \| `sale` \| `void` \| `correction`), note, sale_id |
 | `sale` | recorded_by, subtotal, discount_total, total, status (`active` \| `void`), void_reason, reconcile_status |
 | `sale_line` | sale_id, variant_id, quantity, buy_price, list_price, discount, final_price |
@@ -76,6 +81,29 @@ Every table has `id`, `created_at`, `updated_at`.
 | `sync_queue` | entity, entity_id, operation, payload, attempts |
 
 `sync_queue` is phone-only and is not part of the push payload's table set.
+
+Shop profile and product fields (shop profiles, slices 1 and 2):
+
+- `shop.profile_id` is the trade (`fashion`, `salaula`, `health_beauty`, `bar`,
+  `grocery`, `electronics`, `general`; free text, so a new
+  trade needs no migration). Optional: when it is missing, `clothes`/`shoes`
+  read as `fashion` and anything else as `general`. `type` is still sent as
+  the legacy mirror for USSD.
+- `product.unit` is how the item is counted (`piece`, `bottle`, `strip`,
+  `kg`...); empty reads as `piece`. `sale_warning` (`Rx only`, `18+`) is
+  confirmed on the phone before a sale.
+- `product_variant.expiry_date` is `YYYY-MM-DD` or null; an impossible date is
+  rejected. `batch_no` is free text (60 characters).
+- `product_variant.attributes_json` (sent by the phone as `attributes`) is the
+  variant's values for the profile's axes, at most two
+  `{"key": ..., "value": ...}` objects, e.g. `[{"key": "pack", "value": "Crate"},
+  {"key": "size", "value": "330 ml"}]`. `size` and `colour` are still sent as
+  mirrors of the first and second axis; when a payload leaves them out, the
+  server fills them from the attributes. Malformed entries are dropped, not
+  rejected. A payload without attributes keeps whatever is stored, and older
+  rows read their values from `size`/`colour`.
+- Payloads accept both camelCase (`profileId`, `saleWarning`,
+  `expiryDate`, `batchNo`) and snake_case.
 
 ## Derived, never synced
 

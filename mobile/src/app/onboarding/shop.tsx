@@ -6,18 +6,11 @@ import { useAuth } from '@/auth/session';
 import type { AndroidSymbol } from 'expo-symbols';
 import { Button, Field, FormError } from '@/components/ui';
 import { OptionCard, OptionGrid, SETUP_STEPS, SetupStep, StepSection } from '@/components/onboarding';
-import type { ShopType } from '@/core';
+import { PROFILES, profileForShop, type ProfileId } from '@/core';
 import { useShop } from '@/db/hooks';
 import { saveShopDetails } from '@/db/repos';
 import { useI18n } from '@/i18n';
 import { spacing } from '@/theme/tokens';
-
-const SHOP_TYPES: { type: ShopType; icon: AndroidSymbol }[] = [
-  { type: 'clothes', icon: 'checkroom' },
-  { type: 'shoes', icon: 'steps' },
-  { type: 'general', icon: 'shopping_basket' },
-  { type: 'other', icon: 'category' },
-];
 
 export default function ShopScreen() {
   const { t, language } = useI18n();
@@ -28,7 +21,7 @@ export default function ShopScreen() {
 
   const [name, setName] = useState('');
   const [town, setTown] = useState('');
-  const [shopType, setShopType] = useState<ShopType>('clothes');
+  const [profileId, setProfileId] = useState<ProfileId>('fashion');
   const [usesBarcodes, setUsesBarcodes] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [nameError, setNameError] = useState<string | null>(null);
@@ -42,7 +35,7 @@ export default function ShopScreen() {
     if (!shop || hydrated.current) return;
     setName(shop.name);
     setTown(shop.town);
-    setShopType(shop.type);
+    setProfileId(profileForShop(shop).id);
     setUsesBarcodes(shop.usesBarcodes);
     hydrated.current = true;
   }, [shop]);
@@ -58,9 +51,9 @@ export default function ShopScreen() {
 
     setSaving(true);
     try {
-      await saveShopDetails(db, { name, type: shopType, town, language, usesBarcodes });
+      await saveShopDetails(db, { name, profileId, town, language, usesBarcodes });
       await refresh();
-      router.push('/onboarding/plan');
+      router.push('/onboarding/money');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : t('onboarding.account.error.generic'));
     } finally {
@@ -110,14 +103,18 @@ export default function ShopScreen() {
 
       <StepSection>{t('onboarding.shop.type')}</StepSection>
       <OptionGrid>
-        {SHOP_TYPES.map(({ type, icon }) => (
+        {PROFILES.map((profile) => (
           <OptionCard
-            key={type}
-            icon={icon}
-            title={t(`onboarding.shop.type.${type}`)}
-            caption={t(`onboarding.shop.type.${type}.caption`)}
-            selected={shopType === type}
-            onPress={() => setShopType(type)}
+            key={profile.id}
+            icon={profile.icon as AndroidSymbol}
+            title={t(profile.nameKey)}
+            caption={t(profile.captionKey)}
+            selected={profileId === profile.id}
+            onPress={() => {
+              setProfileId(profile.id);
+              // The trade suggests whether barcodes are used; the owner can still change it below.
+              setUsesBarcodes(profile.barcodesDefault);
+            }}
           />
         ))}
       </OptionGrid>

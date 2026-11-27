@@ -1,4 +1,7 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { memo, useContext, useEffect, useState, type ReactNode } from 'react';
+import { useRouter } from 'expo-router';
+import { BottomTabBarHeightContext } from 'expo-router/tabs';
+import { useI18n } from '../i18n';
 import {
   ActivityIndicator,
   ImageBackground,
@@ -14,7 +17,7 @@ import {
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { AndroidSymbol } from 'expo-symbols';
 import Animated, {
   Easing,
@@ -26,7 +29,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import MATERIAL_SYMBOLS from '../theme/material-symbols.json';
-import { colors, radii, spacing, touch, typeScale } from '../theme/tokens';
+import { colors, currentScheme, elevation, fonts, iconSize, radii, spacing, themed, touch, typeScale } from '../theme/tokens';
 
 type ScreenProps = {
   title?: string;
@@ -36,11 +39,72 @@ type ScreenProps = {
   footer?: ReactNode;
   /** One small action beside the title, such as the settings gear. */
   action?: ReactNode;
+  /** A visible "Back" above the title, for pushed screens without their own close button. */
+  back?: boolean;
+  /**
+   * Show "Back" even inside the tabs: for a tab route that is not in the bar
+   * (Sales, Tax), which is reached from Home and needs a way out.
+   */
+  offBar?: boolean;
 };
 
 // A faint paper grain tiled under every screen, so the warm background reads as
 // a material rather than a flat fill. It is a 128px tile, a few KB.
 const PAPER = require('../../assets/images/paper.png');
+
+/** Warm paper with grain in light mode; plain warm charcoal in dark mode. */
+function Paper({ children }: { children: ReactNode }) {
+  if (currentScheme() === 'dark') return <View style={styles.paper}>{children}</View>;
+  return (
+    <ImageBackground source={PAPER} resizeMode="repeat" style={styles.paper}>
+      {children}
+    </ImageBackground>
+  );
+}
+
+// Steps in a fade. Plain views, not a gradient image, so every Android phone
+// draws the same thing; 14 steps over ~60px is smooth on textured paper.
+const FADE_STEPS = 14;
+
+/**
+ * Paper that fades from clear to solid toward one screen edge, with a fully
+ * solid strip at that edge (behind the status bar or the tab bar), so the
+ * chrome there always reads. It never takes touches.
+ */
+const PaperFade = memo(function PaperFade({
+  fade,
+  solid,
+  edge,
+}: {
+  /** Height of the soft part, in px. */
+  fade: number;
+  /** Height of the solid part at the edge, in px. */
+  solid: number;
+  edge: 'top' | 'bottom';
+}) {
+  const step = fade / FADE_STEPS;
+  const steps = Array.from({ length: FADE_STEPS }, (_, index) => {
+    // Ease-in: barely there far from the edge, firm close to it.
+    const t = (index + 1) / FADE_STEPS;
+    return <View key={index} style={{ height: step, backgroundColor: colors.bg, opacity: t * t * 0.96 }} />;
+  });
+  const solidPart = <View style={{ height: solid, backgroundColor: colors.bg }} />;
+  return (
+    <View pointerEvents="none" style={edge === 'top' ? styles.fadeTop : styles.fadeBottom}>
+      {edge === 'top' ? (
+        <>
+          {solidPart}
+          {steps.reverse()}
+        </>
+      ) : (
+        <>
+          {steps}
+          {solidPart}
+        </>
+      )}
+    </View>
+  );
+});
 
 /** True while the on-screen keyboard is up. */
 function useKeyboardVisible(): boolean {
@@ -56,14 +120,44 @@ function useKeyboardVisible(): boolean {
   return visible;
 }
 
-export function Screen({ title, subtitle, children, scroll = true, footer, action }: ScreenProps) {
-  // The live height of whatever the phone draws at the bottom: Android's
-  // 3-button bar, the gesture handle (a thin strip) or the iOS home indicator.
-  const { bottom: bottomInset } = useSafeAreaInsets();
-  // The keyboard covers that strip, so the footer drops the extra space then.
+export function Screen({ title, subtitle, children, scroll = true, footer, action, back = false, offBar = false }: ScreenProps) {
+  const insets = useSafeAreaInsets();
+  // Inside the tabs the bar floats over the screen with no background of its
+  // own; this screen draws the fade behind it. Elsewhere this is 0.
+  const tabBarHeight = useContext(BottomTabBarHeightContext) ?? 0;
+  const [footerHeight, setFooterHeight] = useState(0);
+  const router = useRouter();
+  const { t } = useI18n();
+  // Pushed screens (Add product, Record sale…) get a visible way back, not
+  // only Android's back gesture. Tabs in the bar are top level, so they never
+  // show it; tab routes kept off the bar (offBar) do.
+  const showBack = (offBar || (back && tabBarHeight === 0)) && router.canGoBack();
+  // The keyboard covers the tab bar and the phone's nav bar, so while it is up
+  // the footer drops that space and sits straight on top of the keyboard.
   const keyboardVisible = useKeyboardVisible();
+  // Content runs edge to edge, under the status bar and behind the footer and
+  // tab bar; these pads only make sure the first and last items can be read.
+  const bottomEdge = keyboardVisible ? 0 : tabBarHeight || insets.bottom;
+  const bottomChrome = footer ? footerHeight : bottomEdge;
+  // Solid behind the status bar and the tab bar (or the phone's own nav bar);
+  // a soft fade above the floating footer button so content slides under it.
+  const bottomSolid = bottomEdge;
+  const bottomSoft = Math.max(bottomChrome - bottomSolid, 0) + spacing.xxl;
+
   const body = (
-    <View style={styles.body}>
+    <View style={[styles.body, { paddingTop: insets.top + spacing.lg }]}>
+      {showBack ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={t('common.back')}
+          onPress={() => router.back()}
+          hitSlop={8}
+          style={({ pressed }) => [styles.back, pressed && styles.iconButtonPressed]}
+        >
+          <Icon name="arrow_back" size={iconSize.md} color={colors.text} />
+          <Text style={styles.backLabel}>{t('common.back')}</Text>
+        </Pressable>
+      ) : null}
       {title || action ? (
         <View style={styles.titleRow}>
           {title ? <Text style={styles.screenTitle}>{title}</Text> : <View />}
@@ -76,32 +170,42 @@ export function Screen({ title, subtitle, children, scroll = true, footer, actio
   );
 
   return (
-    <ImageBackground source={PAPER} resizeMode="repeat" style={styles.paper}>
-      <SafeAreaView
-        style={styles.safe}
-        edges={footer ? ['top', 'left', 'right'] : ['top', 'left', 'right', 'bottom']}
-      >
-        {/* The phone's window does not always shrink for the keyboard (apps that
-            draw edge to edge), so the content makes room itself: the field being
-            typed in and the main button stay above the keyboard. */}
-        <KeyboardAvoidingView behavior="padding" style={styles.avoid}>
+    <Paper>
+      {/* The window does not shrink for the keyboard when the app draws edge to
+          edge, so the content makes room itself: the field being typed in and the
+          footer button stay above the keyboard. The inner view is what shrinks,
+          so the floating footer and the fades move up with it. */}
+      <KeyboardAvoidingView behavior="padding" style={styles.safe}>
+        <View style={[styles.safe, { paddingLeft: insets.left, paddingRight: insets.right }]}>
           {scroll ? (
-            <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+            <ScrollView
+              contentContainerStyle={{ paddingBottom: bottomChrome + spacing.xl }}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
               {body}
             </ScrollView>
           ) : (
-            body
+            <View style={[styles.safe, { paddingBottom: bottomChrome }]}>{body}</View>
           )}
+
+          {/* Soft fades instead of hard edges, so content slides under the chrome. */}
+          <PaperFade edge="top" solid={insets.top} fade={spacing.xl} />
+          <PaperFade edge="bottom" solid={bottomSolid} fade={bottomSoft} />
+
           {footer ? (
-            // The footer adds the bottom inset to its own padding, so its buttons
-            // always sit above the system bar and its surface runs underneath it.
-            <View style={[styles.footer, { paddingBottom: spacing.md + (keyboardVisible ? 0 : bottomInset) }]}>
+            // The footer floats over the content: above the tab bar inside the
+            // tabs, otherwise above Android's 3-button bar or gesture strip.
+            <View
+              style={[styles.footer, { paddingBottom: bottomEdge + spacing.md }]}
+              onLayout={(event) => setFooterHeight(event.nativeEvent.layout.height)}
+            >
               {footer}
             </View>
           ) : null}
-        </KeyboardAvoidingView>
-      </SafeAreaView>
-    </ImageBackground>
+        </View>
+      </KeyboardAvoidingView>
+    </Paper>
   );
 }
 
@@ -152,19 +256,218 @@ export function IconButton({
       accessibilityRole="button"
       accessibilityLabel={label}
       onPress={onPress}
-      style={({ pressed }) => [styles.iconButton, pressed && styles.buttonPressed]}
+      android_ripple={{ color: colors.ripple, borderless: true, radius: 24 }}
+      style={({ pressed }) => [styles.iconButton, pressed && styles.iconButtonPressed]}
     >
-      <Icon name={name} color={colors.textMuted} />
+      <Icon name={name} color={colors.text} />
     </Pressable>
   );
 }
 
-export function Card({ children, style }: { children: ReactNode; style?: StyleProp<ViewStyle> }) {
-  return <View style={[styles.card, style]}>{children}</View>;
+export function Card({
+  children,
+  style,
+  onPress,
+  accessibilityLabel,
+}: {
+  children: ReactNode;
+  style?: StyleProp<ViewStyle>;
+  /** Makes the whole card one tap target, with ripple and pressed tint. */
+  onPress?: () => void;
+  accessibilityLabel?: string;
+}) {
+  if (!onPress) return <View style={[styles.card, style]}>{children}</View>;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      onPress={onPress}
+      android_ripple={{ color: colors.ripple }}
+      style={({ pressed }) => [styles.card, style, pressed && styles.cardPressed]}
+    >
+      {children}
+    </Pressable>
+  );
 }
 
-export function SectionTitle({ children }: { children: ReactNode }) {
-  return <Text style={styles.sectionTitle}>{children}</Text>;
+/** A small uppercase heading over a group, with an optional text action on the right. */
+export function SectionTitle({
+  children,
+  action,
+}: {
+  children: ReactNode;
+  action?: { label: string; onPress: () => void };
+}) {
+  if (!action) {
+    return (
+      <Text style={styles.sectionTitle} accessibilityRole="header">
+        {children}
+      </Text>
+    );
+  }
+  return (
+    <View style={styles.sectionRow}>
+      <Text style={[styles.sectionTitle, styles.sectionTitleFlex]} accessibilityRole="header">
+        {children}
+      </Text>
+      <Pressable
+        accessibilityRole="button"
+        onPress={action.onPress}
+        hitSlop={12}
+        style={({ pressed }) => [styles.sectionAction, pressed && styles.buttonPressed]}
+      >
+        <Text style={styles.sectionActionText}>{action.label}</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+export type Tone = 'neutral' | 'primary' | 'success' | 'warning' | 'danger' | 'info';
+
+const BADGE_TONES: Record<Tone, { bg: string; fg: string }> = themed(() => ({
+  neutral: { bg: colors.surfaceAlt, fg: colors.text },
+  primary: { bg: colors.primarySoft, fg: colors.primaryInk },
+  success: { bg: colors.successSoft, fg: colors.success },
+  warning: { bg: colors.warningSoft, fg: colors.warning },
+  danger: { bg: colors.dangerSoft, fg: colors.danger },
+  info: { bg: colors.infoSoft, fg: colors.info },
+}));
+
+/** An icon on a soft tinted square: the lead of a row, a tile or a state panel. */
+export function IconBadge({
+  name,
+  tone = 'primary',
+  size = 40,
+}: {
+  name: AndroidSymbol;
+  tone?: Tone;
+  size?: number;
+}) {
+  const look = BADGE_TONES[tone];
+  return (
+    <View
+      style={[
+        styles.iconBadge,
+        { width: size, height: size, borderRadius: size >= 56 ? size / 2 : radii.md, backgroundColor: look.bg },
+      ]}
+    >
+      <Icon name={name} size={Math.round(size * 0.55)} color={look.fg} />
+    </View>
+  );
+}
+
+/**
+ * One number with a label under it, set side by side with its siblings. With
+ * onPress it is a filter: the selected one gets a blue outline.
+ */
+export function StatTile({
+  value,
+  label,
+  icon,
+  tone = 'neutral',
+  selected,
+  onPress,
+}: {
+  value: string | number;
+  label: string;
+  icon?: AndroidSymbol;
+  tone?: Tone;
+  selected?: boolean;
+  onPress?: () => void;
+}) {
+  const ink = tone === 'neutral' || tone === 'primary' ? colors.text : BADGE_TONES[tone].fg;
+  const body = (
+    <>
+      <View style={styles.statTop}>
+        <Text style={[styles.statValue, { color: ink }]} numberOfLines={1} adjustsFontSizeToFit>
+          {value}
+        </Text>
+        {icon ? <Icon name={icon} size={iconSize.md} color={tone === 'neutral' ? colors.textMuted : ink} /> : null}
+      </View>
+      <Text style={styles.statLabel} numberOfLines={1}>
+        {label}
+      </Text>
+    </>
+  );
+  if (!onPress) {
+    return (
+      <View style={styles.stat} accessible accessibilityLabel={`${label}: ${value}`}>
+        {body}
+      </View>
+    );
+  }
+  return (
+    <Pressable
+      accessibilityRole="radio"
+      accessibilityState={{ selected: Boolean(selected) }}
+      accessibilityLabel={`${label}: ${value}`}
+      onPress={onPress}
+      android_ripple={{ color: colors.ripple }}
+      style={({ pressed }) => [styles.stat, selected && styles.statSelected, pressed && !selected && styles.cardPressed]}
+    >
+      {body}
+    </Pressable>
+  );
+}
+
+/**
+ * A list line: an optional icon badge, a title and a muted line, something on
+ * the right (an amount, a pill), and a chevron when it opens somewhere. Rows
+ * sit inside a ListGroup, which draws one card with hairlines between them.
+ */
+export function ListRow({
+  title,
+  meta,
+  icon,
+  iconTone,
+  right,
+  onPress,
+  accessibilityLabel,
+  last,
+}: {
+  title: string;
+  meta?: string | null;
+  icon?: AndroidSymbol;
+  iconTone?: Tone;
+  right?: ReactNode;
+  onPress?: () => void;
+  accessibilityLabel?: string;
+  last?: boolean;
+}) {
+  const body = (
+    <>
+      {icon ? <IconBadge name={icon} tone={iconTone} size={40} /> : null}
+      <View style={styles.listText}>
+        <Text style={styles.listTitle} numberOfLines={1}>
+          {title}
+        </Text>
+        {meta ? (
+          <Text style={styles.listMeta} numberOfLines={1}>
+            {meta}
+          </Text>
+        ) : null}
+      </View>
+      {right ? <View style={styles.listRight}>{right}</View> : null}
+      {onPress ? <Icon name="chevron_right" size={iconSize.md} color={colors.textMuted} /> : null}
+    </>
+  );
+  if (!onPress) return <View style={styles.listRow}>{body}</View>;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      onPress={onPress}
+      android_ripple={{ color: colors.ripple }}
+      style={({ pressed }) => [styles.listRow, pressed && styles.listPressed]}
+    >
+      {body}
+    </Pressable>
+  );
+}
+
+/** A run of ListRows, each its own card, separated by space rather than lines. */
+export function ListGroup({ children }: { children: ReactNode }) {
+  return <View style={styles.listGroup}>{children}</View>;
 }
 
 export function Row({
@@ -207,15 +510,21 @@ export function Button({ label, onPress, variant = 'primary', disabled, loading,
       accessibilityState={{ disabled: Boolean(disabled || loading), busy: Boolean(loading) }}
       onPress={onPress}
       disabled={disabled || loading}
+      android_ripple={{ color: variant === 'secondary' ? colors.ripple : 'rgba(255, 255, 255, 0.18)' }}
       style={({ pressed }) => [
         styles.button,
         variant === 'secondary' && styles.buttonSecondary,
         variant === 'danger' && styles.buttonDanger,
-        (pressed || disabled) && styles.buttonPressed,
+        pressed && styles.buttonPressed,
+        disabled && styles.buttonDisabled,
         loading && styles.buttonLoading,
       ]}
     >
-      {loading ? <ActivityIndicator size="small" color={ink} /> : null}
+      {loading ? (
+        <ActivityIndicator size="small" color={ink} />
+      ) : icon ? (
+        <Icon name={icon} size={iconSize.md} color={ink} />
+      ) : null}
       <Text
         style={[
           styles.buttonLabel,
@@ -229,21 +538,64 @@ export function Button({ label, onPress, variant = 'primary', disabled, loading,
   );
 }
 
-export function Pill({ label, tone = 'neutral' }: { label: string; tone?: 'neutral' | 'success' | 'warning' | 'danger' | 'info' }) {
+export function Pill({ label, tone = 'neutral' }: { label: string; tone?: Tone }) {
   return (
     <View style={[styles.pill, toneTones[tone].bg]}>
-      <Text style={[styles.pillLabel, toneTones[tone].fg]}>{label}</Text>
+      <Text style={[styles.pillLabel, toneTones[tone].fg]} numberOfLines={1}>
+        {label}
+      </Text>
     </View>
   );
 }
 
-const toneTones = {
+const toneTones = themed(() => ({
   neutral: { bg: { backgroundColor: colors.surfaceAlt }, fg: { color: colors.textMuted } },
+  primary: { bg: { backgroundColor: colors.primarySoft }, fg: { color: colors.primaryInk } },
   success: { bg: { backgroundColor: colors.successSoft }, fg: { color: colors.success } },
   warning: { bg: { backgroundColor: colors.warningSoft }, fg: { color: colors.warning } },
   danger: { bg: { backgroundColor: colors.dangerSoft }, fg: { color: colors.danger } },
   info: { bg: { backgroundColor: colors.infoSoft }, fg: { color: colors.info } },
-} as const;
+}) as const);
+
+/** A rounded search bar with a clear button, for filtering a list on screen. */
+export function SearchField({
+  value,
+  onChangeText,
+  label,
+  clearLabel,
+}: {
+  value: string;
+  onChangeText: (next: string) => void;
+  /** Shown as the hint inside the bar and read out by screen readers. */
+  label: string;
+  clearLabel: string;
+}) {
+  return (
+    <View style={styles.search}>
+      <Icon name="search" size={20} color={colors.textMuted} />
+      <TextInput
+        value={value}
+        onChangeText={onChangeText}
+        placeholder={label}
+        placeholderTextColor={colors.textMuted}
+        accessibilityLabel={label}
+        style={styles.searchInput}
+        autoCorrect={false}
+        returnKeyType="search"
+      />
+      {value ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={clearLabel}
+          onPress={() => onChangeText('')}
+          hitSlop={12}
+        >
+          <Icon name="close" size={20} color={colors.textMuted} />
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
 
 export function Field({
   label,
@@ -261,6 +613,7 @@ export function Field({
   revealLabels,
   hint,
   error,
+  trailing,
 }: {
   label: string;
   value?: string;
@@ -282,6 +635,8 @@ export function Field({
   hint?: string;
   /** Replaces the hint in red and outlines the box, so the owner sees which field to fix. */
   error?: string | null;
+  /** Something inside the box after the text, e.g. the detected network's mark. */
+  trailing?: ReactNode;
 }) {
   const [revealed, setRevealed] = useState(false);
   const canReveal = Boolean(secureTextEntry && revealLabels);
@@ -318,6 +673,7 @@ export function Field({
           style={[styles.input, (icon || prefix) && styles.inputAfterLead]}
           autoCorrect={false}
         />
+        {trailing ? <View style={styles.inputTrailing}>{trailing}</View> : null}
         {canReveal && revealLabels ? (
           <Pressable
             accessibilityRole="button"
@@ -372,18 +728,31 @@ export function Choice({
   label,
   selected,
   onPress,
+  icon,
+  kind = 'radio',
 }: {
   label: string;
   selected: boolean;
   onPress: () => void;
+  /** A symbol on the left; the row then reads left-aligned like a list option. */
+  icon?: AndroidSymbol;
+  /** 'checkbox' for an on/off option that does not exclude its siblings. */
+  kind?: 'radio' | 'checkbox';
 }) {
   return (
     <Pressable
-      accessibilityRole="radio"
-      accessibilityState={{ selected }}
+      accessibilityRole={kind}
+      accessibilityState={kind === 'checkbox' ? { checked: selected } : { selected }}
       onPress={onPress}
-      style={({ pressed }) => [styles.choice, selected && styles.choiceSelected, pressed && styles.buttonPressed]}
+      android_ripple={{ color: colors.ripple }}
+      style={({ pressed }) => [
+        styles.choice,
+        icon && styles.choiceWithIcon,
+        selected && styles.choiceSelected,
+        pressed && styles.cardPressed,
+      ]}
     >
+      {icon ? <Icon name={icon} size={iconSize.md} color={selected ? colors.primaryInk : colors.textMuted} /> : null}
       <Text style={[styles.choiceLabel, selected && styles.choiceLabelSelected]}>{label}</Text>
       {selected ? (
         <View style={styles.choiceCheck}>
@@ -420,6 +789,7 @@ export function EmptyState({
   if (!title && !icon) return <Text style={styles.empty}>{message}</Text>;
   return (
     <Animated.View entering={FadeIn.duration(220)} style={styles.statePanel}>
+      {icon ? <IconBadge name={icon} tone={tone === 'success' ? 'success' : 'primary'} size={64} /> : null}
       {title ? (
         <Text style={styles.stateTitle} accessibilityRole="header">
           {title}
@@ -457,6 +827,7 @@ export function ErrorState({
 }) {
   return (
     <Animated.View entering={FadeIn.duration(220)} style={styles.statePanel} accessibilityLiveRegion="polite">
+      <IconBadge name="cloud_off" tone="danger" size={64} />
       <Text style={styles.stateTitle} accessibilityRole="header">
         {title}
       </Text>
@@ -526,6 +897,7 @@ export function LoadingList({ label, count = 3, hero }: { label: string; count?:
 export function FormError({ message }: { message: string }) {
   return (
     <View style={[styles.helpTip, styles.formError]} accessibilityLiveRegion="polite" accessibilityRole="alert">
+      <Icon name="error" size={iconSize.md} color={colors.danger} />
       <Text style={[styles.helpTipText, styles.formErrorText]}>{message}</Text>
     </View>
   );
@@ -535,11 +907,13 @@ export function FormError({ message }: { message: string }) {
 export function HelpTip({ children, icon = 'lightbulb' }: { children: ReactNode; icon?: AndroidSymbol }) {
   return (
     <View style={styles.helpTip}>
+      <Icon name={icon} size={iconSize.md} color={colors.info} />
       <Text style={styles.helpTipText}>{children}</Text>
     </View>
   );
 }
 
+/** Extra breathing room between two parts of a card. Space, not a line. */
 export function Divider() {
   return <View style={styles.divider} />;
 }
@@ -552,29 +926,113 @@ export function Stub({ note }: { note: string }) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
+  search: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    minHeight: touch.minHeight,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.lg,
+    ...elevation.card,
+  },
+  searchInput: {
+    flex: 1,
+    minHeight: touch.minHeight,
+    fontSize: typeScale.body,
+    color: colors.text,
+  },
   icon: { fontFamily: ICON_FONT, textAlign: 'center', includeFontPadding: false },
   paper: { flex: 1, backgroundColor: colors.bg },
   safe: { flex: 1 },
-  avoid: { flex: 1 },
-  scroll: { paddingBottom: spacing.xxl },
   body: { flex: 1, paddingHorizontal: spacing.lg, paddingTop: spacing.lg, gap: spacing.md },
   footer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
-    backgroundColor: colors.surface,
+    paddingTop: spacing.md,
   },
+  fadeTop: { position: 'absolute', top: 0, left: 0, right: 0 },
+  fadeBottom: { position: 'absolute', bottom: 0, left: 0, right: 0 },
   titleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md },
+  back: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: spacing.xs,
+    minHeight: touch.minHeight,
+    paddingRight: spacing.md,
+    marginLeft: -spacing.xs,
+  },
+  backLabel: { fontSize: typeScale.body, fontWeight: '600', color: colors.text },
   iconButton: {
     minWidth: touch.minWidth,
     minHeight: touch.minHeight,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: radii.pill,
+    backgroundColor: colors.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
   },
-  screenTitle: { fontSize: typeScale.title, fontWeight: '700', color: colors.text, flexShrink: 1 },
+  iconButtonPressed: { backgroundColor: colors.surfaceAlt },
+  screenTitle: {
+    fontFamily: fonts.display,
+    fontSize: typeScale.display,
+    lineHeight: typeScale.display + 6,
+    letterSpacing: -0.4,
+    color: colors.text,
+    flexShrink: 1,
+  },
+  sectionRow: { flexDirection: 'row', alignItems: 'center', marginTop: spacing.sm, gap: spacing.md },
+  sectionTitleFlex: { flex: 1, marginTop: 0 },
+  sectionAction: { minHeight: 32, justifyContent: 'center' },
+  sectionActionText: { fontSize: typeScale.label, fontWeight: '700', color: colors.primaryInk },
+  cardPressed: { backgroundColor: colors.surfaceAlt },
+  iconBadge: { alignItems: 'center', justifyContent: 'center' },
+  stat: {
+    flex: 1,
+    minHeight: touch.minHeight + spacing.xl,
+    justifyContent: 'center',
+    gap: 2,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+    borderRadius: radii.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    ...elevation.card,
+  },
+  statSelected: { borderColor: colors.primary, borderWidth: 2, backgroundColor: colors.primarySoft },
+  statTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.xs },
+  statValue: { flexShrink: 1, fontFamily: fonts.display, fontSize: typeScale.title, fontVariant: ['tabular-nums'] },
+  statLabel: { fontSize: typeScale.label, color: colors.textMuted, fontWeight: '600' },
+  listGroup: { gap: spacing.sm },
+  listRow: {
+    backgroundColor: colors.surface,
+    borderRadius: radii.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    overflow: 'hidden',
+    ...elevation.card,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    minHeight: touch.minHeight + spacing.lg,
+    paddingVertical: spacing.md,
+    paddingLeft: spacing.lg,
+    paddingRight: spacing.md,
+  },
+  listPressed: { backgroundColor: colors.surfaceAlt },
+  listText: { flex: 1, gap: 2 },
+  listTitle: { fontSize: typeScale.body, fontWeight: '700', color: colors.text },
+  listMeta: { fontSize: typeScale.label, color: colors.textMuted },
+  listRight: { alignItems: 'flex-end', gap: spacing.xs },
   screenSubtitle: { fontSize: typeScale.body, color: colors.textMuted, marginTop: -spacing.sm },
   sectionTitle: {
     fontSize: typeScale.label,
@@ -591,6 +1049,7 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.border,
+    ...elevation.card,
   },
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.md, minHeight: 28 },
   rowLabel: { fontSize: typeScale.body, color: colors.textMuted, flexShrink: 1 },
@@ -604,11 +1063,13 @@ const styles = StyleSheet.create({
     textAlign: 'right',
   },
   rowValueStrong: { fontWeight: '700' },
-  amount: { fontSize: typeScale.heading, fontWeight: '700', color: colors.text, fontVariant: ['tabular-nums'] },
+  amount: { fontFamily: fonts.display, fontSize: typeScale.heading, color: colors.text, fontVariant: ['tabular-nums'] },
   amountLg: { fontSize: typeScale.display },
   amountSm: { fontSize: typeScale.body },
   button: {
-    minHeight: touch.minHeight,
+    // 56dp: the picture-first screens' primary actions, at a busy counter.
+    minHeight: touch.big,
+    overflow: 'hidden',
     flexDirection: 'row',
     gap: spacing.sm,
     borderRadius: radii.pill,
@@ -618,8 +1079,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
   },
   buttonSecondary: { backgroundColor: colors.bg, borderWidth: 1, borderColor: colors.border },
-  buttonDanger: { backgroundColor: colors.danger },
-  buttonPressed: { opacity: 0.6 },
+  buttonDanger: { backgroundColor: colors.dangerFill },
+  buttonPressed: { opacity: 0.75 },
+  buttonDisabled: { opacity: 0.45 },
   buttonLoading: { opacity: 0.85 },
   buttonLabel: { color: colors.primaryText, fontSize: typeScale.body, fontWeight: '700' },
   buttonLabelSecondary: { color: colors.text },
@@ -650,11 +1112,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     borderRadius: radii.lg,
     borderWidth: 1,
-    borderStyle: 'dashed',
     borderColor: colors.border,
     backgroundColor: colors.surface,
+    ...elevation.card,
   },
-  stateTitle: { fontSize: typeScale.heading, fontWeight: '700', color: colors.text, textAlign: 'center' },
+  stateTitle: { fontFamily: fonts.display, fontSize: typeScale.heading, color: colors.text, textAlign: 'center' },
   stateMessage: { fontSize: typeScale.body, lineHeight: 22, color: colors.textMuted, textAlign: 'center', maxWidth: 320 },
   stateActions: { alignSelf: 'stretch', gap: spacing.sm, marginTop: spacing.sm },
   stateDetail: { fontSize: typeScale.caption, color: colors.textMuted, textAlign: 'center' },
@@ -687,6 +1149,7 @@ const styles = StyleSheet.create({
     borderRightColor: colors.border,
   },
   inputPrefixText: { fontSize: typeScale.body, fontWeight: '700', color: colors.text },
+  inputTrailing: { justifyContent: 'center', paddingRight: spacing.sm },
   inputReveal: { width: touch.minWidth, alignItems: 'center', justifyContent: 'center' },
   textLink: { minHeight: touch.minHeight, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.sm },
   textLinkLead: { fontSize: typeScale.body, color: colors.textMuted, textAlign: 'center' },
@@ -703,10 +1166,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  choiceWithIcon: {
+    flexDirection: 'row',
+    justifyContent: 'flex-start',
+    gap: spacing.md,
+    borderRadius: radii.lg,
+    minHeight: touch.minHeight + spacing.sm,
+    backgroundColor: colors.surface,
+    overflow: 'hidden',
+  },
   choiceSelected: { borderColor: colors.primary, borderWidth: 2, backgroundColor: colors.primarySoft },
   choiceLabel: { fontSize: typeScale.body, color: colors.text },
   choiceLabelSelected: { color: colors.primaryInk, fontWeight: '700' },
-  divider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.border, marginVertical: spacing.xs },
+  divider: { height: spacing.md },
   stub: {
     borderWidth: 1,
     borderStyle: 'dashed',
@@ -715,4 +1187,4 @@ const styles = StyleSheet.create({
     padding: spacing.md,
   },
   stubText: { fontSize: typeScale.caption, color: colors.textMuted },
-});
+}));

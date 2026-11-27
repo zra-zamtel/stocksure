@@ -1,7 +1,7 @@
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
-import { useAuth } from '@/auth/session';
+import { StaffWrongShopError, useAuth } from '@/auth/session';
 import { Hint, Notice, PinBoxes } from '@/components/auth';
 import { SetupStep } from '@/components/onboarding';
 import { Button, Field } from '@/components/ui';
@@ -94,6 +94,8 @@ export default function StaffSignInScreen() {
         setShakeKey((key) => key + 1);
         setPin('');
       }
+    } else if (cause instanceof StaffWrongShopError) {
+      setError(t('staff.signIn.error.wrongShop', { owner: cause.otherOwnerName }));
     } else {
       setError(cause instanceof Error ? cause.message : t('staff.signIn.error.server'));
     }

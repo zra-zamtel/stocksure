@@ -131,6 +131,14 @@ export default function SignInScreen() {
         {hasOwner ? (
           <View style={styles.forgot}>
             <TextLink accent label={t('auth.signIn.forgotPin')} onPress={() => router.push('/pin-reset')} />
+            {name ? (
+              // On a phone the staff share, the next person needs a way in
+              // that is not under someone else's name.
+              <TextLink
+                label={t('auth.signIn.notYou', { name })}
+                onPress={() => router.push('/staff-sign-in')}
+              />
+            ) : null}
           </View>
         ) : null}
       </View>
@@ -167,6 +175,12 @@ export default function SignInScreen() {
 
 const styles = StyleSheet.create({
   pinBlock: { gap: spacing.xs },
-  forgot: { alignItems: 'flex-start', marginLeft: -spacing.sm },
+  forgot: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginLeft: -spacing.sm,
+  },
   options: { gap: spacing.sm },
 });

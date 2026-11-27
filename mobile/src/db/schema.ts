@@ -287,4 +287,40 @@ export const migrations: string[] = [
   );
   CREATE INDEX idx_smart_invoice_sale ON smart_invoice_receipt (sale_id);
   `,
+
+  // v10 - the shop's trade profile (fashion, health & beauty, bar, ...). It
+  // sets the catalogue vocabulary and defaults; the legacy `type` column stays
+  // as its mirror for sync and USSD. No CHECK constraint, so adding a trade
+  // later needs no migration. Existing shops are backfilled from `type`.
+  `
+  ALTER TABLE shop ADD COLUMN profile_id TEXT;
+
+  UPDATE shop SET profile_id = CASE type
+    WHEN 'clothes' THEN 'fashion'
+    WHEN 'shoes'   THEN 'fashion'
+    WHEN 'general' THEN 'general'
+    ELSE 'general'
+  END
+  WHERE profile_id IS NULL;
+  `,
+
+  // v11 - fields some trades need. unit is how the item is counted (NULL on
+  // older rows reads as 'piece'); sale_warning ('Rx only', '18+') is confirmed
+  // before a sale. Expiry and batch sit on the variant, so each pack size can
+  // carry its own.
+  `
+  ALTER TABLE product ADD COLUMN unit TEXT;
+  ALTER TABLE product ADD COLUMN sale_warning TEXT;
+
+  ALTER TABLE product_variant ADD COLUMN expiry_date TEXT;
+  ALTER TABLE product_variant ADD COLUMN batch_no TEXT;
+  `,
+
+  // v12 - a variant's values for the shop profile's axes, as a JSON list of
+  // {key, value} (e.g. pack = Crate, size = 330 ml). size and colour stay as
+  // mirrors of the first two values for old payloads, USSD and the backend.
+  // NULL on older rows: they read their attributes from size/colour instead.
+  `
+  ALTER TABLE product_variant ADD COLUMN attributes_json TEXT;
+  `,
 ];

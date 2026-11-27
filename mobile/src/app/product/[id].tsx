@@ -3,20 +3,67 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { useAuth } from '@/auth/session';
 import { usePermissionGuard } from '@/auth/permissions';
-import { Button, Card, Choice, EmptyState, ErrorState, LoadingList, Field, Pill, Row, Screen, SectionTitle } from '@/components/ui';
-import { isValidEan13, parsePrice, sanitisePriceInput } from '@/core';
+import { Notice } from '@/components/auth';
+import { ProductTile } from '@/components/big-ui';
+import {
+  Button,
+  Card,
+  Choice,
+  EmptyState,
+  ErrorState,
+  Field,
+  FormError,
+  Icon,
+  LoadingList,
+  Pill,
+  Row,
+  Screen,
+  SectionTitle,
+  StatTile,
+} from '@/components/ui';
+import {
+  DEFAULT_UNIT,
+  expiryStatus,
+  isValidEan13,
+  isValidIsoDate,
+  parsePrice,
+  profileForShop,
+  sanitisePriceInput,
+  todayLocal,
+  variantLabel,
+} from '@/core';
 import { useMovements, useProducts, useShop } from '@/db/hooks';
-import { restockVariant, setVariantBarcode } from '@/db/repos';
+import { restockVariant, setProductPhoto, setVariantBarcode, type MovementRow } from '@/db/repos';
 import { useI18n } from '@/i18n';
-import { formatKwacha } from '@/lib/format';
+import { useFlash } from '@/lib/use-flash';
+import { formatDay, formatKwacha, formatTime, localDayKey } from '@/lib/format';
 import { labelHtml } from '@/lib/label';
-import { colors, spacing, typeScale } from '@/theme/tokens';
+import { discardPhoto, takeProductPhoto } from '@/lib/photos';
+import { colors, fonts, iconSize, spacing, themed, touch, typeScale } from '@/theme/tokens';
+
+/**
+ * Newest first, with the stock level right after each change, worked back
+ * from today's count, and a flag where a new day starts.
+ */
+function withBalances(movements: MovementRow[], current: number) {
+  let balance = current;
+  let lastDay = '';
+  return movements.map((movement) => {
+    const day = localDayKey(movement.createdAt);
+    const row = { movement, balance, newDay: day !== lastDay };
+    lastDay = day;
+    balance -= movement.quantityChange;
+    return row;
+  });
+}
 
 export default function ProductScreen() {
   const { t } = useI18n();
   const db = useSQLiteContext();
   const guard = usePermissionGuard();
+  const { can } = useAuth();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { data: products, loading, error, reload: reloadProducts } = useProducts();
   const { data: shop } = useShop();
@@ -32,11 +79,21 @@ export default function ProductScreen() {
   // null means "show the stored cost"; a string means the owner is editing it.
   const [priceDraft, setPriceDraft] = useState<string | null>(null);
   const [note, setNote] = useState('');
-  const [message, setMessage] = useState<string | null>(null);
+  // A new delivery can carry its own expiry and batch; empty keeps the current ones.
+  const [restockExpiry, setRestockExpiry] = useState('');
+  const [restockBatch, setRestockBatch] = useState('');
+  // "Done" notices fade on their own; errors stay until dealt with.
+  const [message, setMessage] = useFlash();
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // Which photo button is working, so only that one shows its spinner.
+  const [photoBusy, setPhotoBusy] = useState<'camera' | 'library' | null>(null);
+  const [photoError, setPhotoError] = useState<string | null>(null);
 
   const buyPrice = priceDraft ?? (selectedVariant ? (selectedVariant.buyPrice / 100).toFixed(2) : '');
+  const profile = profileForShop(shop);
+  const usesExpiry = profile.modules.includes('expiry');
+  const usesBatch = profile.modules.includes('batch');
 
   async function handleRestock() {
     if (!selectedVariant) return;
@@ -57,17 +114,26 @@ export default function ProductScreen() {
         setSubmitting(false);
         return;
       }
+      if (usesExpiry && restockExpiry.trim() && !isValidIsoDate(restockExpiry)) {
+        setSubmitError(t('product.new.error.expiry'));
+        setSubmitting(false);
+        return;
+      }
       const result = await restockVariant(db, {
         variantId: selectedVariant.id,
         quantity: Number.parseInt(quantity, 10),
         buyPrice: typedPrice ? typedPrice.ngwee : undefined,
         note: note.trim() || undefined,
+        expiryDate: usesExpiry ? restockExpiry.trim() || undefined : undefined,
+        batchNo: usesBatch ? restockBatch.trim() || undefined : undefined,
       });
       setMessage(
         t('products.restockDone', { added: result.quantityAdded, onHand: result.quantityOnHand })
       );
       setQuantity('1');
       setNote('');
+      setRestockExpiry('');
+      setRestockBatch('');
       setPriceDraft(null);
       reloadProducts();
       reloadMovements();
@@ -75,6 +141,33 @@ export default function ProductScreen() {
       setSubmitError(cause instanceof Error ? cause.message : 'Could not restock');
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function handlePhoto(source: 'camera' | 'library') {
+    if (!product || photoBusy) return;
+    setPhotoError(null);
+    try {
+      guard('products.manage');
+    } catch {
+      setPhotoError(t('permission.denied'));
+      return;
+    }
+    setPhotoBusy(source);
+    try {
+      const result = await takeProductPhoto(source, product.name);
+      if (result.status === 'saved') {
+        const previous = product.photoUri;
+        await setProductPhoto(db, product.id, result.uri);
+        discardPhoto(previous);
+        reloadProducts();
+      } else if (result.status === 'denied') {
+        setPhotoError(t('product.photo.denied'));
+      }
+    } catch (cause) {
+      setPhotoError(cause instanceof Error ? cause.message : 'Could not save the photo');
+    } finally {
+      setPhotoBusy(null);
     }
   }
 
@@ -119,7 +212,7 @@ export default function ProductScreen() {
 
   if (loading && !product) {
     return (
-      <Screen title={t('products.title')}>
+      <Screen back title={t('products.title')}>
         <LoadingList label={t('state.loading')} hero count={2} />
       </Screen>
     );
@@ -127,7 +220,7 @@ export default function ProductScreen() {
 
   if (error) {
     return (
-      <Screen title={t('products.title')}>
+      <Screen back title={t('products.title')}>
         <ErrorState
           title={t('state.error.title')}
           message={t('state.error.message')}
@@ -141,7 +234,7 @@ export default function ProductScreen() {
 
   if (!product) {
     return (
-      <Screen title={t('products.title')}>
+      <Screen back title={t('products.title')}>
         <EmptyState
           icon="inventory_2"
           title={t('state.notFound.title')}
@@ -153,15 +246,47 @@ export default function ProductScreen() {
   }
 
   return (
-    <Screen title={product.name} subtitle={product.category}>
-      <Card>
-        <Row label={t('products.buyPrice')} value={formatKwacha(product.defaultBuyPrice)} />
-        <Row label={t('products.sellPrice')} value={formatKwacha(product.defaultSellPrice)} />
-        <Row
-          label={t('products.margin')}
-          value={formatKwacha(product.defaultSellPrice - product.defaultBuyPrice)}
+    <Screen back title={product.name} subtitle={product.category}>
+      <View style={styles.pictureRow}>
+        <ProductTile
+          id={product.id}
+          name={product.name}
+          category={product.category}
+          photoUri={product.photoUri}
+          size={touch.big * 2}
         />
-      </Card>
+        {can('products.manage') ? (
+          // Wraps under the picture on narrow phones instead of squeezing the labels.
+          <View style={styles.photoButtons}>
+            <Button
+              label={product.photoUri ? t('product.photo.retake') : t('product.photo.take')}
+              icon="photo_camera"
+              variant="secondary"
+              disabled={photoBusy !== null}
+              loading={photoBusy === 'camera'}
+              onPress={() => handlePhoto('camera')}
+            />
+            <Button
+              label={t('product.photo.gallery')}
+              icon="photo_library"
+              variant="secondary"
+              disabled={photoBusy !== null}
+              loading={photoBusy === 'library'}
+              onPress={() => handlePhoto('library')}
+            />
+          </View>
+        ) : null}
+      </View>
+      {photoError ? <FormError message={photoError} /> : null}
+
+      <View style={styles.stats}>
+        <StatTile value={formatKwacha(product.defaultSellPrice)} label={t('products.sellPrice')} />
+        <StatTile
+          value={formatKwacha(product.defaultSellPrice - product.defaultBuyPrice)}
+          label={t('products.margin')}
+          tone={product.defaultSellPrice - product.defaultBuyPrice < 0 ? 'danger' : 'success'}
+        />
+      </View>
 
       {product.variants.length > 1 ? (
         <>
@@ -170,7 +295,7 @@ export default function ProductScreen() {
             {product.variants.map((variant) => (
               <Choice
                 key={variant.id}
-                label={[variant.size, variant.colour].filter(Boolean).join(' · ') || 'Single'}
+                label={variantLabel('', variant) || 'Single'}
                 selected={variant.id === selectedVariantId}
                 onPress={() => {
                   setChosenVariantId(variant.id);
@@ -188,10 +313,14 @@ export default function ProductScreen() {
           <Card>
             <View style={styles.headerRow}>
               <Text style={styles.name}>
-                {[selectedVariant.size, selectedVariant.colour].filter(Boolean).join(' · ') || 'Single'}
+                {variantLabel('', selectedVariant) || t('products.stockNow')}
               </Text>
               <Pill
-                label={`${selectedVariant.quantity}`}
+                label={
+                  selectedVariant.quantity <= 0
+                    ? t('products.filter.out')
+                    : t('products.left', { count: selectedVariant.quantity })
+                }
                 tone={
                   selectedVariant.state === 'out'
                     ? 'danger'
@@ -201,12 +330,26 @@ export default function ProductScreen() {
                 }
               />
             </View>
+            {product.unit !== DEFAULT_UNIT ? <Row label={t('products.unit')} value={product.unit} /> : null}
+            {product.saleWarning ? <Row label={t('products.saleWarning')} value={product.saleWarning} /> : null}
+            {selectedVariant.expiryDate ? (
+              <>
+                <Row label={t('products.expiry')} value={selectedVariant.expiryDate} />
+                {expiryStatus(selectedVariant.expiryDate, todayLocal()) === 'expired' ? (
+                  <Pill label={t('products.expired')} tone="danger" />
+                ) : expiryStatus(selectedVariant.expiryDate, todayLocal()) === 'soon' ? (
+                  <Pill label={t('products.expiresSoon')} tone="warning" />
+                ) : null}
+              </>
+            ) : null}
+            {selectedVariant.batchNo ? <Row label={t('products.batch')} value={selectedVariant.batchNo} /> : null}
             {selectedVariant.barcode ? (
               <>
                 <Row label="Barcode" value={selectedVariant.barcode} />
                 {isValidEan13(selectedVariant.barcode) ? (
                   <Button
                     label={t('products.printLabel')}
+                    icon="print"
                     variant="secondary"
                     onPress={() => handlePrintLabel(selectedVariant.barcode!)}
                   />
@@ -219,6 +362,7 @@ export default function ProductScreen() {
                 <Row label="Barcode" value={t('products.noBarcodeYet')} />
                 <Button
                   label={t('products.generateBarcode')}
+                  icon="barcode"
                   variant="secondary"
                   disabled={submitting}
                   loading={submitting}
@@ -245,6 +389,7 @@ export default function ProductScreen() {
               value={buyPrice}
               onChangeText={(v) => setPriceDraft(sanitisePriceInput(v))}
               keyboardType="decimal-pad"
+              prefix="K"
             />
             <Field
               label={t('products.restockNote')}
@@ -252,14 +397,35 @@ export default function ProductScreen() {
               onChangeText={setNote}
               placeholder={t('common.optional')}
             />
+            {usesExpiry ? (
+              <Field
+                label={t('product.new.expiry')}
+                value={restockExpiry}
+                onChangeText={(v) => setRestockExpiry(v.replace(/[^\d-]/g, ''))}
+                placeholder="YYYY-MM-DD"
+                hint={t('products.restockExpiryHint')}
+                maxLength={10}
+              />
+            ) : null}
+            {usesBatch ? (
+              <Field
+                label={t('product.new.batch')}
+                value={restockBatch}
+                onChangeText={setRestockBatch}
+                placeholder={t('common.optional')}
+                autoCapitalize="characters"
+                maxLength={60}
+              />
+            ) : null}
             <Button
               label={t('products.restock')}
+              icon="add_box"
               disabled={submitting}
               loading={submitting}
               onPress={handleRestock}
             />
-            {message ? <Text style={styles.success}>{message}</Text> : null}
-            {submitError ? <Text style={styles.error}>{submitError}</Text> : null}
+            {message ? <Notice tone="success">{message}</Notice> : null}
+            {submitError ? <Notice tone="error">{submitError}</Notice> : null}
           </Card>
         </>
       ) : null}
@@ -269,12 +435,33 @@ export default function ProductScreen() {
         {movements.length === 0 ? (
           <EmptyState message={t('common.none')} />
         ) : (
-          movements.map((movement) => (
-            <Row
-              key={movement.id}
-              label={`${t(`movement.${movement.reason}`)} · ${movement.createdAt.slice(0, 10)}`}
-              value={`${movement.quantityChange > 0 ? '+' : ''}${movement.quantityChange}`}
-            />
+          withBalances(movements, selectedVariant?.quantity ?? 0).map(({ movement, balance, newDay }) => (
+            <View key={movement.id}>
+              {newDay ? <Text style={styles.movementDay}>{formatDay(movement.createdAt)}</Text> : null}
+              <View style={styles.movement}>
+                <Icon
+                  name={movement.quantityChange > 0 ? 'arrow_upward' : 'arrow_downward'}
+                  size={iconSize.md}
+                  color={movement.quantityChange > 0 ? colors.success : colors.textMuted}
+                />
+                <View style={styles.movementText}>
+                  <Text style={styles.movementLabel} numberOfLines={1}>
+                    {`${t(`movement.${movement.reason}`)} · ${formatTime(movement.createdAt)}`}
+                  </Text>
+                  {movement.byName || movement.note ? (
+                    <Text style={styles.movementMeta} numberOfLines={2}>
+                      {[movement.byName, movement.note].filter(Boolean).join(' · ')}
+                    </Text>
+                  ) : null}
+                </View>
+                <View style={styles.movementRight}>
+                  <Text style={[styles.movementQty, movement.quantityChange > 0 && styles.movementIn]}>
+                    {`${movement.quantityChange > 0 ? '+' : ''}${movement.quantityChange}`}
+                  </Text>
+                  <Text style={styles.movementMeta}>{t('products.balanceAfter', { count: balance })}</Text>
+                </View>
+              </View>
+            </View>
           ))
         )}
       </Card>
@@ -282,11 +469,31 @@ export default function ProductScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.md },
   name: { fontSize: typeScale.body, fontWeight: '700', color: colors.text },
   muted: { fontSize: typeScale.label, color: colors.textMuted },
   choices: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  success: { fontSize: typeScale.label, color: colors.success, fontWeight: '600' },
-  error: { fontSize: typeScale.label, color: colors.danger, fontWeight: '600' },
-});
+  stats: { flexDirection: 'row', gap: spacing.sm },
+  pictureRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.md },
+  photoButtons: { flexGrow: 1, flexBasis: 160, gap: spacing.sm },
+  movement: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 44 },
+  movementText: { flex: 1, gap: 2 },
+  movementLabel: { fontSize: typeScale.body, color: colors.text },
+  movementMeta: { fontSize: typeScale.caption, color: colors.textMuted },
+  movementRight: { alignItems: 'flex-end', gap: 2 },
+  movementDay: {
+    fontSize: typeScale.label,
+    fontWeight: '700',
+    color: colors.textMuted,
+    marginTop: spacing.sm,
+    marginBottom: spacing.xs,
+  },
+  movementQty: {
+    fontFamily: fonts.display,
+    fontSize: typeScale.body,
+    color: colors.text,
+    fontVariant: ['tabular-nums'],
+  },
+  movementIn: { color: colors.success },
+}));
