@@ -79,6 +79,14 @@ Act like that person.
 - [ ] **Nyanja:** Settings > language **Nyanja**, then do the five jobs
   again. The Nyanja is a first-pass machine translation: write down every
   line that is wrong, sounds unnatural, or is too long for its button.
+- [ ] **Alerts:** on **Today**, the "Get stock and tax alerts" card > **Turn on**
+  > allow. Sell an item until it reaches its low level: a "Low stock" alert
+  appears at the top of the screen; tap it and the product opens. Sell it
+  again: no second alert. Add 10, let it drop again: one new alert. Settings >
+  Notifications > **Send test alert** shows one. Turn **Low stock alerts** off
+  and sell: no alert. The Nyanja alert words (Settings > language Nyanja, then
+  **Send test alert** and a low-stock sale) are a first pass too: note any
+  wrong ones.
 - [ ] **Dark mode:** Settings > theme **Dark**. Look at Today, Sell, Stock,
   Money and Tax. Note anything hard to read.
 - [ ] **Numbers add up:** the Today total equals the sales you made; stock

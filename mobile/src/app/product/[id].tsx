@@ -37,6 +37,7 @@ import {
 import { useMovements, useProducts, useShop } from '@/db/hooks';
 import { restockVariant, setProductPhoto, setVariantBarcode, type MovementRow } from '@/db/repos';
 import { useI18n } from '@/i18n';
+import { useNotifications } from '@/notifications/provider';
 import { useFlash } from '@/lib/use-flash';
 import { formatDay, formatKwacha, formatTime, localDayKey } from '@/lib/format';
 import { labelHtml } from '@/lib/label';
@@ -64,6 +65,7 @@ export default function ProductScreen() {
   const db = useSQLiteContext();
   const guard = usePermissionGuard();
   const { can } = useAuth();
+  const { afterRestock } = useNotifications();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { data: products, loading, error, reload: reloadProducts } = useProducts();
   const { data: shop } = useShop();
@@ -127,6 +129,7 @@ export default function ProductScreen() {
         expiryDate: usesExpiry ? restockExpiry.trim() || undefined : undefined,
         batchNo: usesBatch ? restockBatch.trim() || undefined : undefined,
       });
+      afterRestock();
       setMessage(
         t('products.restockDone', { added: result.quantityAdded, onHand: result.quantityOnHand })
       );

@@ -1,7 +1,7 @@
 import { useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useState, type ReactNode } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 import { useAuth } from '@/auth/session';
 import { displayName } from '@/components/auth';
 import { Toggle } from '@/components/charts';
@@ -13,6 +13,8 @@ import { useSync } from '@/db/use-sync';
 import { LANGUAGE_LABELS, useI18n, type Language } from '@/i18n';
 import { ConnectReminder, SyncProblemBanner } from '@/components/connect-device';
 import { formatDateTime } from '@/lib/format';
+import { useFlash } from '@/lib/use-flash';
+import { useNotifications } from '@/notifications/provider';
 import { colors, elevation, radii, setThemePreference, spacing, themed, type ThemePreference, themePreference, touch, typeScale } from '@/theme/tokens';
 
 const PROVIDERS = ['MTN', 'Airtel', 'Zamtel'] as const;
@@ -136,6 +138,8 @@ export default function SettingsScreen() {
         />
         <Text style={styles.hint}>{t('theme.hint')}</Text>
       </View>
+
+      <NotificationSettings />
 
       {editing ? (
         <Group title={t('settings.shop')}>
@@ -407,7 +411,107 @@ const styles = themed(() => StyleSheet.create({
   },
   footer: { alignItems: 'center', marginTop: spacing.md },
   hint: { fontSize: typeScale.label, color: colors.textMuted },
+  notice: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.xs },
+  noticeText: { flex: 1, fontSize: typeScale.label, color: colors.textMuted },
 }));
+
+/**
+ * The phone's alerts: whether the phone allows them, the two kinds, and a test
+ * for QA and demos. When the phone has blocked them only its own settings can
+ * turn them back on, so the row goes there.
+ */
+function NotificationSettings() {
+  const { t } = useI18n();
+  const notifications = useNotifications();
+  const { permission, prefs, setPref } = notifications;
+  const [testResult, setTestResult] = useFlash();
+  const [testSent, setTestSent] = useState(false);
+
+  if (!notifications.supported) {
+    return (
+      <Group title={t('notify.settings.title')}>
+        <ListRow label={t('notify.settings.status')} value={t('notify.settings.unsupported')} last />
+      </Group>
+    );
+  }
+
+  const allowed = permission === 'granted';
+  const statusRow =
+    permission === 'undetermined' ? (
+      <ListRow
+        label={t('notify.settings.status')}
+        value={t('notify.prompt.turnOn')}
+        onPress={() => void notifications.turnOn()}
+      />
+    ) : allowed ? (
+      <ListRow label={t('notify.settings.status')} value={t('notify.settings.allowed')} />
+    ) : (
+      <ListRow
+        label={t('notify.settings.status')}
+        value={t('notify.settings.openPhone')}
+        onPress={notifications.openSettings}
+      />
+    );
+
+  return (
+    <View style={styles.group}>
+      <Group title={t('notify.settings.title')}>
+        {statusRow}
+        <SwitchRow
+          label={t('notify.settings.lowStock')}
+          value={prefs.lowStock}
+          onChange={(on) => setPref('lowStock', on)}
+        />
+        <SwitchRow label={t('notify.settings.tax')} value={prefs.tax} onChange={(on) => setPref('tax', on)} />
+        <ListRow
+          label={t('notify.settings.test')}
+          onPress={() =>
+            void notifications
+              .sendTest()
+              .then((sent) => {
+                setTestSent(sent);
+                setTestResult(t(sent ? 'notify.settings.testSent' : 'notify.settings.testBlocked'));
+              })
+          }
+          last
+        />
+      </Group>
+      {permission === 'denied' || permission === 'blocked' ? (
+        <View style={styles.notice}>
+          <Icon name="warning" size={20} color={colors.warning} />
+          <Text style={styles.noticeText}>{t('notify.settings.blockedHint')}</Text>
+        </View>
+      ) : null}
+      {testResult ? (
+        <View style={styles.notice} accessibilityLiveRegion="polite">
+          <Icon
+            name={testSent ? 'check_circle' : 'warning'}
+            size={20}
+            color={testSent ? colors.success : colors.warning}
+          />
+          <Text style={styles.noticeText}>{testResult}</Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function SwitchRow({ label, value, onChange }: { label: string; value: boolean; onChange: (on: boolean) => void }) {
+  return (
+    <View style={styles.listRow}>
+      <Text style={styles.rowLabel} numberOfLines={2}>
+        {label}
+      </Text>
+      <Switch
+        accessibilityLabel={label}
+        value={value}
+        onValueChange={onChange}
+        trackColor={{ true: colors.primary, false: colors.border }}
+        thumbColor={colors.surface}
+      />
+    </View>
+  );
+}
 
 /** A titled group of rows on one card, with an optional small action. */
 function Group({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) {

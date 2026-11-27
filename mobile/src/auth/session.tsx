@@ -8,6 +8,7 @@ import {
 import { pendingCount, rememberShopOwnerId, restoreFromServer, shopOwnerId } from '@/db/sync';
 import { wipeLocalShop } from '@/db/wipe';
 import { markHandedOver } from '@/lib/hand-over-store';
+import { NOTIFICATION_STORAGE_KEYS } from '@/notifications/store';
 import * as SecureStore from 'expo-secure-store';
 import { useSQLiteContext } from 'expo-sqlite';
 import {
@@ -281,6 +282,8 @@ const SHOP_STORAGE_KEYS = [
   'stocksure.start.reconcile',
   'stocksure.start.tax',
   'stocksure.start.hidden',
+  // Alert switches, the one-time Home card and which low items were announced.
+  ...NOTIFICATION_STORAGE_KEYS,
 ];
 
 async function forgetShopOutsideDatabase(): Promise<void> {

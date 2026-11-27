@@ -65,7 +65,7 @@ export default function SalesScreen() {
 
   if (initialLoading || totalsLoading || error) {
     return (
-      <Screen offBar title={t('sales.title')} subtitle={t('common.today')}>
+      <Screen back title={t('sales.title')} subtitle={t('common.today')}>
         {error ? (
           <ErrorState
             title={t('state.error.title')}
@@ -83,7 +83,7 @@ export default function SalesScreen() {
 
   if (sales.length === 0) {
     return (
-      <Screen offBar title={t('sales.title')} subtitle={t('common.today')}>
+      <Screen back title={t('sales.title')} subtitle={t('common.today')}>
         <EmptyState
           icon="receipt_long"
           title={t('sales.empty.title')}
@@ -96,7 +96,7 @@ export default function SalesScreen() {
 
   return (
     <Screen
-      offBar
+      back
       title={t('sales.title')}
       subtitle={t('common.today')}
       footer={canRecord ? <Button label={t('sales.new')} icon="add" onPress={recordSale} /> : undefined}
