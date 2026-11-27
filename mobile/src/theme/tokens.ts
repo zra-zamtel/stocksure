@@ -46,6 +46,10 @@ const light = {
   // text on it. `charcoal` is brand ink (it flips), so never put text on it.
   inverse: '#1E1E1C',
   onInverse: '#FFFFFF',
+  // Dims the page behind a sheet.
+  scrim: 'rgba(20, 19, 18, 0.45)',
+  // A pale disc behind an icon on a blue fill.
+  onPrimaryTint: 'rgba(255, 255, 255, 0.18)',
 };
 
 export type Palette = { [K in keyof typeof light]: string };
@@ -83,6 +87,8 @@ const dark: Palette = {
   dangerFill: '#D93A33', // white on it is 4.6:1
   inverse: '#F2EDE3',
   onInverse: '#141312', // 15.9:1 on inverse
+  scrim: 'rgba(0, 0, 0, 0.6)',
+  onPrimaryTint: 'rgba(255, 255, 255, 0.18)',
 };
 
 type ChartTokens = {
@@ -115,6 +121,31 @@ const chartDark: ChartTokens = {
   series: ['#4F82FF', '#F07A4A', '#2FC28B', '#F0B429', '#EE8FB3'],
   seriesInk: ['#141312', '#1E1E1C', '#1E1E1C', '#1E1E1C', '#1E1E1C'],
 };
+
+/**
+ * Tints for a product with no photo yet. Muted and kept apart from the status
+ * colours (blue = act, green = fine, amber = check, red = problem), so a
+ * product tile never reads as a warning. The icon on each is at least 4.5:1.
+ */
+export type TileTint = { bg: string; fg: string };
+
+const tilesLight: readonly TileTint[] = [
+  { bg: '#F1DCCB', fg: '#7A3E1D' }, // clay
+  { bg: '#D3E8E3', fg: '#1F5C52' }, // teal
+  { bg: '#E5DAED', fg: '#5B3473' }, // plum
+  { bg: '#E2E5C8', fg: '#4A5214' }, // olive
+  { bg: '#D6E3F3', fg: '#244A7A' }, // sky
+  { bg: '#EEE2C3', fg: '#664F12' }, // sand
+];
+
+const tilesDark: readonly TileTint[] = [
+  { bg: '#3A2A20', fg: '#F0B999' },
+  { bg: '#1E3531', fg: '#8FD3C4' },
+  { bg: '#33263B', fg: '#D3B2E6' },
+  { bg: '#2F3220', fg: '#C9D18A' },
+  { bg: '#1F2C3D', fg: '#9DBDE6' },
+  { bg: '#3A321D', fg: '#E3C982' },
+];
 
 export type ThemePreference = 'system' | 'light' | 'dark';
 export type Scheme = 'light' | 'dark';
@@ -202,6 +233,11 @@ export const chart: ChartTokens = new Proxy({} as ChartTokens, {
   get: (_target, key) => charts[scheme][key as keyof ChartTokens],
 });
 
+/** Product tile tints for the active theme. */
+export function tileTints(): readonly TileTint[] {
+  return scheme === 'dark' ? tilesDark : tilesLight;
+}
+
 /**
  * Builds an object (usually a style sheet) once per theme from a factory that
  * reads `colors`, and answers for the active theme. Wrap every module-level
@@ -266,6 +302,8 @@ export const radii = {
 } as const;
 
 export const typeScale = {
+  /** Money on a hero card: the one number the eye should land on. */
+  money: 44,
   display: 28,
   title: 22,
   heading: 18,
@@ -278,4 +316,6 @@ export const typeScale = {
 export const touch = {
   minHeight: 48,
   minWidth: 48,
+  /** The picture-first screens: big enough for a thumb at a busy counter. */
+  big: 56,
 } as const;

@@ -41,6 +41,11 @@ type ScreenProps = {
   action?: ReactNode;
   /** A visible "Back" above the title, for pushed screens without their own close button. */
   back?: boolean;
+  /**
+   * Show "Back" even inside the tabs: for a tab route that is not in the bar
+   * (Sales, Tax), which is reached from Home and needs a way out.
+   */
+  offBar?: boolean;
 };
 
 // A faint paper grain tiled under every screen, so the warm background reads as
@@ -115,7 +120,7 @@ function useKeyboardVisible(): boolean {
   return visible;
 }
 
-export function Screen({ title, subtitle, children, scroll = true, footer, action, back = false }: ScreenProps) {
+export function Screen({ title, subtitle, children, scroll = true, footer, action, back = false, offBar = false }: ScreenProps) {
   const insets = useSafeAreaInsets();
   // Inside the tabs the bar floats over the screen with no background of its
   // own; this screen draws the fade behind it. Elsewhere this is 0.
@@ -124,8 +129,9 @@ export function Screen({ title, subtitle, children, scroll = true, footer, actio
   const router = useRouter();
   const { t } = useI18n();
   // Pushed screens (Add product, Record sale…) get a visible way back, not
-  // only Android's back gesture. Tabs are top level, so they never show it.
-  const showBack = back && tabBarHeight === 0 && router.canGoBack();
+  // only Android's back gesture. Tabs in the bar are top level, so they never
+  // show it; tab routes kept off the bar (offBar) do.
+  const showBack = (offBar || (back && tabBarHeight === 0)) && router.canGoBack();
   // The keyboard covers the tab bar and the phone's nav bar, so while it is up
   // the footer drops that space and sits straight on top of the keyboard.
   const keyboardVisible = useKeyboardVisible();

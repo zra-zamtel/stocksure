@@ -1,7 +1,7 @@
-import { Tabs } from 'expo-router';
+import { Tabs, useRouter } from 'expo-router';
 import type { AndroidSymbol } from 'expo-symbols';
 import { useEffect } from 'react';
-import { Easing, StyleSheet, type ColorValue } from 'react-native';
+import { Easing, StyleSheet, Text, View, type ColorValue, type StyleProp, type ViewStyle } from 'react-native';
 import Animated, {
   useAnimatedStyle,
   useReducedMotion,
@@ -11,10 +11,11 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/auth/session';
+import { PressScale } from '@/components/big-ui';
 import { Icon } from '@/components/ui';
 import { useAutoSync } from '@/db/use-sync';
 import { useI18n } from '@/i18n';
-import { colors, radii, themed, typeScale } from '@/theme/tokens';
+import { colors, elevation, iconSize, radii, spacing, themed, touch, typeScale } from '@/theme/tokens';
 
 export default function TabsLayout() {
   const { t } = useI18n();
@@ -59,34 +60,43 @@ export default function TabsLayout() {
         },
       }}
     >
+      {/*
+        Two places each side of Sell, so Sell sits in the middle under the
+        thumb: Today, Stock | Sell | Money, Tax. Sales is still a route, reached
+        from Home, but kept off the bar.
+      */}
       <Tabs.Screen
           name="index"
           options={{
-            title: t('nav.home'),
-            tabBarIcon: ({ color, focused }) => <TabIcon name="home" color={color} focused={focused} />,
+            title: t('nav.today'),
+            tabBarIcon: ({ color, focused }) => <TabIcon name="today" color={color} focused={focused} />,
           }}
         />
       <Tabs.Screen
           name="products"
           options={{
-            title: t('nav.products'),
+            title: t('nav.stock'),
             tabBarIcon: ({ color, focused }) => <TabIcon name="inventory_2" color={color} focused={focused} />,
           }}
         />
       <Tabs.Screen
-          name="sales"
+          name="sell"
           options={{
-            title: t('nav.sales'),
-            tabBarIcon: ({ color, focused }) => <TabIcon name="receipt_long" color={color} focused={focused} />,
+            title: t('nav.sell'),
+            // Owners who have staff do not record sales; they get no Sell button.
+            ...(can('sales.record')
+              ? { tabBarButton: ({ style }) => <SellTabButton style={style} /> }
+              : { href: null }),
           }}
         />
       <Tabs.Screen
           name="reconcile"
           options={{
-            title: t('nav.reconcile'),
-            tabBarIcon: ({ color, focused }) => <TabIcon name="fact_check" color={color} focused={focused} />,
+            title: t('nav.money'),
+            tabBarIcon: ({ color, focused }) => <TabIcon name="payments" color={color} focused={focused} />,
           }}
         />
+      <Tabs.Screen name="sales" options={{ href: null, title: t('nav.sales') }} />
       {/*
         The same matrix that hides the tax controls also protects the tab, so a
         staff deep link to /tax is not registered and falls back to an available
@@ -102,6 +112,28 @@ export default function TabsLayout() {
         />
       </Tabs.Protected>
     </Tabs>
+  );
+}
+
+/**
+ * Sell, raised in the middle of the bar: the one action every shop does all
+ * day, always in the same place under the thumb. It opens the sale screen
+ * instead of switching tabs.
+ */
+function SellTabButton({ style }: { style?: StyleProp<ViewStyle> }) {
+  const { t } = useI18n();
+  const router = useRouter();
+  return (
+    <View style={[style, styles.sellSlot]}>
+      <PressScale onPress={() => router.push('/sale/new')} accessibilityLabel={t('nav.sell')} style={styles.sellPress}>
+        <View style={styles.sellButton}>
+          <Icon name="point_of_sale" size={iconSize.lg} color={colors.primaryText} />
+        </View>
+        <Text style={styles.sellLabel} numberOfLines={1} importantForAccessibility="no">
+          {t('nav.sell')}
+        </Text>
+      </PressScale>
+    </View>
   );
 }
 
@@ -133,6 +165,20 @@ function TabIcon({ name, color, focused }: { name: AndroidSymbol; color: ColorVa
 }
 
 const styles = themed(() => StyleSheet.create({
+  sellSlot: { flex: 1 },
+  sellPress: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: spacing.xxs },
+  // A filled blue pill, wider than the other tab icons, so Sell reads as the
+  // one action in the bar.
+  sellButton: {
+    width: touch.big + spacing.lg,
+    height: touch.minHeight - spacing.sm,
+    borderRadius: radii.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primary,
+    ...elevation.raised,
+  },
+  sellLabel: { fontSize: typeScale.caption, fontWeight: '700', color: colors.primaryInk },
   iconWrap: { width: 56, height: 30, alignItems: 'center', justifyContent: 'center' },
   pill: {
     position: 'absolute',

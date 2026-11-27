@@ -1,4 +1,4 @@
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '@/auth/session';
@@ -54,7 +54,11 @@ export default function ProductsScreen() {
   const { data: products, initialLoading, error, reload } = useProducts();
   const { data: shop } = useShop();
   const [query, setQuery] = useState('');
-  const [filter, setFilter] = useState<Filter>('all');
+  // Home's "N more" opens the list already narrowed to what it was about.
+  const { filter: initialFilter } = useLocalSearchParams<{ filter?: string }>();
+  const [filter, setFilter] = useState<Filter>(
+    initialFilter === 'low' || initialFilter === 'out' || initialFilter === 'expiring' ? initialFilter : 'all'
+  );
   // null = every category.
   const [category, setCategory] = useState<string | null>(null);
 

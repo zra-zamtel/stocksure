@@ -976,5 +976,27 @@
   "products.filter.expiring": "Expiring",
   "products.expiresSoon": "Expires soon",
   "products.category.all": "All categories",
-  "settings.profile": "Shop profile"
+  "settings.profile": "Shop profile",
+
+  "nav.today": "Today",
+  "nav.stock": "Stock",
+  "nav.money": "Money",
+  "nav.sell": "Sell",
+  "home.ask": "What do you want to do?",
+  "home.today.seeSales": "Opens today’s sales",
+  "home.tiles.add": "Add product",
+  "home.tiles.sales": "Sales",
+  "home.alert.restock": "Restock",
+  "home.alert.expires": "Expires {date}",
+  "home.alert.more": "{count} more",
+  "home.alert.allGood": "All stocked",
+  "home.alert.noProducts": "Add your first product",
+  "home.backup.title": "Backup",
+  "home.backup.ok": "Backup is up to date",
+  "home.backup.attention": "Backup is off. Tap to turn on",
+  "home.backup.problem": "Backup has a problem. Tap to see",
+  "home.backup.okLong": "Your sales and stock are saved online.",
+  "home.alert.seeProduct": "See product",
+  "home.alert.seeStock": "See stock",
+  "home.today.profitShort": "Profit"
 }

@@ -97,6 +97,10 @@ export function ProfileMenu() {
                 </Pressable>
             ) : null}
 
+            {/* Insights left Home in the picture-first pass; owners find it here. */}
+            {can('money.insights') ? (
+              <MenuItem icon="bar_chart" label={t('home.insights.title')} onPress={() => go(() => router.push('/insights'))} />
+            ) : null}
             {can('settings.view') ? (
               <MenuItem icon="settings" label={t('nav.settings')} onPress={() => go(() => router.push('/settings'))} />
             ) : null}
@@ -115,7 +119,7 @@ function MenuItem({
   onPress,
   danger,
 }: {
-  icon: 'settings' | 'logout';
+  icon: 'settings' | 'logout' | 'bar_chart';
   label: string;
   onPress: () => void;
   danger?: boolean;
@@ -136,8 +140,8 @@ function MenuItem({
 
 const styles = themed(() => StyleSheet.create({
   avatar: {
-    width: touch.minHeight,
-    height: touch.minHeight,
+    width: touch.big,
+    height: touch.big,
     borderRadius: radii.pill,
     backgroundColor: colors.primary,
     alignItems: 'center',
