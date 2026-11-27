@@ -1067,7 +1067,8 @@ const styles = themed(() => StyleSheet.create({
   amountLg: { fontSize: typeScale.display },
   amountSm: { fontSize: typeScale.body },
   button: {
-    minHeight: touch.minHeight + 4,
+    // 56dp: the picture-first screens' primary actions, at a busy counter.
+    minHeight: touch.big,
     overflow: 'hidden',
     flexDirection: 'row',
     gap: spacing.sm,
