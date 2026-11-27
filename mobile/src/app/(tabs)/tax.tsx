@@ -8,7 +8,7 @@ import { estimateTurnoverTax, potStatus } from '@/core';
 import { useTaxSnapshot } from '@/db/hooks';
 import { taxRules } from '@/data/fake';
 import { useI18n } from '@/i18n';
-import { formatKwacha } from '@/lib/format';
+import { formatDay, formatKwacha } from '@/lib/format';
 import { markVisited } from '@/lib/getting-started';
 import { colors, elevation, fonts, iconSize, radii, spacing, themed, typeScale } from '@/theme/tokens';
 
@@ -21,8 +21,14 @@ export default function TaxScreen() {
   const estimate = estimateTurnoverTax(snapshot.turnover, taxRules, snapshot.yearToDate);
   const pot = potStatus(estimate.estimatedTax, snapshot.potBalance);
   const period = snapshot.period;
+  // The pill names the state; the amount sits under the balance, so the two
+  // never repeat "Short by" side by side.
   const potLabel =
-    pot.state === 'short' ? t('tax.pot.short') : pot.state === 'over' ? t('tax.pot.over') : t('tax.pot.covered');
+    pot.state === 'short'
+      ? t('tax.pot.state.short')
+      : pot.state === 'over'
+        ? t('tax.pot.state.over')
+        : t('tax.pot.covered');
   const potTone = pot.state === 'short' ? 'warning' : pot.state === 'over' ? 'info' : 'success';
 
   if (initialLoading) {
@@ -36,7 +42,7 @@ export default function TaxScreen() {
   return (
     <Screen
       title={t('tax.title')}
-      subtitle={period ? `${period.startsOn} – ${period.endsOn}` : undefined}
+      subtitle={period ? `${formatDay(period.startsOn)} – ${formatDay(period.endsOn)}` : undefined}
     >
       {estimate.turnover === 0 ? <HelpTip icon="info">{t('tax.empty.tip')}</HelpTip> : null}
 
@@ -52,7 +58,7 @@ export default function TaxScreen() {
           <View style={styles.heroStat}>
             <Icon name="calendar_month" size={iconSize.sm} color={colors.onInkMuted} />
             <Text style={styles.heroMeta}>
-              {t('tax.due')}: {period?.dueOn ?? t('common.notYet')}
+              {t('tax.due')}: {period?.dueOn ? formatDay(period.dueOn) : t('common.notYet')}
             </Text>
           </View>
         </View>
@@ -82,17 +88,25 @@ export default function TaxScreen() {
           <View style={styles.potText}>
             <Text style={styles.potLabel}>{t('tax.pot.balance')}</Text>
             <Text style={styles.potValue}>{formatKwacha(snapshot.potBalance)}</Text>
+            {pot.state === 'covered' ? null : (
+              <Text style={styles.potLabel}>
+                {pot.state === 'short' ? t('tax.pot.short') : t('tax.pot.over')}{' '}
+                {formatKwacha(Math.abs(pot.difference))}
+              </Text>
+            )}
           </View>
-          <Pill
-            label={pot.state === 'covered' ? potLabel : `${potLabel} ${formatKwacha(Math.abs(pot.difference))}`}
-            tone={potTone}
-          />
+          <Pill label={potLabel} tone={potTone} />
         </View>
         <View style={styles.potActions}>
-          <Button label={t('tax.pot.payZra')} icon="account_balance" onPress={() => router.push('/tax/pot')} />
-          <Button label={t('tax.pot.topUp')} icon="add" variant="secondary" onPress={() => router.push('/tax/pot')} />
+          <Button label={t('tax.pot.topUp')} icon="add" onPress={() => router.push('/tax/pot')} />
+          <Button
+            label={t('tax.pot.payZra')}
+            icon="account_balance"
+            variant="secondary"
+            onPress={() => router.push('/tax/pot')}
+          />
         </View>
-        <Text style={styles.disclaimer}>{t('tax.pot.simulated')}</Text>
+        <Text style={styles.disclaimer}>{t('tax.pot.noMoneyMoves')}</Text>
       </Card>
 
       <SectionTitle>{t('si.title')}</SectionTitle>

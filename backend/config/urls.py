@@ -23,6 +23,9 @@ urlpatterns = [
     path("api/v1/", include("apps.configs.urls")),
     path("api/v1/", include("apps.collections.urls")),
     path("api/v1/", include("apps.smartinvoice.urls")),
+    path("api/v1/", include("apps.trading_record.urls")),
+    # Public: a bank officer opens this from the QR code, no sign-in.
+    path("", include("apps.trading_record.public_urls")),
     path("api/", include("apps.shops.urls")),
     path("api/", include("apps.inventory.urls")),
     path("api/", include("apps.sales.urls")),

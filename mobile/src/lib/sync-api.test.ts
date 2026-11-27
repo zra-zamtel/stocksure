@@ -5,7 +5,7 @@ vi.mock('expo-constants', () => ({
   default: { expoConfig: { hostUri: '192.168.1.20:8081' } },
 }));
 
-const { pullSync, pushSync } = await import('./api');
+const { pullSync, pushSync, refreshDeviceTokenOnServer } = await import('./api');
 
 function respond(status: number, body?: unknown) {
   const fetchMock = vi.fn(async () =>
@@ -78,6 +78,33 @@ describe('UT-SYNC API client', () => {
     ).rejects.toMatchObject({
       code: 'validation',
       message: 'Send at most 500 changes per batch.',
+    });
+  });
+
+  it('UT-SYNC-REFRESH-01 swaps the refresh key for a new device key', async () => {
+    const fetchMock = respond(200, { access: 'new-access', refresh: 'new-refresh' });
+    await expect(refreshDeviceTokenOnServer('old-refresh')).resolves.toEqual({
+      access: 'new-access',
+      refresh: 'new-refresh',
+    });
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('http://192.168.1.20:8000/api/v1/auth/refresh/');
+    expect(JSON.parse(String(init.body))).toEqual({ refresh: 'old-refresh' });
+  });
+
+  it('UT-SYNC-REFRESH-02 keeps the old refresh key when the server does not rotate it', async () => {
+    respond(200, { access: 'new-access' });
+    await expect(refreshDeviceTokenOnServer('old-refresh')).resolves.toEqual({
+      access: 'new-access',
+      refresh: 'old-refresh',
+    });
+  });
+
+  it('UT-SYNC-REFRESH-03 reports an expired refresh key as unauthorized, not as raw server text', async () => {
+    respond(401, { detail: 'Token is invalid or expired', code: 'token_not_valid' });
+    await expect(refreshDeviceTokenOnServer('old-refresh')).rejects.toMatchObject({
+      code: 'unauthorized',
+      message: 'Your session has expired.',
     });
   });
 });

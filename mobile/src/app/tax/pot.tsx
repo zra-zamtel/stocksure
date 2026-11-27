@@ -7,7 +7,7 @@ import { useTaxPot } from '@/db/hooks';
 import { payTaxPot, topUpTaxPot } from '@/db/repos';
 import { taxRules } from '@/data/fake';
 import { useI18n } from '@/i18n';
-import { formatKwacha } from '@/lib/format';
+import { formatDay, formatKwacha } from '@/lib/format';
 import { colors, spacing, themed, typeScale } from '@/theme/tokens';
 
 export default function TaxPotScreen() {
@@ -41,7 +41,7 @@ export default function TaxPotScreen() {
 
   if (loading && !period) {
     return (
-      <Screen title={t('tax.pot.title')}>
+      <Screen back title={t('tax.pot.title')}>
         <LoadingList label={t('state.loading')} hero count={2} />
       </Screen>
     );
@@ -49,7 +49,7 @@ export default function TaxPotScreen() {
 
   if (error) {
     return (
-      <Screen title={t('tax.pot.title')}>
+      <Screen back title={t('tax.pot.title')}>
         <ErrorState
           title={t('state.error.title')}
           message={t('state.error.message')}
@@ -63,7 +63,7 @@ export default function TaxPotScreen() {
 
   if (!period) {
     return (
-      <Screen title={t('tax.pot.title')}>
+      <Screen back title={t('tax.pot.title')}>
         <EmptyState message={t('common.notYet')} />
       </Screen>
     );
@@ -73,7 +73,7 @@ export default function TaxPotScreen() {
   const amountToSetAside = Number.isFinite(typed) ? toNgwee(typed) : shortfall;
 
   return (
-    <Screen title={t('tax.pot.title')} subtitle={`${period.startsOn} – ${period.endsOn}`}>
+    <Screen back title={t('tax.pot.title')} subtitle={`${formatDay(period.startsOn)} – ${formatDay(period.endsOn)}`}>
       <Card>
         <Row label={t('tax.estimate')} value={formatKwacha(estimate.estimatedTax)} />
         <Row label={t('tax.pot.balance')} value={formatKwacha(data.potBalance)} emphasis />
@@ -99,9 +99,7 @@ export default function TaxPotScreen() {
           keyboardType="decimal-pad"
         />
         <Text style={styles.muted}>
-          {amount.trim() === ''
-            ? t('tax.pot.short')
-            : t('tax.pot.balance')}{' '}
+          {amount.trim() === '' ? t('tax.pot.suggested') : t('tax.pot.willSetAside')}{' '}
           {formatKwacha(amountToSetAside)}
         </Text>
         <Button
@@ -130,7 +128,7 @@ export default function TaxPotScreen() {
             })
           }
         />
-        <Text style={styles.disclaimer}>{t('tax.pot.simulated')}</Text>
+        <Text style={styles.disclaimer}>{t('tax.pot.noMoneyMoves')}</Text>
         {message ? <Text style={styles.success}>{message}</Text> : null}
         {actionError ? <Text style={styles.error}>{actionError}</Text> : null}
       </Card>
@@ -143,7 +141,7 @@ export default function TaxPotScreen() {
           data.entries.map((entry) => (
             <View key={entry.id} style={styles.entry}>
               <Row
-                label={`${t(`tax.pot.kind.${entry.kind}`)} · ${entry.createdAt.slice(0, 10)}`}
+                label={`${t(`tax.pot.kind.${entry.kind}`)} · ${formatDay(entry.createdAt)}`}
                 value={formatKwacha(entry.kind === 'paid' ? -entry.amount : entry.amount)}
               />
             </View>

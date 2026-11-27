@@ -794,8 +794,12 @@ def upsert_tax_pot_entry(payload: dict, shop: Shop) -> TaxPotEntry:
     return row
 
 
-def apply_change(change: dict, user: User, queue_id: str = "") -> Shop:
-    """Validate and upsert one change. Raises SyncError with a phone-readable reason."""
+def apply_change(change: dict, user: User, queue_id: str = "", shop_id: str | None = None) -> Shop:
+    """Validate and upsert one change. Raises SyncError with a phone-readable reason.
+
+    ``shop_id`` is the phone's shop (the X-Shop-ID header). Without it the
+    user's first shop is used, which is only safe while each owner has one.
+    """
     entity = _text(change, "entity", required=True, max_length=32)
     entity_id = _text(change, "entityId", "entity_id", required=True, max_length=64)
     operation = _text(change, "operation", required=True, max_length=8)
@@ -821,9 +825,14 @@ def apply_change(change: dict, user: User, queue_id: str = "") -> Shop:
 
     with transaction.atomic():
         if entity == "shop":
+            if shop_id and _get(payload, "id") not in (None, shop_id):
+                raise SyncError("This change belongs to another shop.")
             shop = upsert_shop(payload, user)
         else:
-            shop = resolve_shop(user, _get(payload, "shopId", "shop_id"))
+            row_shop = _get(payload, "shopId", "shop_id")
+            if shop_id and row_shop and row_shop != shop_id:
+                raise SyncError("This change belongs to another shop.")
+            shop = resolve_shop(user, row_shop or shop_id)
             shop = _require_shop(shop)
             owner = is_owner(user, shop)
             if (

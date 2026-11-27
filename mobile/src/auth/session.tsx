@@ -5,7 +5,9 @@ import {
   readEmailPending,
   type EmailPending,
 } from '@/lib/email-verify-store';
-import { restoreFromServer } from '@/db/sync';
+import { pendingCount, rememberShopOwnerId, restoreFromServer, shopOwnerId } from '@/db/sync';
+import { wipeLocalShop } from '@/db/wipe';
+import { markHandedOver } from '@/lib/hand-over-store';
 import * as SecureStore from 'expo-secure-store';
 import { useSQLiteContext } from 'expo-sqlite';
 import {
@@ -42,6 +44,7 @@ import {
   ApiError,
   confirmPinResetOnServer,
   loginOwnerOnServer,
+  refreshDeviceTokenOnServer,
   registerOwnerOnServer,
   confirmPasswordResetOnServer,
   requestEmailCodeOnServer,
@@ -89,6 +92,7 @@ export type StaffPinChange = { phone: string; pin: string; name: string };
 export type PendingOwner = {
   owner: OwnerSession['owner'];
   deviceToken: string;
+  refresh?: string;
 };
 
 type AuthValue = {
@@ -116,6 +120,12 @@ type AuthValue = {
   pendingOwner: PendingOwner | null;
   /** Bearer token for owner-only online calls such as adding staff. */
   deviceToken: string | null;
+  /**
+   * Swaps the stored refresh key for a new device key after a 401. Returns the
+   * new key, or null when the session is truly over and only an email sign-in
+   * can reconnect the phone. Throws ApiError('offline') when there is no signal.
+   */
+  renewDeviceToken: () => Promise<string | null>;
   onboardingComplete: boolean;
   nextOnboardingRoute: OnboardingRoute;
   /** The one permission check used by controls, actions and route guards. */
@@ -155,8 +165,30 @@ type AuthValue = {
   requestPinResetCode: () => Promise<PinResetRequestResult>;
   resetPin: (input: { code: string; pin: string }) => Promise<void>;
   signOut: () => void;
+  /**
+   * Clears this phone for someone else, after the owner's PIN. Refuses while
+   * any change is still waiting to upload, because those would be lost.
+   * Everything already uploaded stays on the owner's account.
+   */
+  handOverPhone: (pin: string) => Promise<void>;
   refresh: () => Promise<void>;
 };
+
+/** Hand-over refused: 'pin' for a wrong owner PIN, 'pending' while changes wait to upload. */
+export class HandOverError extends Error {
+  constructor(public readonly reason: 'pin' | 'pending' | 'not-owner') {
+    super(`hand-over-${reason}`);
+    this.name = 'HandOverError';
+  }
+}
+
+/** The staff member works for another owner's shop than the one on this phone. */
+export class StaffWrongShopError extends Error {
+  constructor(public readonly otherOwnerName: string) {
+    super('staff-wrong-shop');
+    this.name = 'StaffWrongShopError';
+  }
+}
 
 /** The emailed code is valid but signs in a different owner than this phone's. */
 export class OwnerMismatchError extends Error {
@@ -225,12 +257,55 @@ function storeRestorePending(pending: boolean): void {
 }
 
 const DEVICE_TOKEN_KEY = 'stocksure.deviceToken';
+const REFRESH_TOKEN_KEY = 'stocksure.refreshToken';
 
-async function storeDeviceToken(token: string): Promise<void> {
+/** The access key lasts hours; the refresh key (when the server sent one) renews it. */
+async function storeDeviceToken(token: string, refresh?: string): Promise<void> {
   try {
     await SecureStore.setItemAsync(DEVICE_TOKEN_KEY, token);
+    if (refresh) await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, refresh);
   } catch {
-    // Secure storage is only used to authenticate the owner when adding staff.
+    // Without secure storage, online calls work until the app closes.
+  }
+}
+
+/**
+ * Everything this phone keeps outside SQLite about the shop and its people.
+ * Language and theme stay: they describe the phone, not the shop.
+ */
+const SHOP_STORAGE_KEYS = [
+  PENDING_KEY,
+  RESTORE_KEY,
+  'stocksure.emailPending',
+  'stocksure.pinGuard',
+  'stocksure.plan',
+  'stocksure.start.reconcile',
+  'stocksure.start.tax',
+  'stocksure.start.hidden',
+];
+
+async function forgetShopOutsideDatabase(): Promise<void> {
+  for (const key of SHOP_STORAGE_KEYS) {
+    try {
+      Storage.removeItemSync(key);
+    } catch {
+      // A key that cannot be removed is reset by the next owner's setup.
+    }
+  }
+  for (const key of [DEVICE_TOKEN_KEY, REFRESH_TOKEN_KEY]) {
+    try {
+      await SecureStore.deleteItemAsync(key);
+    } catch {
+      // Without secure storage nothing was kept there.
+    }
+  }
+}
+
+async function readRefreshToken(): Promise<string | null> {
+  try {
+    return (await SecureStore.getItemAsync(REFRESH_TOKEN_KEY)) ?? null;
+  } catch {
+    return null;
   }
 }
 
@@ -351,7 +426,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         email: session.owner.email ?? email,
         pinHash,
       });
-      await storeDeviceToken(session.deviceToken);
+      await storeDeviceToken(session.deviceToken, session.refresh);
       setDeviceToken(session.deviceToken);
       pendingRegistration.current = null;
       clearPendingRegistration();
@@ -444,6 +519,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       const server = await verifyStaffSignInOnServer(phone, input.pin, input.newPin);
+      // This phone holds one shop. A staff member of another shop must not
+      // sign in here: their sales would be recorded and uploaded as this shop's.
+      const expectedOwner = await shopOwnerId(db);
+      if (expectedOwner && server.owner.id && server.owner.id !== expectedOwner) {
+        throw new StaffWrongShopError(server.owner.name);
+      }
       if (server.mustChangePin) {
         setStaffPinChange({ phone, pin: input.pin, name: server.staff.name });
         return 'choose-pin';
@@ -464,6 +545,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         pinHash,
       });
       await markStaffFirstSignIn(db, staff.id);
+      if (!expectedOwner && server.owner.id) await rememberShopOwnerId(db, server.owner.id);
       setStaffPinChange(null);
       clearPinGuard();
       setUser({ id: staff.id, name: staff.name, phone: staff.phone, role: 'staff' });
@@ -484,7 +566,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // A password sign-in only succeeds for a confirmed email.
       clearEmailPending();
       setEmailPending(null);
-      setPendingOwner({ owner: session.owner, deviceToken: session.deviceToken });
+      setPendingOwner({ owner: session.owner, deviceToken: session.deviceToken, refresh: session.refresh });
       setStatus('ready');
       setError(null);
     },
@@ -495,7 +577,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Any accepted code proves the inbox, so the email is confirmed now.
     clearEmailPending();
     setEmailPending(null);
-    setPendingOwner({ owner: session.owner, deviceToken: session.deviceToken });
+    setPendingOwner({ owner: session.owner, deviceToken: session.deviceToken, refresh: session.refresh });
     setStatus('ready');
     setError(null);
   }, []);
@@ -522,7 +604,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // owner on this phone, so online actions work without another sign-in.
       const owner = await getOwner(db);
       if (owner && owner.id === session.owner.id) {
-        await storeDeviceToken(session.deviceToken);
+        await storeDeviceToken(session.deviceToken, session.refresh);
         setDeviceToken(session.deviceToken);
       }
     },
@@ -536,7 +618,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!owner || owner.id !== session.owner.id) throw new OwnerMismatchError();
       clearEmailPending();
       setEmailPending(null);
-      await storeDeviceToken(session.deviceToken);
+      await storeDeviceToken(session.deviceToken, session.refresh);
       setDeviceToken(session.deviceToken);
       return session.deviceToken;
     },
@@ -571,7 +653,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const existingOwner = await getOwner(db);
       if (existingOwner && existingOwner.id !== pendingOwner.owner.id) {
         throw new Error(
-          'This phone already has a different owner account. Use a separate phone or wipe this one first.'
+          'This phone already belongs to another shop. Its owner can clear it in Settings, under Hand over this phone, or use another phone.'
         );
       }
       const identities = await listIdentities(db);
@@ -593,7 +675,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         email: pendingOwner.owner.email,
         pinHash,
       });
-      await storeDeviceToken(pendingOwner.deviceToken);
+      await storeDeviceToken(pendingOwner.deviceToken, pendingOwner.refresh);
       setDeviceToken(pendingOwner.deviceToken);
       // Signing in online proves it is the owner, so the PIN opens again.
       clearPinGuard();
@@ -664,7 +746,54 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [db, refresh]
   );
 
+  // The server rotates the refresh key and blacklists the old one, so two
+  // screens renewing at once must share one request or the second would fail.
+  const renewing = useRef<Promise<string | null> | null>(null);
+  const renewDeviceToken = useCallback((): Promise<string | null> => {
+    if (renewing.current) return renewing.current;
+    renewing.current = (async () => {
+      const stored = await readRefreshToken();
+      if (!stored) return null;
+      try {
+        const next = await refreshDeviceTokenOnServer(stored);
+        await storeDeviceToken(next.access, next.refresh);
+        setDeviceToken(next.access);
+        return next.access;
+      } catch (cause) {
+        if (cause instanceof ApiError && cause.code === 'unauthorized') return null;
+        throw cause;
+      }
+    })().finally(() => {
+      renewing.current = null;
+    });
+    return renewing.current;
+  }, []);
+
   const signOut = useCallback(() => setUser(null), []);
+
+  const handOverPhone = useCallback(
+    async (pin: string) => {
+      const owner = await getOwner(db);
+      if (!owner || user?.role !== 'owner') throw new HandOverError('not-owner');
+      if (!(await verifyPin(pin, owner.pinHash))) throw new HandOverError('pin');
+      // Checked last, right before clearing: a sale recorded on another tab a
+      // moment ago must not be wiped before it uploads.
+      if ((await pendingCount(db)) > 0) throw new HandOverError('pending');
+
+      await wipeLocalShop(db);
+      await forgetShopOutsideDatabase();
+      clearPinGuard();
+      pendingRegistration.current = null;
+      setPendingOwner(null);
+      setStaffPinChange(null);
+      setEmailPending(null);
+      setDeviceToken(null);
+      setUser(null);
+      markHandedOver();
+      await refresh();
+    },
+    [db, refresh, user?.role]
+  );
 
   const value = useMemo<AuthValue>(() => {
     const nextOnboardingRoute: OnboardingRoute = !onboarding.hasShop
@@ -707,9 +836,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       requestPinResetCode,
       resetPin,
       signOut,
+      handOverPhone,
       refresh,
+      renewDeviceToken,
     };
   }, [
+    handOverPhone,
+    renewDeviceToken,
     beginOwnerLogin,
     beginOwnerEmailCode,
     beginOwnerPasswordReset,

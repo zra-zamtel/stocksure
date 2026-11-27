@@ -149,12 +149,16 @@ export interface SaleSummary {
   status: 'active' | 'void';
   reconcileStatus: string;
   recordedByName: string;
+  /** 'cash', 'mobile_money' or 'split': how the customer paid. */
+  paymentMethod: 'cash' | 'mobile_money' | 'split' | null;
 }
 
 export async function listSales(db: SQLiteDatabase, limit = 50): Promise<SaleSummary[]> {
   return db.getAllAsync<SaleSummary>(
     `SELECT s.id, s.created_at AS createdAt, s.total, s.status, s.reconcile_status AS reconcileStatus,
-            COALESCE(o.name, st.name, s.recorded_by) AS recordedByName
+            COALESCE(o.name, st.name, s.recorded_by) AS recordedByName,
+            (SELECT CASE WHEN COUNT(DISTINCT p.method) > 1 THEN 'split' ELSE MIN(p.method) END
+               FROM payment p WHERE p.sale_id = s.id) AS paymentMethod
        FROM sale s
        LEFT JOIN owner o ON o.id = s.recorded_by
        LEFT JOIN staff st ON st.id = s.recorded_by
@@ -211,6 +215,7 @@ export async function totalsForDay(db: SQLiteDatabase, day: string): Promise<Day
 
 export interface LowStockRow {
   variantId: string;
+  productId: string;
   label: string;
   quantity: number;
   lowStockLevel: number;
@@ -218,7 +223,7 @@ export interface LowStockRow {
 
 export async function lowStockVariants(db: SQLiteDatabase): Promise<LowStockRow[]> {
   return db.getAllAsync<LowStockRow>(
-    `SELECT v.id AS variantId,
+    `SELECT v.id AS variantId, v.product_id AS productId,
             TRIM(p.name || ' ' || COALESCE(v.size, '') || ' ' || COALESCE(v.colour, '')) AS label,
             COALESCE(s.quantity, 0) AS quantity,
             v.low_stock_level AS lowStockLevel
@@ -621,7 +626,7 @@ export async function upsertOwnerFromServer(
   if (existing) {
     if (existing.id !== owner.id) {
       throw new Error(
-        'This phone already has a different owner account. Sign out and use a separate phone or wipe this one first.'
+        'This phone already belongs to another shop. Its owner can clear it in Settings, under Hand over this phone, or use another phone.'
       );
     }
 
@@ -1408,6 +1413,8 @@ export interface MovementRow {
   reason: string;
   note?: string;
   createdAt: string;
+  /** Who recorded it, when the movement came from a sale. */
+  byName?: string;
 }
 
 export async function listMovements(
@@ -1416,10 +1423,14 @@ export async function listMovements(
   limit = 20
 ): Promise<MovementRow[]> {
   return db.getAllAsync<MovementRow>(
-    `SELECT id, quantity_change AS quantityChange, reason, note, created_at AS createdAt
-       FROM stock_movement
-      WHERE variant_id = ?
-      ORDER BY created_at DESC, id DESC
+    `SELECT m.id, m.quantity_change AS quantityChange, m.reason, m.note, m.created_at AS createdAt,
+            COALESCE(o.name, st.name) AS byName
+       FROM stock_movement m
+       LEFT JOIN sale s ON s.id = m.sale_id
+       LEFT JOIN owner o ON o.id = s.recorded_by
+       LEFT JOIN staff st ON st.id = s.recorded_by
+      WHERE m.variant_id = ?
+      ORDER BY m.created_at DESC, m.id DESC
       LIMIT ?`,
     variantId,
     limit
@@ -1815,6 +1826,8 @@ export interface ReconcileCash {
   countedCash?: Ngwee;
   variance?: Ngwee;
   note?: string;
+  /** When the count was last saved, for the "Saved at 17:40" confirmation. */
+  countedAt?: string;
 }
 
 export interface ReconcileDayResult {
@@ -1957,8 +1970,9 @@ export async function reconcileDay(
     openingFloat: number;
     countedCash: number | null;
     note: string | null;
+    updatedAt: string | null;
   }>(
-    `SELECT opening_float AS openingFloat, counted_cash AS countedCash, note
+    `SELECT opening_float AS openingFloat, counted_cash AS countedCash, note, updated_at AS updatedAt
        FROM reconciliation WHERE day = ?`,
     day
   );
@@ -2068,6 +2082,7 @@ export async function reconcileDay(
       countedCash,
       variance: countedCash === undefined ? undefined : cash.variance,
       note: existing?.note ?? undefined,
+      countedAt: countedCash === undefined ? undefined : existing?.updatedAt ?? undefined,
     },
   };
 }

@@ -10,6 +10,7 @@ import {
   EmptyState,
   ErrorState,
   Field,
+  Icon,
   IconBadge,
   LoadingList,
   Screen,
@@ -22,9 +23,9 @@ import { useReconciliation } from '@/db/hooks';
 import { DEMO_TOOLS } from '@/lib/demo';
 import { ignorePayment, injectDemoMessages, markSalePaid, saveCashCount, voidSale } from '@/db/repos';
 import { useI18n } from '@/i18n';
-import { formatKwacha } from '@/lib/format';
+import { formatKwacha, formatTime } from '@/lib/format';
 import { markVisited } from '@/lib/getting-started';
-import { colors, elevation, fonts, radii, spacing, themed, typeScale } from '@/theme/tokens';
+import { colors, elevation, fonts, iconSize, radii, spacing, themed, typeScale } from '@/theme/tokens';
 
 const time = (iso: string) => new Date(iso).toTimeString().slice(0, 5);
 
@@ -51,6 +52,7 @@ export default function ReconcileScreen() {
   const [message, setMessage] = useState<string | null>(null);
   const [countedDraft, setCountedDraft] = useState<string | null>(null);
   const [noteDraft, setNoteDraft] = useState<string | null>(null);
+  const [cashHint, setCashHint] = useState<string | null>(null);
   const [showMatched, setShowMatched] = useState(false);
 
   async function perform(action: () => Promise<unknown>, success?: string, permission: Permission = 'reconcile.resolve') {
@@ -105,6 +107,12 @@ export default function ReconcileScreen() {
   const noteValue = noteDraft ?? cash.note ?? '';
   const hasCounted = cash.countedCash !== undefined;
   const showCashForm = seesMoney || !hasCounted;
+  // The difference shows while typing, so the owner sees "balanced", "over"
+  // or "short" before saving, not only after.
+  const typedCount = countedValue.trim() === '' ? null : Number.parseFloat(countedValue.replace(',', '.'));
+  const draftVariance =
+    typedCount !== null && Number.isFinite(typedCount) ? toNgwee(typedCount) - cash.expected : undefined;
+  const shownVariance = countedDraft !== null ? draftVariance : cash.variance;
   const toCheck = data.salesWithoutPayment.length + data.needsReview.length;
   const allClear = toCheck === 0 && data.paymentsWithoutSale.length === 0;
 
@@ -273,9 +281,15 @@ export default function ReconcileScreen() {
                 label={t('reconcile.cash.save')}
                 icon="save"
                 variant="secondary"
-                disabled={!canCountCash || countedValue.trim() === ''}
+                disabled={!canCountCash}
                 loading={busy}
                 onPress={() => {
+                  // Validate on press: a greyed-out button would not say what is missing.
+                  if (countedValue.trim() === '' || draftVariance === undefined) {
+                    setCashHint(t('reconcile.cash.enterAmount'));
+                    return;
+                  }
+                  setCashHint(null);
                   const amount = toNgwee(Number.parseFloat(countedValue.replace(',', '.')) || 0);
                   void perform(
                     async () => {
@@ -283,7 +297,8 @@ export default function ReconcileScreen() {
                       setCountedDraft(null);
                       setNoteDraft(null);
                     },
-                    t('reconcile.cashSaved'),
+                    // "Saved at 17:40" appears beside the form instead of a notice at the top.
+                    undefined,
                     'cash.count'
                   );
                 }}
@@ -292,19 +307,31 @@ export default function ReconcileScreen() {
           ) : (
             <Text style={styles.muted}>{t('reconcile.cash.staffNote')}</Text>
           )}
-          {seesMoney && cash.variance !== undefined ? (
-            <View style={styles.cashRow}>
-              <Text style={styles.cashLabel}>{t('reconcile.cash.variance')}</Text>
+          {cashHint ? <Text style={styles.cashHint}>{cashHint}</Text> : null}
+          {seesMoney && shownVariance !== undefined ? (
+            <View style={styles.cashRow} accessibilityLiveRegion="polite">
+              <Text style={styles.cashLabel}>
+                {shownVariance === 0
+                  ? t('reconcile.cash.balanced')
+                  : shownVariance > 0
+                    ? t('reconcile.cash.over')
+                    : t('reconcile.cash.short')}
+              </Text>
               <Text
                 style={[
                   styles.cashValue,
                   styles.strong,
-                  cash.variance < 0 ? styles.short : cash.variance > 0 ? styles.over : null,
+                  shownVariance < 0 ? styles.short : shownVariance > 0 ? styles.over : styles.balanced,
                 ]}
               >
-                {cash.variance > 0 ? '+' : ''}
-                {formatKwacha(cash.variance)}
+                {shownVariance === 0 ? formatKwacha(0) : formatKwacha(Math.abs(shownVariance))}
               </Text>
+            </View>
+          ) : null}
+          {countedDraft === null && cash.countedAt ? (
+            <View style={styles.savedRow}>
+              <Icon name="check_circle" size={iconSize.sm} color={colors.success} />
+              <Text style={styles.saved}>{t('reconcile.cash.savedAt', { time: formatTime(cash.countedAt) })}</Text>
             </View>
           ) : null}
         </View>
@@ -386,6 +413,10 @@ const styles = themed(() => StyleSheet.create({
   strong: { fontFamily: fonts.display, fontSize: typeScale.heading },
   short: { color: colors.danger },
   over: { color: colors.success },
+  balanced: { color: colors.success },
+  cashHint: { fontSize: typeScale.label, color: colors.danger },
+  savedRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  saved: { fontSize: typeScale.label, color: colors.success, fontWeight: '600' },
   muted: { fontSize: typeScale.body, color: colors.textMuted },
   demo: { alignItems: 'center' },
 }));

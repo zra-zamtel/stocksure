@@ -40,6 +40,8 @@ class SyncPushView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # The phone's own shop: every row in the batch must land there.
+        shop_id = request.headers.get("X-Shop-ID") or request.query_params.get("shop")
         accepted = []
         rejected = []
         for change in changes:
@@ -48,7 +50,7 @@ class SyncPushView(APIView):
                 rejected.append({"queueId": queue_id, "reason": "queueId is required."})
                 continue
             try:
-                apply_change(change, request.user, queue_id)
+                apply_change(change, request.user, queue_id, shop_id=shop_id)
                 accepted.append(queue_id)
             except SyncError as exc:
                 rejected.append({"queueId": queue_id, "reason": str(exc)})

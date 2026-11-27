@@ -7,13 +7,13 @@ import { displayName } from '@/components/auth';
 import { Toggle } from '@/components/charts';
 import { Button, Choice, Field, Icon, IconButton, Screen, SectionTitle, TextLink } from '@/components/ui';
 import { isValidTpin, trialDaysLeft, type ShopType } from '@/core';
-import { taxRules } from '@/data/fake';
 import { useShop, useSmartInvoiceLink } from '@/db/hooks';
 import { saveMoneySettings, saveShopDetails } from '@/db/repos';
 import { useSync } from '@/db/use-sync';
 import { readPlanChoice } from '@/lib/plan-store';
 import { LANGUAGE_LABELS, useI18n, type Language } from '@/i18n';
-import { ConnectReminder } from '@/components/connect-device';
+import { ConnectReminder, SyncProblemBanner } from '@/components/connect-device';
+import { formatDateTime } from '@/lib/format';
 import { colors, elevation, radii, setThemePreference, spacing, themed, type ThemePreference, themePreference, touch, typeScale } from '@/theme/tokens';
 
 const SHOP_TYPES: ShopType[] = ['clothes', 'shoes', 'general', 'other'];
@@ -247,15 +247,28 @@ export default function SettingsScreen() {
           />
           <ListRow label={t('onboarding.money.tpin')} value={shop?.tpin ?? t('common.notYet')} />
           <ListRow
+            label={t('settings.barcodes')}
+            value={shop ? (shop.usesBarcodes ? t('common.yes') : t('common.no')) : t('common.notYet')}
+          />
+          <ListRow label={t('settings.plan')} value={planLabel} last />
+        </Group>
+      )}
+
+      {/* Rows that open another screen live apart from the read-only shop
+          details, so it is clear which rows are links. */}
+      {editing ? null : (
+        <Group title={t('settings.services')}>
+          <ListRow
             label={t('si.title')}
             value={smartInvoice ? t('si.settings.connected') : t('si.settings.connect')}
             onPress={() => router.push('/smart-invoice')}
           />
           <ListRow
-            label={t('settings.barcodes')}
-            value={shop ? (shop.usesBarcodes ? t('common.yes') : t('common.no')) : t('common.notYet')}
+            label={t('tr.title')}
+            value={t('tr.settings')}
+            onPress={() => router.push('/trading-record')}
+            last
           />
-          <ListRow label={t('settings.plan')} value={planLabel} last />
         </Group>
       )}
 
@@ -281,16 +294,12 @@ export default function SettingsScreen() {
       >
         <ListRow
           label={t('sync.lastSync')}
-          value={sync.lastSyncAt ? new Date(sync.lastSyncAt).toLocaleString() : t('sync.never')}
+          value={sync.lastSyncAt ? formatDateTime(sync.lastSyncAt) : t('sync.never')}
         />
         <ListRow label={t('sync.pending')} value={String(sync.pending)} last />
       </Group>
       {/* Sync needs this phone connected: the strip opens the connect sheet. */}
-      {deviceToken ? (
-        sync.error ? <Text style={styles.error}>{sync.error}</Text> : null
-      ) : (
-        <ConnectReminder dismissible={false} />
-      )}
+      {deviceToken ? <SyncProblemBanner /> : <ConnectReminder dismissible={false} />}
 
       <Pressable
         accessibilityRole="button"
@@ -301,11 +310,19 @@ export default function SettingsScreen() {
         <Text style={styles.signOutText}>{t('settings.signOut')}</Text>
       </Pressable>
 
+      {/* Kept apart from Sign out and worded plainly: this one clears the
+          phone, after a backup check and the owner PIN on the next screen. */}
+      <Group title={t('handOver.settingsGroup')}>
+        <ListRow
+          label={t('handOver.title')}
+          value={t('handOver.settingsHint')}
+          onPress={() => router.push('/hand-over')}
+          last
+        />
+      </Group>
+
       <View style={styles.footer}>
-        <Text style={styles.muted}>
-          {t('settings.version')} 0.1.0 · {t('tax.rate')} {(taxRules.rate * 100).toFixed(0)}% (v
-          {taxRules.version})
-        </Text>
+        <Text style={styles.muted}>{t('settings.version')} 0.1.0</Text>
       </View>
     </Screen>
   );

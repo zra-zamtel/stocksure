@@ -254,7 +254,8 @@ const styles = themed(() => StyleSheet.create({
   noticeText: { flex: 1, fontSize: typeScale.body, lineHeight: 21, fontWeight: '600' },
   hint: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   hintText: { flexShrink: 1, fontSize: typeScale.label, color: colors.textMuted, lineHeight: 18 },
-  divider: { alignItems: 'center', marginTop: spacing.lg },
+  // Left-aligned like the heading and PIN boxes above it.
+  divider: { alignItems: 'flex-start', marginTop: spacing.lg },
   dividerText: {
     fontSize: typeScale.caption,
     fontWeight: '700',

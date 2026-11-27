@@ -1,7 +1,7 @@
 import { useAuth } from '@/auth/session';
 import type { AndroidSymbol } from 'expo-symbols';
 import { useRouter } from 'expo-router';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import {
   Button,
   EmptyState,
@@ -17,9 +17,10 @@ import {
 } from '@/components/ui';
 import type { ReconcileStatus } from '@/core/types';
 import { useDayTotals, useSales } from '@/db/hooks';
+import type { SaleSummary } from '@/db/repos';
 import { useI18n } from '@/i18n';
-import { formatKwacha } from '@/lib/format';
-import { spacing } from '@/theme/tokens';
+import { formatDay, formatKwacha, formatTime, localDayKey } from '@/lib/format';
+import { colors, spacing, themed, typeScale } from '@/theme/tokens';
 
 const statusView: Record<ReconcileStatus, { key: string; tone: Tone; icon: AndroidSymbol }> = {
   matched: { key: 'sales.state.matched', tone: 'success', icon: 'check_circle' },
@@ -27,6 +28,24 @@ const statusView: Record<ReconcileStatus, { key: string; tone: Tone; icon: Andro
   payment_no_sale: { key: 'sales.state.paymentNoSale', tone: 'warning', icon: 'help' },
   unresolved: { key: 'sales.state.unresolved', tone: 'neutral', icon: 'receipt_long' },
 };
+
+const METHOD_KEYS = {
+  cash: 'sales.method.cash',
+  mobile_money: 'sales.method.mobileMoney',
+  split: 'sales.method.split',
+} as const;
+
+/** Newest first, split by local day so older sales never sit under "Today". */
+function groupByDay(sales: SaleSummary[]): { day: string; sales: SaleSummary[] }[] {
+  const groups: { day: string; sales: SaleSummary[] }[] = [];
+  for (const sale of sales) {
+    const day = localDayKey(sale.createdAt);
+    const last = groups[groups.length - 1];
+    if (last && last.day === day) last.sales.push(sale);
+    else groups.push({ day, sales: [sale] });
+  }
+  return groups;
+}
 
 // One row per sale: amount, time and who, and whether the money was found.
 // The whole row opens the sale; cost and discount breakdowns live there.
@@ -38,6 +57,11 @@ export default function SalesScreen() {
   const { can } = useAuth();
   const canRecord = can('sales.record');
   const recordSale = () => router.push('/sale/new');
+  const now = new Date();
+  const today = localDayKey(now.toISOString());
+  const yesterday = localDayKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1).toISOString());
+  const dayLabel = (day: string) =>
+    day === today ? t('common.today') : day === yesterday ? t('common.yesterday') : formatDay(day);
 
   if (initialLoading || totalsLoading || error) {
     return (
@@ -77,36 +101,52 @@ export default function SalesScreen() {
       footer={canRecord ? <Button label={t('sales.new')} icon="add" onPress={recordSale} /> : undefined}
     >
       <View style={styles.stats}>
-        <StatTile value={formatKwacha(totals.salesTotal)} label={t('sales.total')} icon="payments" />
+        <StatTile value={formatKwacha(totals.salesTotal)} label={t('sales.todayTotal')} icon="payments" />
         <StatTile value={totals.saleCount} label={t('home.today.count')} icon="receipt_long" />
       </View>
 
       <SectionTitle>{t('sales.items')}</SectionTitle>
 
-      <ListGroup>
-        {sales.map((sale, index) => {
-          const voided = sale.status === 'void';
-          const status = statusView[sale.reconcileStatus as ReconcileStatus] ?? statusView.unresolved;
-          const when = sale.createdAt.slice(11, 16);
-          return (
-            <ListRow
-              key={sale.id}
-              last={index === sales.length - 1}
-              icon={voided ? 'block' : status.icon}
-              iconTone={voided ? 'danger' : status.tone}
-              title={formatKwacha(sale.total)}
-              meta={`${when} · ${sale.recordedByName}`}
-              right={<Pill label={voided ? t('sales.voided') : t(status.key)} tone={voided ? 'danger' : status.tone} />}
-              accessibilityLabel={`${when}, ${formatKwacha(sale.total)}, ${voided ? t('sales.voided') : t(status.key)}`}
-              onPress={() => router.push(`/sale/${sale.id}`)}
-            />
-          );
-        })}
-      </ListGroup>
+      {groupByDay(sales).map((group) => (
+        <View key={group.day} style={styles.day}>
+          <Text style={styles.dayLabel} accessibilityRole="header">
+            {dayLabel(group.day)}
+          </Text>
+          <ListGroup>
+            {group.sales.map((sale, index) => {
+              const voided = sale.status === 'void';
+              // A cash-only sale is checked by the day's cash count, not by
+              // payment messages, so "not matched yet" would mislead.
+              const cashOnly = sale.paymentMethod === 'cash' && sale.reconcileStatus === 'unresolved';
+              const status = statusView[sale.reconcileStatus as ReconcileStatus] ?? statusView.unresolved;
+              const label = voided ? t('sales.voided') : cashOnly ? t('sales.state.cash') : t(status.key);
+              const tone: Tone = voided ? 'danger' : cashOnly ? 'neutral' : status.tone;
+              const when = formatTime(sale.createdAt);
+              const method = sale.paymentMethod ? t(METHOD_KEYS[sale.paymentMethod]) : null;
+              const meta = [when, method, sale.recordedByName].filter(Boolean).join(' · ');
+              return (
+                <ListRow
+                  key={sale.id}
+                  last={index === group.sales.length - 1}
+                  icon={voided ? 'block' : cashOnly ? 'payments' : status.icon}
+                  iconTone={tone}
+                  title={formatKwacha(sale.total)}
+                  meta={meta}
+                  right={<Pill label={label} tone={tone} />}
+                  accessibilityLabel={`${dayLabel(group.day)} ${when}, ${formatKwacha(sale.total)}, ${method ?? ''}, ${label}`}
+                  onPress={() => router.push(`/sale/${sale.id}`)}
+                />
+              );
+            })}
+          </ListGroup>
+        </View>
+      ))}
     </Screen>
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   stats: { flexDirection: 'row', gap: spacing.sm },
-});
+  day: { gap: spacing.xs },
+  dayLabel: { fontSize: typeScale.label, fontWeight: '700', color: colors.textMuted, marginTop: spacing.xs },
+}));

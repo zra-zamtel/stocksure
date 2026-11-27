@@ -205,6 +205,28 @@ owner dashboard. The older domain write API (`/api/shops`, `/api/items`,
 `/api/sales`, …) remains for the server-side demo and is not the phone's store;
 its remaining tax/TaxPot endpoints have not yet been repointed.
 
+## Trading Record (prototype: proof of trading for a bank or MFI)
+
+`apps.trading_record`. The owner shares a sealed summary of the shop's sales; a bank officer scans
+the QR code (or opens the link) to check it. Built from the phone's synced store (`apps.sync`),
+never `apps.ledger`. Not a credit score, audited accounts or a bank statement.
+
+- Three evidence lines, never one blended figure: **mobile money matched** (payment paired with a
+  provider confirmation SMS stored on the phone; the server re-checks amount, provider, reference
+  and time), **cash balanced close** (cash on days the close counted exactly the expected cash; a
+  consistency check), **recorded only** (self-reported). Late-synced (back-filled) sales are shown.
+- Margin and a draft tax section are opt-in. Simulated TaxPot payments are never shown as compliance.
+- Server computes the payload, seals it with SHA-256 over canonical JSON, and stores only the
+  token's hash. Links expire after 14 or 30 days and can be withdrawn. Totals only.
+- API (owner only): `GET/POST /api/v1/trading-records/` (`shopId`, `months` 3/6/12,
+  `expiresInDays` 14/30, `includeMargin`, `includeTax`), `POST /api/v1/trading-records/<id>/revoke`.
+  The POST response is the only time the link (`verifyUrl`, `qrSvg`) is returned.
+- Public: `/verify/<token>/` (HTML) and `/verify/<token>/json/`. Set `TRADING_RECORD_PUBLIC_URL`
+  when the API sits behind a proxy so QR links use the public host.
+- Demo data: `seed_demo --reset --history`, or for the shop a phone created,
+  `seed_trading_history --shop <sync shop id>` (`--backfilled` shows the late-sync warning).
+- Phone: Settings → Trading Record (owner only) makes the record and shares a PDF or the link.
+
 ## USSD (Africa's Talking)
 
 `POST /api/ussd/` is the Module F gateway endpoint. It accepts the standard

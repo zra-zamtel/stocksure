@@ -4,6 +4,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '@/auth/session';
 import { useSmartInvoice } from '@/db/hooks';
 import { useI18n } from '@/i18n';
+import { formatDateTime } from '@/lib/format';
 import { getSmartInvoiceSaleOnServer, type SmartInvoiceSent } from '@/lib/api';
 import { colors, spacing, themed, typeScale } from '@/theme/tokens';
 import { Card, Pill, Row, SectionTitle, TextLink } from './ui';
@@ -84,7 +85,7 @@ export function SmartInvoiceCard({ saleId }: { saleId: string }) {
             <Row label={t('si.card.signature')} value={group(sale.receiptSignature)} />
             <Row label={t('si.device')} value={sale.sdcId ?? '-'} />
             {sale.publishedAt ? (
-              <Row label={t('si.card.sentAt')} value={sale.publishedAt.slice(0, 16).replace('T', ' ')} />
+              <Row label={t('si.card.sentAt')} value={formatDateTime(sale.publishedAt)} />
             ) : null}
           </>
         ) : null}

@@ -196,6 +196,47 @@ class SyncBase(TestCase):
 
 
 class SyncTestCase(SyncBase):
+    def push_to(self, shop_id, changes, user=None):
+        """Push with the phone's X-Shop-ID header."""
+        return self.client.post(
+            "/api/v1/sync/push",
+            data=json.dumps({"deviceId": "dev_1", "batchId": "batch_1", "changes": changes}),
+            content_type="application/json",
+            HTTP_X_SHOP_ID=shop_id,
+            **(auth(user or self.owner)),
+        )
+
+    def test_push_with_shop_header_lands_in_that_shop(self):
+        response = self.push_to(
+            "shop_1",
+            [
+                self.change("q_shop", "shop", "shop_1", shop_payload()),
+                self.change("q_product", "product", "prod_1", product_payload()),
+            ],
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["rejected"], [])
+        self.assertEqual(Product.objects.get(id="prod_1").shop_id, "shop_1")
+
+    def test_push_refuses_a_shop_row_for_another_shop_than_the_header(self):
+        response = self.push_to("shop_other", [self.change("q_shop", "shop", "shop_1", shop_payload())])
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["accepted"], [])
+        self.assertIn("another shop", response.json()["rejected"][0]["reason"])
+
+    def test_push_with_an_unknown_shop_header_does_not_fall_back_to_the_first_shop(self):
+        self.push_schema()
+
+        response = self.push_to(
+            "shop_not_mine",
+            [self.change("q_p2", "product", "prod_2", product_payload(id="prod_2"))],
+        )
+
+        self.assertEqual(response.json()["accepted"], [])
+        self.assertFalse(Product.objects.filter(id="prod_2").exists())
+
     def test_push_shop_stores_text_id_and_ngwee(self):
         response = self.push([self.change("q_shop", "shop", "shop_1", shop_payload())])
 

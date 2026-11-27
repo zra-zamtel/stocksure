@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { StyleSheet, Text, TextInput, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '@/auth/session';
 import {
   Button,
@@ -13,13 +13,14 @@ import {
   LoadingList,
   Pill,
   Screen,
+  SearchField,
   StatTile,
 } from '@/components/ui';
 import { useProducts, useShop } from '@/db/hooks';
 import type { ProductWithStock } from '@/db/repos';
 import { useI18n } from '@/i18n';
 import { formatKwacha } from '@/lib/format';
-import { colors, elevation, fonts, radii, spacing, themed, touch, typeScale } from '@/theme/tokens';
+import { colors, fonts, spacing, themed, typeScale } from '@/theme/tokens';
 
 type Filter = 'all' | 'low' | 'out';
 
@@ -142,18 +143,12 @@ export default function ProductsScreen() {
         />
       </View>
 
-      <View style={styles.search}>
-        <Icon name="search" size={20} color={colors.textMuted} />
-        <TextInput
-          value={query}
-          onChangeText={setQuery}
-          placeholder={t('products.searchPlaceholder')}
-          placeholderTextColor={colors.textMuted}
-          accessibilityLabel={t('products.searchPlaceholder')}
-          style={styles.searchInput}
-          autoCorrect={false}
-        />
-      </View>
+      <SearchField
+        value={query}
+        onChangeText={setQuery}
+        label={t('products.searchPlaceholder')}
+        clearLabel={t('common.clearSearch')}
+      />
 
       {visible.length === 0 ? (
         needle ? (
@@ -185,8 +180,14 @@ export default function ProductsScreen() {
             ]
               .filter(Boolean)
               .join(' · ');
+            // One scheme everywhere: red = out, amber = low (at or under the
+            // product's own low-stock level), no colour = fine.
             const stockLabel =
-              state === 'out' ? t('products.filter.out') : t('products.left', { count: product.stock });
+              state === 'out'
+                ? t('products.filter.out')
+                : state === 'low'
+                  ? t('products.lowLeft', { count: product.stock })
+                  : t('products.stockCount', { count: product.stock });
             return (
               <ListRow
                 key={product.id}
@@ -198,7 +199,13 @@ export default function ProductsScreen() {
                     <Text style={styles.price} numberOfLines={1}>
                       {formatKwacha(product.defaultSellPrice)}
                     </Text>
-                    <Pill label={stockLabel} tone={state === 'out' ? 'danger' : state === 'low' ? 'warning' : 'neutral'} />
+                    {state === 'ok' ? (
+                      <Text style={styles.stock} numberOfLines={1}>
+                        {stockLabel}
+                      </Text>
+                    ) : (
+                      <Pill label={stockLabel} tone={state === 'out' ? 'danger' : 'warning'} />
+                    )}
                   </>
                 }
                 accessibilityLabel={`${product.name}, ${formatKwacha(product.defaultSellPrice)}, ${stockLabel}`}
@@ -214,24 +221,7 @@ export default function ProductsScreen() {
 
 const styles = themed(() => StyleSheet.create({
   counts: { flexDirection: 'row', gap: spacing.sm },
-  search: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    minHeight: touch.minHeight,
-    borderRadius: radii.pill,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    paddingHorizontal: spacing.lg,
-    ...elevation.card,
-  },
-  searchInput: {
-    flex: 1,
-    minHeight: touch.minHeight,
-    fontSize: typeScale.body,
-    color: colors.text,
-  },
+  stock: { fontSize: typeScale.label, color: colors.textMuted, fontVariant: ['tabular-nums'] },
   price: {
     fontFamily: fonts.display,
     fontSize: typeScale.body,

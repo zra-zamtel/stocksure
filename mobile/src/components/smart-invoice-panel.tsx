@@ -8,7 +8,7 @@ import { ConnectDevice } from '@/components/connect-device';
 import { Button, Card, Field, Icon, Pill, Row, SectionTitle, TextLink } from '@/components/ui';
 import { useShop } from '@/db/hooks';
 import { saveSmartInvoiceLink } from '@/db/repos';
-import { syncNow } from '@/db/sync';
+import { useSyncRenewing } from '@/db/use-sync';
 import { useI18n } from '@/i18n';
 import {
   ApiError,
@@ -16,6 +16,7 @@ import {
   getSmartInvoiceStatusOnServer,
   type SmartInvoiceStatus,
 } from '@/lib/api';
+import { formatDateTime, formatDay } from '@/lib/format';
 import { colors, radii, spacing, themed, typeScale } from '@/theme/tokens';
 
 type Connected = Extract<SmartInvoiceStatus, { connected: true }>;
@@ -33,7 +34,8 @@ export function SmartInvoicePanel({ compact = false }: { compact?: boolean }) {
   const { t } = useI18n();
   const router = useRouter();
   const db = useSQLiteContext();
-  const { deviceToken } = useAuth();
+  const { deviceToken, renewDeviceToken } = useAuth();
+  const syncRenewing = useSyncRenewing();
   const { data: shop } = useShop();
   const [status, setStatus] = useState<SmartInvoiceStatus | null>(null);
   const [tpin, setTpin] = useState('');
@@ -44,6 +46,7 @@ export function SmartInvoicePanel({ compact = false }: { compact?: boolean }) {
     (cause: unknown) => {
       if (cause instanceof ApiError) {
         if (cause.code === 'offline') return t('si.error.offline');
+        if (cause.code === 'unauthorized') return t('si.error.signIn');
         if (cause.code === 'validation') return cause.message;
       }
       return t('si.error.server');
@@ -51,16 +54,33 @@ export function SmartInvoicePanel({ compact = false }: { compact?: boolean }) {
     [t]
   );
 
+  /** One online call, renewing an expired device key once before giving up. */
+  const withKey = useCallback(
+    async <T,>(token: string, call: (key: string) => Promise<T>): Promise<T> => {
+      try {
+        return await call(token);
+      } catch (cause) {
+        if (!(cause instanceof ApiError) || cause.code !== 'unauthorized') throw cause;
+        const renewed = await renewDeviceToken();
+        if (!renewed) throw cause;
+        return call(renewed);
+      }
+    },
+    [renewDeviceToken]
+  );
+
   const load = useCallback(async () => {
     if (!deviceToken || !shop) return;
     try {
-      const next = await getSmartInvoiceStatusOnServer({ deviceToken, shopId: shop.id });
+      const next = await withKey(deviceToken, (key) =>
+        getSmartInvoiceStatusOnServer({ deviceToken: key, shopId: shop.id })
+      );
       setStatus(next);
       setError(null);
     } catch (cause) {
       setError(describe(cause));
     }
-  }, [deviceToken, describe, shop]);
+  }, [deviceToken, describe, shop, withKey]);
 
   useFocusEffect(
     useCallback(() => {
@@ -85,8 +105,10 @@ export function SmartInvoicePanel({ compact = false }: { compact?: boolean }) {
     setError(null);
     try {
       // Make sure the server has every sale before it sends them on.
-      await syncNow(db, deviceToken).catch(() => undefined);
-      const next = await connectSmartInvoiceOnServer({ deviceToken, shopId: shop.id, tpin: digits });
+      await syncRenewing(deviceToken).catch(() => undefined);
+      const next = await withKey(deviceToken, (key) =>
+        connectSmartInvoiceOnServer({ deviceToken: key, shopId: shop.id, tpin: digits })
+      );
       if (next.connected) {
         await saveSmartInvoiceLink(db, {
           tpin: next.tpin,
@@ -95,7 +117,7 @@ export function SmartInvoicePanel({ compact = false }: { compact?: boolean }) {
           simulated: next.simulated,
         });
         // Bring the ZRA receipt numbers down to this phone.
-        await syncNow(db, deviceToken).catch(() => undefined);
+        await syncRenewing(deviceToken).catch(() => undefined);
       }
       setStatus(next);
     } catch (cause) {
@@ -112,8 +134,8 @@ export function SmartInvoicePanel({ compact = false }: { compact?: boolean }) {
     setBusy(true);
     setError(null);
     try {
-      await syncNow(db, deviceToken);
-      await syncNow(db, deviceToken);
+      await syncRenewing(deviceToken);
+      await syncRenewing(deviceToken);
       await load();
     } catch (cause) {
       setError(describe(cause));
@@ -159,11 +181,11 @@ export function SmartInvoicePanel({ compact = false }: { compact?: boolean }) {
                 <Row label={t('si.tpin')} value={connected.tpin} />
                 <Row label={t('si.device')} value={connected.sdcId} />
                 <Row label={t('si.branch')} value={connected.branchId} />
-                <Row label={t('si.since')} value={connected.connectedAt.slice(0, 10)} />
+                <Row label={t('si.since')} value={formatDay(connected.connectedAt)} />
                 <Row
                   label={t('si.lastSent')}
                   value={
-                    connected.lastSentAt ? connected.lastSentAt.slice(0, 16).replace('T', ' ') : t('common.notYet')
+                    connected.lastSentAt ? formatDateTime(connected.lastSentAt) : t('common.notYet')
                   }
                 />
               </Card>
@@ -190,7 +212,7 @@ export function SmartInvoicePanel({ compact = false }: { compact?: boolean }) {
             label={t('si.tpin')}
             value={tpin}
             onChangeText={setTpin}
-            placeholder="1002003004"
+            placeholder={t('si.tpinPlaceholder')}
             keyboardType="numeric"
             maxLength={12}
             icon="badge"
@@ -199,7 +221,7 @@ export function SmartInvoicePanel({ compact = false }: { compact?: boolean }) {
           />
           <Button
             label={busy ? t('si.connecting') : t('si.connect')}
-            disabled={busy || tpin.replace(/\D/g, '').length !== 10}
+            disabled={busy}
             onPress={() => void connect()}
           />
         </>

@@ -223,6 +223,7 @@ function RootNavigator() {
       <Stack.Protected guard={ownerOnly && canAccessScreen(user?.role, 'settings')}>
         <Stack.Screen name="settings" />
         <Stack.Screen name="smart-invoice" />
+        <Stack.Screen name="hand-over" />
       </Stack.Protected>
 
       <Stack.Protected guard={ownerOnly && canAccessScreen(user?.role, 'staff')}>
@@ -235,6 +236,10 @@ function RootNavigator() {
 
       <Stack.Protected guard={ownerOnly && canAccessScreen(user?.role, 'insights')}>
         <Stack.Screen name="insights" />
+      </Stack.Protected>
+
+      <Stack.Protected guard={ownerOnly && canAccessScreen(user?.role, 'tradingRecord')}>
+        <Stack.Screen name="trading-record" />
       </Stack.Protected>
 
       <Stack.Protected guard={ownerOnly && canAccessScreen(user?.role, 'taxPot')}>

@@ -18,6 +18,7 @@ import {
   LoadingList,
   Row,
   Screen,
+  SearchField,
   SectionTitle,
 } from '@/components/ui';
 import { maxSellable, priceSale, toNgwee, type LineInput, type PaymentInput, type Provider } from '@/core';
@@ -82,6 +83,7 @@ export default function NewSaleScreen() {
 
   const [quantityByVariant, setQuantityByVariant] = useState<Record<string, number>>({});
   const [scannerOpen, setScannerOpen] = useState(false);
+  const [query, setQuery] = useState('');
   const [scanMessage, setScanMessage] = useState<string | null>(null);
   const [method, setMethod] = useState<'cash' | 'mobile_money' | 'split'>('cash');
   const [provider, setProvider] = useState<Provider>('MTN');
@@ -109,6 +111,20 @@ export default function NewSaleScreen() {
     }
     return map;
   }, [products]);
+
+  const needle = query.trim().toLowerCase();
+  // Products already in the basket stay visible while searching, so their
+  // steppers do not vanish mid-sale.
+  const shownProducts = needle
+    ? products.filter(
+        (product) =>
+          product.variants.some((variant) => (quantityByVariant[variant.id] ?? 0) > 0) ||
+          [product.name, product.category ?? '', ...product.variants.map((variant) => variant.barcode ?? '')]
+            .join(' ')
+            .toLowerCase()
+            .includes(needle)
+      )
+    : products;
 
   const lines = useMemo<LineInput[]>(() => {
     // A variant that vanished on reload is dropped from the basket, not thrown on.
@@ -286,7 +302,7 @@ export default function NewSaleScreen() {
   );
 
   return (
-    <Screen
+    <Screen back
       title={t('sale.new.title')}
       footer={
         <Button
@@ -295,7 +311,8 @@ export default function NewSaleScreen() {
               ? `${t('sale.new.getPaid')} · ${formatKwacha(mobileAmount)}`
               : priced.total > 0
                 ? `${t('sale.new.confirm')} · ${formatKwacha(priced.total)}`
-                : t('sale.new.confirm')
+                : // Disabled until something is added: the label says what to do.
+                  t('sale.new.addFirst')
           }
           disabled={lines.length === 0}
           loading={submitting}
@@ -340,7 +357,18 @@ export default function NewSaleScreen() {
       ) : null}
       {scanMessage ? <Text style={styles.muted}>{scanMessage}</Text> : null}
       {stockNote ? <Text style={styles.stockWarning}>{stockNote}</Text> : null}
-      {products.map((product) => (
+      {products.length > 0 ? (
+        <SearchField
+          value={query}
+          onChangeText={setQuery}
+          label={t('sale.new.search')}
+          clearLabel={t('common.clearSearch')}
+        />
+      ) : null}
+      {needle && shownProducts.length === 0 ? (
+        <Text style={styles.muted}>{t('products.noMatch.title', { query: query.trim() })}</Text>
+      ) : null}
+      {shownProducts.map((product) => (
         <Card
           key={product.id}
           style={product.variants.some((variant) => (quantityByVariant[variant.id] ?? 0) > 0) && styles.pickedCard}
@@ -348,11 +376,12 @@ export default function NewSaleScreen() {
           <Text style={styles.productName}>{product.name}</Text>
           {product.variants.map((variant) => {
             const quantity = quantityByVariant[variant.id] ?? 0;
-            const label = [variant.size, variant.colour].filter(Boolean).join(' · ') || 'Single';
+            // A product with one plain variant needs no second name under it.
+            const label = [variant.size, variant.colour].filter(Boolean).join(' · ');
             return (
               <View key={variant.id} style={styles.variantRow}>
                 <View style={styles.variantText}>
-                  <Text style={styles.variantLabel}>{label}</Text>
+                  {label ? <Text style={styles.variantLabel}>{label}</Text> : null}
                   <Text style={styles.muted}>
                     {formatKwacha(variant.sellPrice)} · {t('sale.new.stockLeft', { count: variant.quantity })}
                   </Text>
@@ -371,7 +400,7 @@ export default function NewSaleScreen() {
         </Card>
       ))}
 
-      <SectionTitle>{t('sales.items')}</SectionTitle>
+      <SectionTitle>{t('sale.new.basket')}</SectionTitle>
       {lines.length === 0 ? (
         <EmptyState message={t('sale.new.empty')} />
       ) : (

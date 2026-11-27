@@ -22,11 +22,27 @@ import {
 } from '@/components/ui';
 import { isValidEan13, parsePrice, sanitisePriceInput } from '@/core';
 import { useMovements, useProducts, useShop } from '@/db/hooks';
-import { restockVariant, setVariantBarcode } from '@/db/repos';
+import { restockVariant, setVariantBarcode, type MovementRow } from '@/db/repos';
 import { useI18n } from '@/i18n';
-import { formatKwacha } from '@/lib/format';
+import { formatDay, formatKwacha, formatTime, localDayKey } from '@/lib/format';
 import { labelHtml } from '@/lib/label';
 import { colors, fonts, iconSize, spacing, themed, typeScale } from '@/theme/tokens';
+
+/**
+ * Newest first, with the stock level right after each change, worked back
+ * from today's count, and a flag where a new day starts.
+ */
+function withBalances(movements: MovementRow[], current: number) {
+  let balance = current;
+  let lastDay = '';
+  return movements.map((movement) => {
+    const day = localDayKey(movement.createdAt);
+    const row = { movement, balance, newDay: day !== lastDay };
+    lastDay = day;
+    balance -= movement.quantityChange;
+    return row;
+  });
+}
 
 export default function ProductScreen() {
   const { t } = useI18n();
@@ -134,7 +150,7 @@ export default function ProductScreen() {
 
   if (loading && !product) {
     return (
-      <Screen title={t('products.title')}>
+      <Screen back title={t('products.title')}>
         <LoadingList label={t('state.loading')} hero count={2} />
       </Screen>
     );
@@ -142,7 +158,7 @@ export default function ProductScreen() {
 
   if (error) {
     return (
-      <Screen title={t('products.title')}>
+      <Screen back title={t('products.title')}>
         <ErrorState
           title={t('state.error.title')}
           message={t('state.error.message')}
@@ -156,7 +172,7 @@ export default function ProductScreen() {
 
   if (!product) {
     return (
-      <Screen title={t('products.title')}>
+      <Screen back title={t('products.title')}>
         <EmptyState
           icon="inventory_2"
           title={t('state.notFound.title')}
@@ -168,7 +184,7 @@ export default function ProductScreen() {
   }
 
   return (
-    <Screen title={product.name} subtitle={product.category}>
+    <Screen back title={product.name} subtitle={product.category}>
       <View style={styles.stats}>
         <StatTile value={formatKwacha(product.defaultSellPrice)} label={t('products.sellPrice')} />
         <StatTile
@@ -203,7 +219,7 @@ export default function ProductScreen() {
           <Card>
             <View style={styles.headerRow}>
               <Text style={styles.name}>
-                {[selectedVariant.size, selectedVariant.colour].filter(Boolean).join(' · ') || 'Single'}
+                {[selectedVariant.size, selectedVariant.colour].filter(Boolean).join(' · ') || t('products.stockNow')}
               </Text>
               <Pill
                 label={
@@ -292,19 +308,32 @@ export default function ProductScreen() {
         {movements.length === 0 ? (
           <EmptyState message={t('common.none')} />
         ) : (
-          movements.map((movement) => (
-            <View key={movement.id} style={styles.movement}>
-              <Icon
-                name={movement.quantityChange > 0 ? 'arrow_upward' : 'arrow_downward'}
-                size={iconSize.md}
-                color={movement.quantityChange > 0 ? colors.success : colors.textMuted}
-              />
-              <Text style={styles.movementLabel} numberOfLines={1}>
-                {`${t(`movement.${movement.reason}`)} · ${movement.createdAt.slice(0, 10)}`}
-              </Text>
-              <Text style={[styles.movementQty, movement.quantityChange > 0 && styles.movementIn]}>
-                {`${movement.quantityChange > 0 ? '+' : ''}${movement.quantityChange}`}
-              </Text>
+          withBalances(movements, selectedVariant?.quantity ?? 0).map(({ movement, balance, newDay }) => (
+            <View key={movement.id}>
+              {newDay ? <Text style={styles.movementDay}>{formatDay(movement.createdAt)}</Text> : null}
+              <View style={styles.movement}>
+                <Icon
+                  name={movement.quantityChange > 0 ? 'arrow_upward' : 'arrow_downward'}
+                  size={iconSize.md}
+                  color={movement.quantityChange > 0 ? colors.success : colors.textMuted}
+                />
+                <View style={styles.movementText}>
+                  <Text style={styles.movementLabel} numberOfLines={1}>
+                    {`${t(`movement.${movement.reason}`)} · ${formatTime(movement.createdAt)}`}
+                  </Text>
+                  {movement.byName || movement.note ? (
+                    <Text style={styles.movementMeta} numberOfLines={2}>
+                      {[movement.byName, movement.note].filter(Boolean).join(' · ')}
+                    </Text>
+                  ) : null}
+                </View>
+                <View style={styles.movementRight}>
+                  <Text style={[styles.movementQty, movement.quantityChange > 0 && styles.movementIn]}>
+                    {`${movement.quantityChange > 0 ? '+' : ''}${movement.quantityChange}`}
+                  </Text>
+                  <Text style={styles.movementMeta}>{t('products.balanceAfter', { count: balance })}</Text>
+                </View>
+              </View>
             </View>
           ))
         )}
@@ -319,8 +348,18 @@ const styles = themed(() => StyleSheet.create({
   muted: { fontSize: typeScale.label, color: colors.textMuted },
   choices: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   stats: { flexDirection: 'row', gap: spacing.sm },
-  movement: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 36 },
-  movementLabel: { flex: 1, fontSize: typeScale.body, color: colors.textMuted },
+  movement: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 44 },
+  movementText: { flex: 1, gap: 2 },
+  movementLabel: { fontSize: typeScale.body, color: colors.text },
+  movementMeta: { fontSize: typeScale.caption, color: colors.textMuted },
+  movementRight: { alignItems: 'flex-end', gap: 2 },
+  movementDay: {
+    fontSize: typeScale.label,
+    fontWeight: '700',
+    color: colors.textMuted,
+    marginTop: spacing.sm,
+    marginBottom: spacing.xs,
+  },
   movementQty: {
     fontFamily: fonts.display,
     fontSize: typeScale.body,

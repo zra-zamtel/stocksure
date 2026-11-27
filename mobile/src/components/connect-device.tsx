@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { OwnerMismatchError, useAuth } from '@/auth/session';
+import { useSync } from '@/db/use-sync';
 import { useI18n } from '@/i18n';
 import { ApiError, type ApiErrorCode } from '@/lib/api';
 import { colors, elevation, fonts, iconSize, radii, spacing, themed, touch, typeScale } from '@/theme/tokens';
@@ -278,6 +279,78 @@ export function ConnectReminder({ dismissible = true }: { dismissible?: boolean 
   );
 }
 
+/**
+ * Says in plain words why changes are not uploading, with the one thing that
+ * fixes it. Shown on Home and in Settings so a stuck backup is never only at
+ * the bottom of a settings page.
+ */
+export function SyncProblemBanner() {
+  const { t } = useI18n();
+  const { user } = useAuth();
+  const sync = useSync();
+  const [open, setOpen] = useState(false);
+  const problem = sync.problem;
+  if (!problem || (problem === 'offline' && sync.pending === 0)) return null;
+
+  const owner = user?.role === 'owner';
+  const count = sync.pending;
+  const title = problem === 'expired' ? t('sync.problem.expired.title') : t('sync.problem.title');
+  const text =
+    problem === 'expired'
+      ? owner
+        ? t('sync.problem.expired.owner', { count })
+        : t('sync.problem.expired.staff', { count })
+      : problem === 'offline'
+        ? t('sync.problem.offline', { count })
+        : t('sync.problem.server', { count });
+  const action =
+    problem === 'expired'
+      ? owner
+        ? t('sync.problem.expired.action')
+        : null
+      : sync.busy
+        ? t('sync.syncing')
+        : t('sync.problem.retry');
+  const onPress =
+    problem === 'expired'
+      ? owner
+        ? () => setOpen(true)
+        : undefined
+      : () => {
+          if (!sync.busy) void sync.syncNow();
+        };
+
+  return (
+    <>
+      <Pressable
+        accessibilityRole={onPress ? 'button' : 'text'}
+        accessibilityLabel={`${title}. ${text}${action ? `. ${action}` : ''}`}
+        accessibilityLiveRegion="polite"
+        disabled={!onPress}
+        onPress={onPress}
+        android_ripple={onPress ? { color: colors.ripple } : undefined}
+        style={({ pressed }) => [styles.reminder, pressed && styles.reminderPressed]}
+      >
+        <Icon name={problem === 'offline' ? 'cloud_off' : 'sync_problem'} size={iconSize.md} color={colors.warning} />
+        <View style={styles.flex}>
+          <Text style={styles.reminderTitle}>{title}</Text>
+          <Text style={styles.reminderText}>{text}</Text>
+          {action ? <Text style={styles.reminderAction}>{action}</Text> : null}
+        </View>
+        {onPress ? <Icon name="chevron_right" size={iconSize.md} color={colors.warning} /> : null}
+      </Pressable>
+      <ConnectSheet
+        visible={open}
+        onClose={() => {
+          setOpen(false);
+          // Connected or not, try again: a fresh key uploads straight away.
+          void sync.syncNow();
+        }}
+      />
+    </>
+  );
+}
+
 const styles = themed(() => StyleSheet.create({
   flex: { flex: 1 },
   stack: { gap: spacing.lg },
@@ -335,4 +408,5 @@ const styles = themed(() => StyleSheet.create({
   reminderPressed: { opacity: 0.85 },
   reminderTitle: { fontSize: typeScale.body, fontWeight: '700', color: colors.warning },
   reminderText: { fontSize: typeScale.label, color: colors.text },
+  reminderAction: { marginTop: 2, fontSize: typeScale.label, fontWeight: '700', color: colors.warning },
 }));

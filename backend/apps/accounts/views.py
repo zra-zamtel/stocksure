@@ -912,7 +912,8 @@ class ConfirmStaffSignInView(APIView):
         return Response(
             {
                 "staff": StaffSerializer(staff).data,
-                "owner": {"name": owner.full_name, "phone": owner.phone},
+                # The id lets the phone refuse a staff member of another shop.
+                "owner": {"id": str(owner.id), "name": owner.full_name, "phone": owner.phone},
                 # True until the staff member chooses their own PIN; the app
                 # then sends the same request again with newPin.
                 "mustChangePin": must_change_pin,

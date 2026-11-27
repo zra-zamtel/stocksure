@@ -30,7 +30,8 @@ export default function NewProductScreen() {
   const [barcode, setBarcode] = useState(scannedBarcode ?? '');
   const [buyPrice, setBuyPrice] = useState('');
   const [sellPrice, setSellPrice] = useState('');
-  const [quantity, setQuantity] = useState('1');
+  // Empty, not a pre-filled "1": a real-looking value is easy to save by mistake.
+  const [quantity, setQuantity] = useState('');
   const [lowStock, setLowStock] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -47,6 +48,15 @@ export default function NewProductScreen() {
   const typedBuy = parsePrice(buyPrice);
   const typedSell = parsePrice(sellPrice);
   const lossPerUnit = typedBuy.ok && typedSell.ok && typedSell.ngwee < typedBuy.ngwee ? typedBuy.ngwee - typedSell.ngwee : 0;
+  // Profit per unit while pricing, so a typo shows before saving.
+  const profitPerUnit =
+    typedBuy.ok && typedSell.ok && typedSell.ngwee >= typedBuy.ngwee && typedSell.ngwee > 0
+      ? typedSell.ngwee - typedBuy.ngwee
+      : null;
+  const markupPercent =
+    profitPerUnit !== null && typedBuy.ok && typedBuy.ngwee > 0
+      ? ((profitPerUnit / typedBuy.ngwee) * 100).toFixed(1)
+      : null;
 
   async function handleSave() {
     setError(null);
@@ -66,6 +76,7 @@ export default function NewProductScreen() {
     if (!name.trim()) return setError('Product name is required');
     if (!buyResult.ok) return setError(priceMessage(t('products.buyPrice'), buyResult.error));
     if (!sellResult.ok) return setError(priceMessage(t('products.sellPrice'), sellResult.error));
+    if (quantity.trim() === '') return setError(t('product.new.error.qty'));
     if (!Number.isInteger(opening) || opening < 0) return setError('Opening quantity must be a whole number');
     const buy = buyResult.ngwee;
     const sell = sellResult.ngwee;
@@ -134,7 +145,7 @@ export default function NewProductScreen() {
   }
 
   return (
-    <Screen
+    <Screen back
       title={t('product.new.title')}
       footer={<Button label={t('products.saveProduct')} disabled={saving} loading={saving} onPress={handleSave} />}
     >
@@ -148,10 +159,10 @@ export default function NewProductScreen() {
         />
       ) : null}
 
-      <SectionTitle>{t('product.new.name')}</SectionTitle>
+      <SectionTitle>{t('product.new.details')}</SectionTitle>
       <Card>
-        <Field label={t('product.new.name')} value={name} onChangeText={setName} placeholder="Black school shoes, size 42" required />
-        <Field label={t('product.new.category')} value={category} onChangeText={setCategory} placeholder="Shoes" />
+        <Field label={t('product.new.name')} value={name} onChangeText={setName} placeholder={t('product.new.namePlaceholder')} required />
+        <Field label={t('product.new.category')} value={category} onChangeText={setCategory} placeholder={t('product.new.categoryPlaceholder')} />
         <Field
           label={t('product.new.barcode')}
           value={barcode}
@@ -182,23 +193,38 @@ export default function NewProductScreen() {
         </Card>
       ) : null}
 
-      <SectionTitle>{t('products.buyPrice')}</SectionTitle>
+      <SectionTitle>{t('product.new.pricing')}</SectionTitle>
       <Card>
-        <Field label={t('products.buyPrice')} value={buyPrice} onChangeText={(v) => setBuyPrice(sanitisePriceInput(v))} placeholder="180.00" keyboardType="decimal-pad" required />
-        <Field label={t('products.sellPrice')} value={sellPrice} onChangeText={(v) => setSellPrice(sanitisePriceInput(v))} placeholder="280.00" keyboardType="decimal-pad" required />
+        <Field label={t('products.buyPrice')} value={buyPrice} onChangeText={(v) => setBuyPrice(sanitisePriceInput(v))} placeholder={t('product.new.buyPlaceholder')} keyboardType="decimal-pad" required />
+        <Field label={t('products.sellPrice')} value={sellPrice} onChangeText={(v) => setSellPrice(sanitisePriceInput(v))} placeholder={t('product.new.sellPlaceholder')} keyboardType="decimal-pad" required />
         {lossPerUnit > 0 ? (
           <Text style={styles.warning}>{t('price.belowCost', { loss: formatKwacha(lossPerUnit) })}</Text>
+        ) : profitPerUnit !== null ? (
+          <Text style={styles.success} accessibilityLiveRegion="polite">
+            {markupPercent !== null
+              ? t('product.new.profit', { amount: formatKwacha(profitPerUnit), percent: markupPercent })
+              : t('product.new.profitOnly', { amount: formatKwacha(profitPerUnit) })}
+          </Text>
         ) : null}
       </Card>
 
       <SectionTitle>{t('products.inStock')}</SectionTitle>
       <Card>
-        <Field label={t('product.new.openingQty')} value={quantity} onChangeText={(v) => setQuantity(v.replace(/\D/g, ''))} keyboardType="numeric" required />
+        <Field
+          label={t('product.new.openingQty')}
+          value={quantity}
+          onChangeText={(v) => setQuantity(v.replace(/\D/g, ''))}
+          placeholder={t('product.new.qtyPlaceholder')}
+          hint={t('product.new.qtyHint')}
+          keyboardType="numeric"
+          required
+        />
         <Field
           label={t('product.new.lowStock')}
           value={lowStock}
           onChangeText={(v) => setLowStock(v.replace(/\D/g, ''))}
-          placeholder={String(shop?.lowStockDefault ?? 3)}
+          placeholder={t('product.new.lowStockPlaceholder', { count: shop?.lowStockDefault ?? 3 })}
+          hint={t('product.new.lowStockHint')}
           keyboardType="numeric"
         />
       </Card>

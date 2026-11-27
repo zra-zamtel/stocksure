@@ -3,7 +3,7 @@ import type { AndroidSymbol } from 'expo-symbols';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '@/auth/session';
 import { displayName } from '@/components/auth';
-import { ConnectReminder } from '@/components/connect-device';
+import { ConnectReminder, SyncProblemBanner } from '@/components/connect-device';
 import { GettingStarted } from '@/components/getting-started';
 import { ProfileMenu } from '@/components/profile-menu';
 import {
@@ -141,6 +141,7 @@ export default function HomeScreen() {
       </View>
 
       <ConnectReminder />
+      <SyncProblemBanner />
 
       <GettingStarted />
 
@@ -196,6 +197,9 @@ export default function HomeScreen() {
                     tone={out ? 'danger' : 'warning'}
                   />
                 }
+                // Tapping goes straight to the product to restock it; the
+                // row shows its chevron like every other list row.
+                onPress={can('products.manage') ? () => router.push(`/product/${item.productId}`) : undefined}
               />
             );
           })}

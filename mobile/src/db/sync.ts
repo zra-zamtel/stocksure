@@ -88,6 +88,26 @@ async function setMeta(db: SQLiteDatabase, key: string, value: string): Promise<
   );
 }
 
+/** The one shop this phone holds, sent with every sync so rows can never land in another. */
+async function localShopId(db: SQLiteDatabase): Promise<string | undefined> {
+  const row = await db.getFirstAsync<{ id: string }>('SELECT id FROM shop LIMIT 1');
+  return row?.id;
+}
+
+/**
+ * Which owner's shop this phone belongs to. The owner row says so when the
+ * owner has signed in here; a staff-only phone remembers the owner of the
+ * first staff member who signed in, so staff of another shop are refused.
+ */
+export async function shopOwnerId(db: SQLiteDatabase): Promise<string | null> {
+  const owner = await db.getFirstAsync<{ id: string }>('SELECT id FROM owner LIMIT 1');
+  return owner?.id ?? (await getMeta(db, 'shopOwnerId'));
+}
+
+export async function rememberShopOwnerId(db: SQLiteDatabase, ownerId: string): Promise<void> {
+  await setMeta(db, 'shopOwnerId', ownerId);
+}
+
 /** Merge the provided columns into an existing row, or insert a new one. */
 async function upsert(
   db: SQLiteDatabase,
@@ -422,6 +442,7 @@ export async function pushOutbox(
       batchId: newId('batch'),
       changes,
       accessToken,
+      shopId: await localShopId(db),
     });
     const accepted = new Set(result.accepted);
     const rejected = new Map(result.rejected.map((row) => [row.queueId, row.reason]));
@@ -469,7 +490,7 @@ export async function pullChanges(
   limit = 500
 ): Promise<{ applied: number; nextCursor: string }> {
   const cursor = (await getMeta(db, 'cursor')) ?? '0';
-  const result = await pullSync({ accessToken, cursor, limit });
+  const result = await pullSync({ accessToken, cursor, limit, shopId: await localShopId(db) });
 
   await db.withTransactionAsync(async () => {
     for (const change of result.changes) {

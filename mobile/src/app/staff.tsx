@@ -258,7 +258,7 @@ export default function StaffScreen() {
   const showConnect = (adding || resettingId !== null) && (needsConnect || !deviceToken);
 
   return (
-    <Screen
+    <Screen back
       title={t('staff.title')}
       subtitle={t('staff.subtitle')}
       footer={

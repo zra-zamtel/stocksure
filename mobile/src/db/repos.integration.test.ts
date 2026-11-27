@@ -334,7 +334,7 @@ describe('IT-ONB onboarding and account', () => {
         email: 'b@example.com',
         pinHash: 'b',
       })
-    ).rejects.toThrow('different owner');
+    ).rejects.toThrow('belongs to another shop');
 
     expect(await getOwner(db)).toMatchObject({ id: 'owner_1', email: 'a@example.com' });
   });
@@ -426,6 +426,10 @@ describe('IT-STAFF staff identity', () => {
     expect((await getSaleDetail(db, ownerSale.saleId))?.recordedByName).toBe('Elton');
     expect((await getSaleDetail(db, staffSale.saleId))?.recordedByName).toBe('Given');
     expect((await listSales(db)).map((sale) => sale.recordedByName).sort()).toEqual(['Elton', 'Given']);
+    // The sales list says how each sale was paid, and stock history says who sold.
+    expect((await listSales(db)).map((sale) => sale.paymentMethod)).toEqual(['cash', 'cash']);
+    const sold = (await listMovements(db, variantId)).filter((m) => m.reason === 'sale');
+    expect(sold.map((m) => m.byName).sort()).toEqual(['Elton', 'Given']);
   });
 });
 

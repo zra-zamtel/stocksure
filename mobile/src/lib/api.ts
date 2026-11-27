@@ -14,6 +14,7 @@ const STAFF_REGISTER_PATH = '/api/v1/staff';
 const STAFF_SIGN_IN_CONFIRM_PATH = '/api/v1/auth/staff-sign-in/confirm';
 const SYNC_PUSH_PATH = '/api/v1/sync/push';
 const SYNC_PULL_PATH = '/api/v1/sync/pull';
+const TOKEN_REFRESH_PATH = '/api/v1/auth/refresh/';
 const TIMEOUT_MS = 12_000;
 
 function staffPinResetPath(staffId: string): string {
@@ -39,6 +40,8 @@ export type ServerOwner = {
 export type OwnerSession = {
   owner: ServerOwner;
   deviceToken: string;
+  /** Long-lived key that renews deviceToken (which lasts hours) without a new sign-in. */
+  refresh?: string;
   /** Sign-up only: whether the server managed to email the confirmation code. */
   verificationSent?: boolean;
 };
@@ -370,7 +373,8 @@ export type ServerStaff = {
 
 export type StaffSignInResult = {
   staff: ServerStaff;
-  owner: { name: string; phone: string };
+  /** id: newer servers send it, so the phone can refuse staff of another shop. */
+  owner: { id?: string; name: string; phone: string };
   /** The owner's PIN was one-time: ask the staff member to choose their own. */
   mustChangePin?: boolean;
 };
@@ -516,11 +520,15 @@ export async function pushSync(input: {
   batchId: string;
   changes: SyncChangePayload[];
   accessToken: string;
+  /** This phone's shop. Without it the server falls back to the user's first shop. */
+  shopId?: string;
 }): Promise<SyncPushResult> {
+  const headers: Record<string, string> = { Authorization: `Bearer ${input.accessToken}` };
+  if (input.shopId) headers['X-Shop-ID'] = input.shopId;
   const response = await postJson(
     SYNC_PUSH_PATH,
     { deviceId: input.deviceId, batchId: input.batchId, changes: input.changes },
-    { Authorization: `Bearer ${input.accessToken}` }
+    headers
   );
   if (response.ok) return (await response.json()) as SyncPushResult;
 
@@ -705,4 +713,161 @@ export async function getSmartInvoiceSaleOnServer(input: {
   });
   if (response.ok) return ((await response.json()) as { receipts: SmartInvoiceSent[] }).receipts;
   throw new ApiError('server', 'Smart Invoice could not be reached.');
+}
+
+// ---- Renewing the device key ------------------------------------------------
+
+/**
+ * Swaps the refresh key for a fresh access key. The server rotates the refresh
+ * key, so the new one must be stored. 401 means the refresh key itself has
+ * expired or was revoked: only an email sign-in fixes that.
+ */
+export async function refreshDeviceTokenOnServer(
+  refresh: string
+): Promise<{ access: string; refresh: string }> {
+  const response = await postJson(TOKEN_REFRESH_PATH, { refresh });
+  if (response.ok) {
+    const body = (await response.json()) as { access: string; refresh?: string };
+    return { access: body.access, refresh: body.refresh ?? refresh };
+  }
+  if (response.status === 401 || response.status === 400) {
+    throw new ApiError('unauthorized', 'Your session has expired.');
+  }
+  throw new ApiError('server', 'The account service could not be reached.');
+}
+
+// ---- Trading Record (proof of trading for a bank or MFI) --------------------
+
+export type TradingRecordMonth = {
+  month: string;
+  recorded_sales: number;
+  sale_count: number;
+  trading_days: number;
+  mobile_money_matched: number;
+  cash_balanced_close: number;
+  recorded_only: number;
+};
+
+/** The sealed figures, exactly as the server hashed them. Amounts are ngwee. */
+export type TradingRecordPayload = {
+  schema: string;
+  record_id: string;
+  issued_at: string;
+  expires_at: string;
+  currency: string;
+  business: { name: string; town: string; type: string; owner_name: string };
+  period: { months: number; start: string; end: string };
+  totals: {
+    recorded_sales: number;
+    sale_count: number;
+    trading_days: number;
+    mobile_money_matched: number;
+    cash_balanced_close: number;
+    recorded_only: number;
+  };
+  cash_closes: { days_closed: number; days_balanced: number; days_not_balanced: number };
+  months: TradingRecordMonth[];
+  data: {
+    first_synced_at: string | null;
+    data_through: string | null;
+    late_sync_days: number;
+    synced_late_value: number;
+    sync_time_unknown_value: number;
+  };
+  margin: {
+    revenue: number;
+    cost_of_goods: number;
+    gross_margin: number;
+    gross_margin_bp: number;
+    note: string;
+  } | null;
+  tax: {
+    periods: {
+      starts_on: string;
+      ends_on: string;
+      declared_turnover: number;
+      corroborated_sales: number;
+      variance_vs_corroborated: number;
+    }[];
+    filing: string;
+    amendments: string;
+    note: string;
+  } | null;
+  labels: Record<string, string>;
+  not_this: string[];
+};
+
+export type TradingRecordSummary = {
+  id: string;
+  periodMonths: number;
+  periodStart: string;
+  periodEnd: string;
+  includeMargin: boolean;
+  includeTax: boolean;
+  issuedAt: string;
+  expiresAt: string;
+  revokedAt: string | null;
+  state: 'valid' | 'expired' | 'revoked';
+  viewCount: number;
+  lastViewedAt: string | null;
+  seal: string;
+  payloadHash: string;
+  payload: TradingRecordPayload;
+};
+
+/** Only the issue response carries the link: the server keeps just its hash. */
+export type IssuedTradingRecord = TradingRecordSummary & {
+  token: string;
+  verifyUrl: string;
+  qrSvg: string;
+};
+
+const TRADING_RECORDS_PATH = '/api/v1/trading-records/';
+
+async function tradingRecordError(response: Response): Promise<ApiError> {
+  const payload = await readErrorPayload(response);
+  if (response.status === 400) return new ApiError('validation', payload?.detail ?? 'Check the options.');
+  if (response.status === 401) return new ApiError('unauthorized', payload?.detail ?? 'Sign in again.');
+  if (response.status === 403) return new ApiError('forbidden', payload?.detail ?? 'Only the owner can do this.');
+  return new ApiError('server', payload?.detail ?? 'The trading record service could not be reached.');
+}
+
+export async function issueTradingRecordOnServer(input: {
+  deviceToken: string;
+  shopId: string;
+  months: 3 | 6 | 12;
+  expiresInDays: 14 | 30;
+  includeMargin: boolean;
+  includeTax: boolean;
+}): Promise<IssuedTradingRecord> {
+  const { deviceToken, ...body } = input;
+  const response = await postJson(TRADING_RECORDS_PATH, body, {
+    Authorization: `Bearer ${deviceToken}`,
+    'X-Shop-ID': input.shopId,
+  });
+  if (response.ok) return (await response.json()) as IssuedTradingRecord;
+  throw await tradingRecordError(response);
+}
+
+export async function listTradingRecordsOnServer(input: {
+  deviceToken: string;
+  shopId: string;
+}): Promise<TradingRecordSummary[]> {
+  const response = await getJson(`${TRADING_RECORDS_PATH}?shopId=${encodeURIComponent(input.shopId)}`, {
+    Authorization: `Bearer ${input.deviceToken}`,
+    'X-Shop-ID': input.shopId,
+  });
+  if (response.ok) return ((await response.json()) as { records: TradingRecordSummary[] }).records;
+  throw await tradingRecordError(response);
+}
+
+export async function revokeTradingRecordOnServer(input: {
+  deviceToken: string;
+  id: string;
+}): Promise<TradingRecordSummary> {
+  const response = await postJson(`${TRADING_RECORDS_PATH}${encodeURIComponent(input.id)}/revoke`, {}, {
+    Authorization: `Bearer ${input.deviceToken}`,
+  });
+  if (response.ok) return (await response.json()) as TradingRecordSummary;
+  throw await tradingRecordError(response);
 }

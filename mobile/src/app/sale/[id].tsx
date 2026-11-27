@@ -9,7 +9,7 @@ import { useSaleDetail } from '@/db/hooks';
 import { voidSale } from '@/db/repos';
 import { SmartInvoiceCard } from '@/components/smart-invoice-card';
 import { useI18n } from '@/i18n';
-import { formatKwacha } from '@/lib/format';
+import { formatDateTime, formatKwacha } from '@/lib/format';
 import { colors, themed, typeScale } from '@/theme/tokens';
 
 export default function SaleScreen() {
@@ -28,7 +28,7 @@ export default function SaleScreen() {
 
   if (loading && !sale) {
     return (
-      <Screen title={t('sales.title')}>
+      <Screen back title={t('sales.title')}>
         <LoadingList label={t('state.loading')} hero count={2} />
       </Screen>
     );
@@ -36,7 +36,7 @@ export default function SaleScreen() {
 
   if (error) {
     return (
-      <Screen title={t('sales.title')}>
+      <Screen back title={t('sales.title')}>
         <ErrorState
           title={t('state.error.title')}
           message={t('state.error.message')}
@@ -50,7 +50,7 @@ export default function SaleScreen() {
 
   if (!sale) {
     return (
-      <Screen title={t('sales.title')}>
+      <Screen back title={t('sales.title')}>
         <EmptyState
           icon="receipt_long"
           title={t('state.notFound.title')}
@@ -82,9 +82,9 @@ export default function SaleScreen() {
   }
 
   return (
-    <Screen
+    <Screen back
       title={`${t('sales.title')} · ${sale.createdAt.slice(11, 16)}`}
-      subtitle={sale.createdAt.slice(0, 10)}
+      subtitle={formatDateTime(sale.createdAt)}
     >
       <Card>
         <View style={styles.statusRow}>

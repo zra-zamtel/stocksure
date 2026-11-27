@@ -828,6 +828,14 @@ class StaffTests(AuthTestCase):
         user = User.objects.get(phone="260965551122")
         self.assertIsNone(user.staff_profile.first_signed_in_at)
 
+    def test_sign_in_names_the_owner_by_id_so_the_phone_can_check_the_shop(self):
+        self.add_staff()
+
+        response = self.post(self.sign_in_url, {"phone": "0965551122", "pin": "1234"})
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["owner"]["id"], str(self.owner.id))
+
     def test_choosing_a_new_pin_replaces_the_owner_pin(self):
         self.add_staff()
 

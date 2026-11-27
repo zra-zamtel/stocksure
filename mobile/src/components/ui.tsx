@@ -1,5 +1,7 @@
 import { memo, useContext, useEffect, useState, type ReactNode } from 'react';
+import { useRouter } from 'expo-router';
 import { BottomTabBarHeightContext } from 'expo-router/tabs';
+import { useI18n } from '../i18n';
 import {
   ActivityIndicator,
   ImageBackground,
@@ -37,6 +39,8 @@ type ScreenProps = {
   footer?: ReactNode;
   /** One small action beside the title, such as the settings gear. */
   action?: ReactNode;
+  /** A visible "Back" above the title, for pushed screens without their own close button. */
+  back?: boolean;
 };
 
 // A faint paper grain tiled under every screen, so the warm background reads as
@@ -111,12 +115,17 @@ function useKeyboardVisible(): boolean {
   return visible;
 }
 
-export function Screen({ title, subtitle, children, scroll = true, footer, action }: ScreenProps) {
+export function Screen({ title, subtitle, children, scroll = true, footer, action, back = false }: ScreenProps) {
   const insets = useSafeAreaInsets();
   // Inside the tabs the bar floats over the screen with no background of its
   // own; this screen draws the fade behind it. Elsewhere this is 0.
   const tabBarHeight = useContext(BottomTabBarHeightContext) ?? 0;
   const [footerHeight, setFooterHeight] = useState(0);
+  const router = useRouter();
+  const { t } = useI18n();
+  // Pushed screens (Add product, Record sale…) get a visible way back, not
+  // only Android's back gesture. Tabs are top level, so they never show it.
+  const showBack = back && tabBarHeight === 0 && router.canGoBack();
   // The keyboard covers the tab bar and the phone's nav bar, so while it is up
   // the footer drops that space and sits straight on top of the keyboard.
   const keyboardVisible = useKeyboardVisible();
@@ -131,6 +140,18 @@ export function Screen({ title, subtitle, children, scroll = true, footer, actio
 
   const body = (
     <View style={[styles.body, { paddingTop: insets.top + spacing.lg }]}>
+      {showBack ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={t('common.back')}
+          onPress={() => router.back()}
+          hitSlop={8}
+          style={({ pressed }) => [styles.back, pressed && styles.iconButtonPressed]}
+        >
+          <Icon name="arrow_back" size={iconSize.md} color={colors.text} />
+          <Text style={styles.backLabel}>{t('common.back')}</Text>
+        </Pressable>
+      ) : null}
       {title || action ? (
         <View style={styles.titleRow}>
           {title ? <Text style={styles.screenTitle}>{title}</Text> : <View />}
@@ -530,6 +551,46 @@ const toneTones = themed(() => ({
   info: { bg: { backgroundColor: colors.infoSoft }, fg: { color: colors.info } },
 }) as const);
 
+/** A rounded search bar with a clear button, for filtering a list on screen. */
+export function SearchField({
+  value,
+  onChangeText,
+  label,
+  clearLabel,
+}: {
+  value: string;
+  onChangeText: (next: string) => void;
+  /** Shown as the hint inside the bar and read out by screen readers. */
+  label: string;
+  clearLabel: string;
+}) {
+  return (
+    <View style={styles.search}>
+      <Icon name="search" size={20} color={colors.textMuted} />
+      <TextInput
+        value={value}
+        onChangeText={onChangeText}
+        placeholder={label}
+        placeholderTextColor={colors.textMuted}
+        accessibilityLabel={label}
+        style={styles.searchInput}
+        autoCorrect={false}
+        returnKeyType="search"
+      />
+      {value ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={clearLabel}
+          onPress={() => onChangeText('')}
+          hitSlop={12}
+        >
+          <Icon name="close" size={20} color={colors.textMuted} />
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
 export function Field({
   label,
   value,
@@ -662,17 +723,20 @@ export function Choice({
   selected,
   onPress,
   icon,
+  kind = 'radio',
 }: {
   label: string;
   selected: boolean;
   onPress: () => void;
   /** A symbol on the left; the row then reads left-aligned like a list option. */
   icon?: AndroidSymbol;
+  /** 'checkbox' for an on/off option that does not exclude its siblings. */
+  kind?: 'radio' | 'checkbox';
 }) {
   return (
     <Pressable
-      accessibilityRole="radio"
-      accessibilityState={{ selected }}
+      accessibilityRole={kind}
+      accessibilityState={kind === 'checkbox' ? { checked: selected } : { selected }}
       onPress={onPress}
       android_ripple={{ color: colors.ripple }}
       style={({ pressed }) => [
@@ -857,6 +921,24 @@ export function Stub({ note }: { note: string }) {
 }
 
 const styles = themed(() => StyleSheet.create({
+  search: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    minHeight: touch.minHeight,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.lg,
+    ...elevation.card,
+  },
+  searchInput: {
+    flex: 1,
+    minHeight: touch.minHeight,
+    fontSize: typeScale.body,
+    color: colors.text,
+  },
   icon: { fontFamily: ICON_FONT, textAlign: 'center', includeFontPadding: false },
   paper: { flex: 1, backgroundColor: colors.bg },
   safe: { flex: 1 },
@@ -872,6 +954,16 @@ const styles = themed(() => StyleSheet.create({
   fadeTop: { position: 'absolute', top: 0, left: 0, right: 0 },
   fadeBottom: { position: 'absolute', bottom: 0, left: 0, right: 0 },
   titleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md },
+  back: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: spacing.xs,
+    minHeight: touch.minHeight,
+    paddingRight: spacing.md,
+    marginLeft: -spacing.xs,
+  },
+  backLabel: { fontSize: typeScale.body, fontWeight: '600', color: colors.text },
   iconButton: {
     minWidth: touch.minWidth,
     minHeight: touch.minHeight,

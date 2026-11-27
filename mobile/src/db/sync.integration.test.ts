@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { enqueueSync, getSmartInvoiceLink, listSmartInvoiceReceipts } from './repos';
-import { applyPulledChange, pullChanges, pushOutbox } from './sync';
+import { applyPulledChange, pullChanges, pushOutbox, rememberShopOwnerId, shopOwnerId } from './sync';
 import { count, openTestDb, type TestDb } from '@/test/sqlite';
 
 vi.mock('react-native', () => ({ Platform: { OS: 'android' } }));
@@ -329,5 +329,58 @@ describe('IT-SYNC Smart Invoice receipts', () => {
     expect(receipts).toHaveLength(1);
     expect(receipts[0]).toMatchObject({ receiptType: 'S', receiptNo: 1, simulated: true });
     expect((await getSmartInvoiceLink(db))?.sdcId).toBe('SDC-SIM-ABC123');
+  });
+});
+
+describe('IT-SYNC one shop per phone', () => {
+  const shop = {
+    entity: 'shop',
+    entityId: 'shop_1',
+    operation: 'create' as const,
+    payload: {
+      id: 'shop_1',
+      name: 'Phone Shop',
+      type: 'shoes',
+      town: 'Kabwe',
+      currency: 'ZMW',
+      language: 'en',
+      usesBarcodes: false,
+      lowStockDefault: 3,
+      turnoverTaxRegistered: false,
+      providersJson: [],
+      onboardingCompleted: true,
+      createdAt: NOW,
+      updatedAt: NOW,
+    },
+    cursor: '1',
+    clientCreatedAt: NOW,
+  };
+
+  it("sends this phone's shop with every push and pull", async () => {
+    await applyPulledChange(db, shop);
+    await enqueueSync(db, 'product', 'prod_1', 'create', { id: 'prod_1' });
+    const pushMock = echoAccepted();
+    await pushOutbox(db, 'jwt');
+    const [, pushInit] = pushMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect((pushInit.headers as Record<string, string>)['X-Shop-ID']).toBe('shop_1');
+
+    const pullMock = respond(200, { changes: [], nextCursor: '1', serverTime: NOW });
+    await pullChanges(db, 'jwt');
+    const [, pullInit] = pullMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect((pullInit.headers as Record<string, string>)['X-Shop-ID']).toBe('shop_1');
+  });
+
+  it('sends no shop header from a phone with no shop yet', async () => {
+    await enqueueSync(db, 'shop', 'shop_1', 'create', { id: 'shop_1' });
+    const fetchMock = echoAccepted();
+    await pushOutbox(db, 'jwt');
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect((init.headers as Record<string, string>)['X-Shop-ID']).toBeUndefined();
+  });
+
+  it("knows which owner's shop a staff-only phone belongs to", async () => {
+    expect(await shopOwnerId(db)).toBeNull();
+    await rememberShopOwnerId(db, 'owner_1');
+    expect(await shopOwnerId(db)).toBe('owner_1');
   });
 });
