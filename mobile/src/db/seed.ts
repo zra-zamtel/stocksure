@@ -38,12 +38,13 @@ export async function seedDemoShop(db: SQLiteDatabase): Promise<void> {
 
   await db.withTransactionAsync(async () => {
     await db.runAsync(
-      `INSERT INTO shop (id, name, type, town, currency, language, uses_barcodes, low_stock_default,
+      `INSERT INTO shop (id, name, type, profile_id, town, currency, language, uses_barcodes, low_stock_default,
          turnover_tax_registered, tpin, providers_json, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       shop.id,
       shop.name,
       shop.type,
+      shop.profileId,
       shop.town,
       shop.currency,
       shop.language,

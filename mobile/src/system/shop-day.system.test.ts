@@ -90,7 +90,7 @@ describe('ST-01 first run: account, onboarding and first products', () => {
     expect(await getOnboardingState(db)).toMatchObject({ hasShop: false, onboardingComplete: false });
 
     // Step 1-2: shop and money.
-    await saveShopDetails(db, { name: 'Chiwala Fashions', type: 'clothes', town: 'Lusaka', language: 'en', usesBarcodes: true });
+    await saveShopDetails(db, { name: 'Chiwala Fashions', profileId: 'fashion', town: 'Lusaka', language: 'en', usesBarcodes: true });
     await saveMoneySettings(db, { providers: ['MTN', 'Airtel'], turnoverTaxRegistered: true, tpin: '1001234567' });
     await ensureTaxPeriod(db, rules, DAY);
 
@@ -110,7 +110,7 @@ describe('ST-01 first run: account, onboarding and first products', () => {
 
 describe('ST-02 a full trading day', () => {
   it('sells, voids, reconciles, counts cash and sets tax aside with consistent figures everywhere', async () => {
-    await saveShopDetails(db, { name: 'Shop', type: 'general', town: 'Lusaka', language: 'en', usesBarcodes: false });
+    await saveShopDetails(db, { name: 'Shop', profileId: 'general', town: 'Lusaka', language: 'en', usesBarcodes: false });
     await saveMoneySettings(db, { providers: ['MTN', 'Airtel', 'Zamtel'], turnoverTaxRegistered: true });
     await ensureTaxPeriod(db, rules, DAY);
     const shirt = await createProduct(db, { name: 'Shirt', buyPrice: 5000, sellPrice: 8000, openingQuantity: 10, lowStockLevel: 3 });
@@ -246,7 +246,7 @@ describe('ST-03 stock is always the sum of its history', () => {
 
 describe('ST-04 offline-first: everything the phone must upload is in the outbox', () => {
   it('queues every business record with a full, parseable payload and unique ids', async () => {
-    await saveShopDetails(db, { name: 'Shop', type: 'general', town: 'Lusaka', language: 'en', usesBarcodes: true });
+    await saveShopDetails(db, { name: 'Shop', profileId: 'general', town: 'Lusaka', language: 'en', usesBarcodes: true });
     await saveMoneySettings(db, { providers: ['MTN'], turnoverTaxRegistered: true });
     await ensureTaxPeriod(db, rules, DAY);
     const { variantId } = await createProduct(db, { name: 'Bag', buyPrice: 3000, sellPrice: 6000, openingQuantity: 5 });

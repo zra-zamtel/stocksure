@@ -171,6 +171,62 @@ describe('IT-SYNC pull and apply', () => {
     expect(shop?.tpin).toBe('1002003004');
   });
 
+  it('applies a pulled shop profile, and keeps it when a later change leaves it out', async () => {
+    respond(200, {
+      changes: [
+        {
+          entity: 'shop',
+          entityId: 'shop_1',
+          operation: 'create',
+          payload: { id: 'shop_1', name: 'Glow', type: 'other', profileId: 'health_beauty', town: 'Kabwe', providers: [], createdAt: NOW, updatedAt: NOW },
+          cursor: '1',
+          clientCreatedAt: NOW,
+        },
+        {
+          // An older server or phone that does not know about profiles.
+          entity: 'shop',
+          entityId: 'shop_1',
+          operation: 'update',
+          payload: { id: 'shop_1', name: 'Glow Beauty', type: 'other', updatedAt: NOW },
+          cursor: '2',
+          clientCreatedAt: NOW,
+        },
+      ],
+      nextCursor: '2',
+      serverTime: NOW,
+    });
+
+    await pullChanges(db, 'jwt');
+
+    const shop = await db.getFirstAsync<{ name: string; type: string; profile_id: string }>(
+      'SELECT name, type, profile_id FROM shop WHERE id = ?',
+      'shop_1'
+    );
+    expect(shop).toEqual({ name: 'Glow Beauty', type: 'other', profile_id: 'health_beauty' });
+  });
+
+  it('accepts the snake_case profile_id spelling', async () => {
+    respond(200, {
+      changes: [
+        {
+          entity: 'shop',
+          entityId: 'shop_1',
+          operation: 'create',
+          payload: { id: 'shop_1', name: 'Bar', type: 'other', profile_id: 'bar', town: 'Kabwe', providers: [], createdAt: NOW, updatedAt: NOW },
+          cursor: '1',
+          clientCreatedAt: NOW,
+        },
+      ],
+      nextCursor: '1',
+      serverTime: NOW,
+    });
+
+    await pullChanges(db, 'jwt');
+
+    const shop = await db.getFirstAsync<{ profile_id: string }>('SELECT profile_id FROM shop WHERE id = ?', 'shop_1');
+    expect(shop?.profile_id).toBe('bar');
+  });
+
   it('applies a sale with its lines, payment and stock movement', async () => {
     const shop = {
       id: 'shop_1',

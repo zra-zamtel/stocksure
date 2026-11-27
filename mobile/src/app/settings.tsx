@@ -6,7 +6,7 @@ import { useAuth } from '@/auth/session';
 import { displayName } from '@/components/auth';
 import { Toggle } from '@/components/charts';
 import { Button, Choice, Field, Icon, IconButton, Screen, SectionTitle, TextLink } from '@/components/ui';
-import { isValidTpin, trialDaysLeft, type ShopType } from '@/core';
+import { isValidTpin, PROFILE_BY_ID, PROFILES, profileForShop, trialDaysLeft, type ProfileId } from '@/core';
 import { useShop, useSmartInvoiceLink } from '@/db/hooks';
 import { saveMoneySettings, saveShopDetails } from '@/db/repos';
 import { useSync } from '@/db/use-sync';
@@ -16,7 +16,6 @@ import { ConnectReminder, SyncProblemBanner } from '@/components/connect-device'
 import { formatDateTime } from '@/lib/format';
 import { colors, elevation, radii, setThemePreference, spacing, themed, type ThemePreference, themePreference, touch, typeScale } from '@/theme/tokens';
 
-const SHOP_TYPES: ShopType[] = ['clothes', 'shoes', 'general', 'other'];
 const PROVIDERS = ['MTN', 'Airtel', 'Zamtel'] as const;
 
 export default function SettingsScreen() {
@@ -44,7 +43,7 @@ export default function SettingsScreen() {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState('');
   const [town, setTown] = useState('');
-  const [shopType, setShopType] = useState<ShopType>('clothes');
+  const [profileId, setProfileId] = useState<ProfileId>('fashion');
   const [usesBarcodes, setUsesBarcodes] = useState(false);
   const [providers, setProviders] = useState<string[]>([]);
   const [tpin, setTpin] = useState('');
@@ -59,7 +58,7 @@ export default function SettingsScreen() {
       await saveShopDetails(db, {
         name: shop.name,
         town: shop.town,
-        type: shop.type,
+        profileId: profileForShop(shop).id,
         usesBarcodes: shop.usesBarcodes,
         language: next,
       });
@@ -73,7 +72,7 @@ export default function SettingsScreen() {
     if (!shop) return;
     setName(shop.name);
     setTown(shop.town);
-    setShopType(shop.type);
+    setProfileId(profileForShop(shop).id);
     setUsesBarcodes(shop.usesBarcodes);
     setProviders(shop.providers);
     setTpin(shop.tpin ?? '');
@@ -93,7 +92,7 @@ export default function SettingsScreen() {
       await saveShopDetails(db, {
         name,
         town,
-        type: shopType,
+        profileId,
         usesBarcodes,
         language,
       });
@@ -157,18 +156,22 @@ export default function SettingsScreen() {
             <Field label={t('onboarding.shop.name')} value={name} onChangeText={setName} required />
             <Field label={t('onboarding.shop.town')} value={town} onChangeText={setTown} required />
 
-            <Text style={styles.label}>{t('onboarding.shop.type')}</Text>
+            <Text style={styles.label}>{t('settings.profile')}</Text>
             <View style={styles.wrap}>
-              {SHOP_TYPES.map((type) => (
-                <View key={type} style={styles.pairItem}>
+              {PROFILES.map((profile) => (
+                <View key={profile.id} style={styles.pairItem}>
                   <Choice
-                    label={t(`onboarding.shop.type.${type}`)}
-                    selected={shopType === type}
-                    onPress={() => setShopType(type)}
+                    label={t(profile.nameKey)}
+                    selected={profileId === profile.id}
+                    onPress={() => {
+                      setProfileId(profile.id);
+                      if (!profile.barcodesAvailable) setUsesBarcodes(false);
+                    }}
                   />
                 </View>
               ))}
             </View>
+            <Text style={styles.hint}>{t('settings.profileHint')}</Text>
 
             <Text style={styles.label}>{t('onboarding.money.providers')}</Text>
             <View style={styles.wrap}>
@@ -192,23 +195,27 @@ export default function SettingsScreen() {
               maxLength={10}
             />
 
-            <Text style={styles.label}>{t('onboarding.shop.barcodes')}</Text>
-            <View style={styles.pair}>
-              <View style={styles.pairItem}>
-                <Choice
-                  label={t('common.yes')}
-                  selected={usesBarcodes}
-                  onPress={() => setUsesBarcodes(true)}
-                />
-              </View>
-              <View style={styles.pairItem}>
-                <Choice
-                  label={t('common.no')}
-                  selected={!usesBarcodes}
-                  onPress={() => setUsesBarcodes(false)}
-                />
-              </View>
-            </View>
+            {PROFILE_BY_ID[profileId].barcodesAvailable ? (
+              <>
+                <Text style={styles.label}>{t('onboarding.shop.barcodes')}</Text>
+                <View style={styles.pair}>
+                  <View style={styles.pairItem}>
+                    <Choice
+                      label={t('common.yes')}
+                      selected={usesBarcodes}
+                      onPress={() => setUsesBarcodes(true)}
+                    />
+                  </View>
+                  <View style={styles.pairItem}>
+                    <Choice
+                      label={t('common.no')}
+                      selected={!usesBarcodes}
+                      onPress={() => setUsesBarcodes(false)}
+                    />
+                  </View>
+                </View>
+              </>
+            ) : null}
 
             {error ? (
               <Text style={styles.error} accessibilityLiveRegion="polite">
@@ -238,8 +245,8 @@ export default function SettingsScreen() {
           <ListRow label={t('onboarding.shop.name')} value={shop?.name ?? t('common.notYet')} />
           <ListRow label={t('onboarding.shop.town')} value={shop?.town ?? t('common.notYet')} />
           <ListRow
-            label={t('onboarding.shop.type')}
-            value={shop ? t(`onboarding.shop.type.${shop.type}`) : t('common.notYet')}
+            label={t('settings.profile')}
+            value={shop ? t(profileForShop(shop).nameKey) : t('common.notYet')}
           />
           <ListRow
             label={t('settings.mobileMoney')}

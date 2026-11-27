@@ -7,8 +7,15 @@ import { StyleSheet, Text, View } from 'react-native';
 import { captureRef } from 'react-native-view-shot';
 import { usePermissionGuard } from '@/auth/permissions';
 import { BarcodeLabel } from '@/components/barcode-label';
-import { Button, Card, Field, Screen, SectionTitle } from '@/components/ui';
-import { isValidEan13, normaliseBarcode, parsePrice, sanitisePriceInput, type PriceError } from '@/core';
+import { Button, Card, Choice, Field, Screen, SectionTitle } from '@/components/ui';
+import {
+  isValidEan13,
+  normaliseBarcode,
+  parsePrice,
+  profileForShop,
+  sanitisePriceInput,
+  type PriceError,
+} from '@/core';
 import { useShop } from '@/db/hooks';
 import { createProduct } from '@/db/repos';
 import { useI18n } from '@/i18n';
@@ -24,6 +31,8 @@ export default function NewProductScreen() {
   const { barcode: scannedBarcode, from } = useLocalSearchParams<{ barcode?: string; from?: string }>();
   const { data: shop } = useShop();
   const onboarding = from === 'onboarding';
+  // The trade decides which variant fields and category suggestions show.
+  const profile = profileForShop(shop);
 
   const [name, setName] = useState('');
   const [category, setCategory] = useState('');
@@ -32,6 +41,8 @@ export default function NewProductScreen() {
   const [sellPrice, setSellPrice] = useState('');
   // Empty, not a pre-filled "1": a real-looking value is easy to save by mistake.
   const [quantity, setQuantity] = useState('');
+  // Values for the profile's variant axes, keyed by axis key (e.g. size, shade, pack).
+  const [attributes, setAttributes] = useState<Record<string, string>>({});
   const [lowStock, setLowStock] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -71,26 +82,32 @@ export default function NewProductScreen() {
 
     const buyResult = parsePrice(buyPrice);
     const sellResult = parsePrice(sellPrice);
-    const opening = Number.parseInt(quantity, 10);
+    // Salaula pieces are one of a kind, so the opening stock is always one.
+    const opening = profile.uniqueItems ? 1 : Number.parseInt(quantity, 10);
 
     if (!name.trim()) return setError('Product name is required');
     if (!buyResult.ok) return setError(priceMessage(t('products.buyPrice'), buyResult.error));
     if (!sellResult.ok) return setError(priceMessage(t('products.sellPrice'), sellResult.error));
-    if (quantity.trim() === '') return setError(t('product.new.error.qty'));
+    if (!profile.uniqueItems && quantity.trim() === '') return setError(t('product.new.error.qty'));
     if (!Number.isInteger(opening) || opening < 0) return setError('Opening quantity must be a whole number');
     const buy = buyResult.ngwee;
     const sell = sellResult.ngwee;
+    // The first two axes fill the legacy size/colour slots that sync and USSD read.
+    const [first, second] = profile.axes.map((axis) => attributes[axis.key]?.trim() || undefined);
 
     setSaving(true);
     try {
       const result = await createProduct(db, {
         name,
         category: category.trim() || undefined,
-        barcode: barcode.trim() || undefined,
+        // A shop without barcodes never stores one, even if a code was carried in.
+        barcode: usesBarcodes ? barcode.trim() || undefined : undefined,
         buyPrice: buy,
         sellPrice: sell,
         openingQuantity: opening,
         lowStockLevel: Number.parseInt(lowStock, 10) || shop?.lowStockDefault,
+        size: first,
+        colour: second,
       });
       if (onboarding) {
         // Return to the setup screen that opened this form, dismissing any
@@ -162,17 +179,60 @@ export default function NewProductScreen() {
       <SectionTitle>{t('product.new.details')}</SectionTitle>
       <Card>
         <Field label={t('product.new.name')} value={name} onChangeText={setName} placeholder={t('product.new.namePlaceholder')} required />
-        <Field label={t('product.new.category')} value={category} onChangeText={setCategory} placeholder={t('product.new.categoryPlaceholder')} />
+        <View style={styles.chips}>
+          {profile.categories.map((suggestion) => (
+            <Choice
+              key={suggestion}
+              label={suggestion}
+              selected={suggestion === category}
+              onPress={() => setCategory((current) => (current === suggestion ? '' : suggestion))}
+            />
+          ))}
+        </View>
         <Field
-          label={t('product.new.barcode')}
-          value={barcode}
-          onChangeText={setBarcode}
-          placeholder={usesBarcodes ? t('products.barcodeAuto') : t('common.optional')}
-          keyboardType="numeric"
+          label={t('product.new.category')}
+          value={category}
+          onChangeText={setCategory}
+          placeholder={profile.categories[0] ?? t('product.new.categoryPlaceholder')}
         />
+        {profile.axes.map((axis) => (
+          <View key={axis.key} style={styles.axis}>
+            <Field
+              label={t(axis.labelKey)}
+              value={attributes[axis.key] ?? ''}
+              onChangeText={(value) => setAttributes((current) => ({ ...current, [axis.key]: value }))}
+              placeholder={axis.placeholder}
+              maxLength={axis.maxLength}
+            />
+            <View style={styles.chips}>
+              {axis.quickPicks.map((pick) => (
+                <Choice
+                  key={pick}
+                  label={pick}
+                  selected={attributes[axis.key] === pick}
+                  onPress={() =>
+                    setAttributes((current) => ({
+                      ...current,
+                      [axis.key]: current[axis.key] === pick ? '' : pick,
+                    }))
+                  }
+                />
+              ))}
+            </View>
+          </View>
+        ))}
+        {usesBarcodes ? (
+          <Field
+            label={t('product.new.barcode')}
+            value={barcode}
+            onChangeText={setBarcode}
+            placeholder={t('products.barcodeAuto')}
+            keyboardType="numeric"
+          />
+        ) : null}
       </Card>
 
-      {barcode.trim() !== '' ? (
+      {usesBarcodes && barcode.trim() !== '' ? (
         <Card>
           {scannable ? (
             <>
@@ -210,15 +270,22 @@ export default function NewProductScreen() {
 
       <SectionTitle>{t('products.inStock')}</SectionTitle>
       <Card>
-        <Field
-          label={t('product.new.openingQty')}
-          value={quantity}
-          onChangeText={(v) => setQuantity(v.replace(/\D/g, ''))}
-          placeholder={t('product.new.qtyPlaceholder')}
-          hint={t('product.new.qtyHint')}
-          keyboardType="numeric"
-          required
-        />
+        {profile.uniqueItems ? (
+          <View style={styles.axis}>
+            <Text style={styles.label}>{t('product.new.openingQty')}</Text>
+            <Text style={styles.fixedValue}>{t('product.new.uniqueQty')}</Text>
+          </View>
+        ) : (
+          <Field
+            label={t('product.new.openingQty')}
+            value={quantity}
+            onChangeText={(v) => setQuantity(v.replace(/\D/g, ''))}
+            placeholder={t('product.new.qtyPlaceholder')}
+            hint={t('product.new.qtyHint')}
+            keyboardType="numeric"
+            required
+          />
+        )}
         <Field
           label={t('product.new.lowStock')}
           value={lowStock}
@@ -236,6 +303,10 @@ export default function NewProductScreen() {
 
 const styles = themed(() => StyleSheet.create({
   rowButton: { flex: 1 },
+  axis: { gap: spacing.sm },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  label: { fontSize: typeScale.label, color: colors.textMuted, fontWeight: '600' },
+  fixedValue: { fontSize: typeScale.body, color: colors.text, fontWeight: '600' },
   labelActions: { flexDirection: 'row', gap: spacing.md },
   muted: { fontSize: typeScale.label, color: colors.textMuted },
   success: { fontSize: typeScale.label, color: colors.success, fontWeight: '600' },

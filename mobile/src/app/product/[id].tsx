@@ -20,7 +20,7 @@ import {
   SectionTitle,
   StatTile,
 } from '@/components/ui';
-import { isValidEan13, parsePrice, sanitisePriceInput } from '@/core';
+import { isValidEan13, parsePrice, sanitisePriceInput, variantLabel } from '@/core';
 import { useMovements, useProducts, useShop } from '@/db/hooks';
 import { restockVariant, setVariantBarcode, type MovementRow } from '@/db/repos';
 import { useI18n } from '@/i18n';
@@ -201,7 +201,7 @@ export default function ProductScreen() {
             {product.variants.map((variant) => (
               <Choice
                 key={variant.id}
-                label={[variant.size, variant.colour].filter(Boolean).join(' · ') || 'Single'}
+                label={variantLabel('', variant) || 'Single'}
                 selected={variant.id === selectedVariantId}
                 onPress={() => {
                   setChosenVariantId(variant.id);
@@ -219,7 +219,7 @@ export default function ProductScreen() {
           <Card>
             <View style={styles.headerRow}>
               <Text style={styles.name}>
-                {[selectedVariant.size, selectedVariant.colour].filter(Boolean).join(' · ') || t('products.stockNow')}
+                {variantLabel('', selectedVariant) || t('products.stockNow')}
               </Text>
               <Pill
                 label={

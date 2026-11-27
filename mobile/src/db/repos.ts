@@ -7,6 +7,10 @@ import {
   matchPayments,
   needsOverride,
   newId,
+  PROFILE_BY_ID,
+  profileForShop,
+  shopUsesBarcodes,
+  variantLabel,
   normaliseBarcode,
   normalisePhone,
   nowIso,
@@ -22,6 +26,7 @@ import {
   type Ngwee,
   type PaymentInput,
   type ProductDiscount,
+  type ProfileId,
   type Role,
   type ShopType,
   type StockMovement,
@@ -490,7 +495,9 @@ export async function voidSale(db: SQLiteDatabase, saleId: string, reason: strin
 export interface ShopRecord {
   id: string;
   name: string;
+  /** Legacy mirror of the profile, kept for sync and USSD. */
   type: ShopType;
+  profileId: ProfileId;
   town: string;
   language: 'en' | 'ny';
   usesBarcodes: boolean;
@@ -506,6 +513,7 @@ export async function getShop(db: SQLiteDatabase): Promise<ShopRecord | null> {
     id: string;
     name: string;
     type: string;
+    profileId: string | null;
     town: string;
     language: 'en' | 'ny';
     usesBarcodes: number;
@@ -515,19 +523,22 @@ export async function getShop(db: SQLiteDatabase): Promise<ShopRecord | null> {
     providersJson: string;
     onboardingCompleted: number;
   }>(
-    `SELECT id, name, type, town, language, uses_barcodes AS usesBarcodes,
+    `SELECT id, name, type, profile_id AS profileId, town, language, uses_barcodes AS usesBarcodes,
             low_stock_default AS lowStockDefault, turnover_tax_registered AS turnoverTaxRegistered,
             tpin, providers_json AS providersJson, onboarding_completed AS onboardingCompleted
        FROM shop LIMIT 1`
   );
   if (!row) return null;
+  const profileId = profileForShop({ profileId: row.profileId, type: row.type as ShopType }).id;
   return {
     id: row.id,
     name: row.name,
     type: row.type as ShopType,
+    profileId,
     town: row.town,
     language: row.language,
-    usesBarcodes: row.usesBarcodes === 1,
+    // A trade without barcodes (salon) never shows barcode UI, whatever the stored flag says.
+    usesBarcodes: shopUsesBarcodes(profileId, row.usesBarcodes === 1),
     lowStockDefault: row.lowStockDefault,
     turnoverTaxRegistered: row.turnoverTaxRegistered === 1,
     tpin: row.tpin ?? undefined,
@@ -919,7 +930,8 @@ export async function getOnboardingState(db: SQLiteDatabase): Promise<Onboarding
 
 export interface ShopDetailsInput {
   name: string;
-  type: ShopType;
+  /** Required so no caller silently resets the profile. The legacy `type` is derived from it. */
+  profileId: ProfileId;
   town: string;
   language: 'en' | 'ny';
   usesBarcodes: boolean;
@@ -943,32 +955,37 @@ export async function saveShopDetails(
   );
   const shopId = current?.id ?? newId('shop');
   const stamp = nowIso();
+  const profile = PROFILE_BY_ID[input.profileId] ?? PROFILE_BY_ID.general;
+  const legacyType = profile.legacyType;
+  const usesBarcodes = shopUsesBarcodes(profile.id, input.usesBarcodes);
 
   await db.withTransactionAsync(async () => {
     if (current) {
       await db.runAsync(
         `UPDATE shop
-            SET name = ?, type = ?, town = ?, language = ?, uses_barcodes = ?, updated_at = ?
+            SET name = ?, type = ?, profile_id = ?, town = ?, language = ?, uses_barcodes = ?, updated_at = ?
           WHERE id = ?`,
         name,
-        input.type,
+        legacyType,
+        profile.id,
         town,
         input.language,
-        input.usesBarcodes ? 1 : 0,
+        usesBarcodes ? 1 : 0,
         stamp,
         shopId
       );
     } else {
       await db.runAsync(
-        `INSERT INTO shop (id, name, type, town, currency, language, uses_barcodes, low_stock_default,
+        `INSERT INTO shop (id, name, type, profile_id, town, currency, language, uses_barcodes, low_stock_default,
            turnover_tax_registered, tpin, providers_json, onboarding_completed, created_at, updated_at)
-         VALUES (?, ?, ?, ?, 'ZMW', ?, ?, 3, 0, NULL, '[]', 0, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, 'ZMW', ?, ?, 3, 0, NULL, '[]', 0, ?, ?)`,
         shopId,
         name,
-        input.type,
+        legacyType,
+        profile.id,
         town,
         input.language,
-        input.usesBarcodes ? 1 : 0,
+        usesBarcodes ? 1 : 0,
         stamp,
         stamp
       );
@@ -977,11 +994,12 @@ export async function saveShopDetails(
     await enqueueSync(db, 'shop', shopId, current ? 'update' : 'create', {
       id: shopId,
       name,
-      type: input.type,
+      type: legacyType,
+      profileId: profile.id,
       town,
       currency: 'ZMW',
       language: input.language,
-      usesBarcodes: input.usesBarcodes,
+      usesBarcodes,
       lowStockDefault: current?.lowStockDefault ?? 3,
       ...(current
         ? {}
@@ -1147,7 +1165,7 @@ export async function findVariantByBarcode(
     variantId: row.variantId,
     productId: row.productId,
     productName: row.productName,
-    variantLabel: [row.size, row.colour].filter(Boolean).join(' · ') || 'Single',
+    variantLabel: variantLabel('', row) || 'Single',
   };
 }
 
@@ -1159,6 +1177,10 @@ export interface CreateProductInput {
   sellPrice: Ngwee;
   openingQuantity: number;
   lowStockLevel?: number;
+  /** First profile axis value, stored in the legacy size slot. */
+  size?: string;
+  /** Second profile axis value, stored in the legacy colour slot. */
+  colour?: string;
 }
 
 /**
@@ -1189,6 +1211,8 @@ export async function createProduct(
   const variantId = newId('var');
   const stamp = nowIso();
   const lowStockLevel = input.lowStockLevel ?? 3;
+  const size = input.size?.trim() || null;
+  const colour = input.colour?.trim() || null;
 
   await db.withTransactionAsync(async () => {
     await db.runAsync(
@@ -1204,10 +1228,12 @@ export async function createProduct(
     );
 
     await db.runAsync(
-      `INSERT INTO product_variant (id, product_id, barcode, buy_price, sell_price, low_stock_level, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO product_variant (id, product_id, size, colour, barcode, buy_price, sell_price, low_stock_level, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       variantId,
       productId,
+      size,
+      colour,
       barcode ?? null,
       input.buyPrice,
       input.sellPrice,
@@ -1241,6 +1267,8 @@ export async function createProduct(
     await enqueueSync(db, 'product_variant', variantId, 'create', {
       id: variantId,
       productId,
+      size,
+      colour,
       barcode: barcode ?? null,
       buyPrice: input.buyPrice,
       sellPrice: input.sellPrice,

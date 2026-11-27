@@ -287,4 +287,20 @@ export const migrations: string[] = [
   );
   CREATE INDEX idx_smart_invoice_sale ON smart_invoice_receipt (sale_id);
   `,
+
+  // v10 - the shop's trade profile (fashion, health & beauty, bar, ...). It
+  // sets the catalogue vocabulary and defaults; the legacy `type` column stays
+  // as its mirror for sync and USSD. No CHECK constraint, so adding a trade
+  // later needs no migration. Existing shops are backfilled from `type`.
+  `
+  ALTER TABLE shop ADD COLUMN profile_id TEXT;
+
+  UPDATE shop SET profile_id = CASE type
+    WHEN 'clothes' THEN 'fashion'
+    WHEN 'shoes'   THEN 'fashion'
+    WHEN 'general' THEN 'general'
+    ELSE 'general'
+  END
+  WHERE profile_id IS NULL;
+  `,
 ];

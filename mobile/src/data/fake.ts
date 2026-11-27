@@ -11,6 +11,7 @@ import type {
   TaxPotEntry,
   TaxRules,
 } from '@/core/types';
+import { variantLabel } from '@/core/profiles';
 
 const kwacha = (amount: number) => Math.round(amount * 100);
 const at = (time: string) => `2026-11-17T${time}:00+02:00`;
@@ -35,6 +36,7 @@ export const shop: Shop = {
   updatedAt: at('07:00'),
   name: 'Chiwala Fashions',
   type: 'clothes',
+  profileId: 'fashion',
   town: 'Lusaka',
   currency: 'ZMW',
   language: 'en',
@@ -343,7 +345,7 @@ export function lowStockItems(): { variantId: string; label: string; quantity: n
     product.variants.flatMap((variant) => {
       const quantity = stockOnHand(variant.id);
       if (quantity > variant.lowStockLevel) return [];
-      const label = [product.name, variant.size, variant.colour].filter(Boolean).join(' · ');
+      const label = variantLabel(product.name, variant);
       return [{ variantId: variant.id, label, quantity, level: variant.lowStockLevel }];
     })
   );

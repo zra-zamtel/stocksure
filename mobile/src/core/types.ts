@@ -13,6 +13,17 @@ export type StockReason = 'opening' | 'restock' | 'sale' | 'void' | 'correction'
 export type SaleStatus = 'active' | 'void';
 export type ReconcileStatus = 'matched' | 'sale_no_payment' | 'payment_no_sale' | 'unresolved';
 export type ShopType = 'clothes' | 'shoes' | 'general' | 'other';
+/** The trade the shop is in. Drives catalogue labels and defaults; `ShopType` stays as the legacy sync/USSD field. */
+export type ProfileId =
+  | 'fashion'
+  | 'salaula'
+  | 'health_beauty'
+  | 'bar'
+  | 'grocery'
+  | 'hardware'
+  | 'electronics'
+  | 'salon'
+  | 'general';
 export type DiscountType = 'percent' | 'fixed';
 export type StockState = 'out' | 'low' | 'ok';
 
@@ -37,7 +48,9 @@ export interface Staff extends BaseRecord {
 
 export interface Shop extends BaseRecord {
   name: string;
+  /** Legacy mirror of the profile, kept for sync and USSD. */
   type: ShopType;
+  profileId: ProfileId;
   town: string;
   currency: 'ZMW';
   language: 'en' | 'ny';
@@ -46,6 +59,11 @@ export interface Shop extends BaseRecord {
   turnoverTaxRegistered: boolean;
   tpin?: string;
   providers: Provider[];
+}
+
+export interface VariantAttribute {
+  key: string;
+  value: string;
 }
 
 export interface ProductDiscount {

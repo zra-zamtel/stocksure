@@ -21,7 +21,7 @@ import {
   SearchField,
   SectionTitle,
 } from '@/components/ui';
-import { maxSellable, priceSale, toNgwee, type LineInput, type PaymentInput, type Provider } from '@/core';
+import { maxSellable, priceSale, toNgwee, variantLabel, type LineInput, type PaymentInput, type Provider } from '@/core';
 import { useProducts, useShop } from '@/db/hooks';
 import {
   addPaymentMessage,
@@ -101,7 +101,7 @@ export default function NewSaleScreen() {
     for (const product of products) {
       for (const variant of product.variants) {
         map.set(variant.id, {
-          label: [product.name, variant.size, variant.colour].filter(Boolean).join(' · '),
+          label: variantLabel(product.name, variant),
           sellPrice: variant.sellPrice,
           buyPrice: variant.buyPrice,
           onHand: variant.quantity,
@@ -377,7 +377,7 @@ export default function NewSaleScreen() {
           {product.variants.map((variant) => {
             const quantity = quantityByVariant[variant.id] ?? 0;
             // A product with one plain variant needs no second name under it.
-            const label = [variant.size, variant.colour].filter(Boolean).join(' · ');
+            const label = variantLabel('', variant);
             return (
               <View key={variant.id} style={styles.variantRow}>
                 <View style={styles.variantText}>

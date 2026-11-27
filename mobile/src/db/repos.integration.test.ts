@@ -73,7 +73,7 @@ beforeEach(async () => {
 afterEach(() => db.close());
 
 async function shop(usesBarcodes = false) {
-  await saveShopDetails(db, { name: 'Chiwala Fashions', type: 'clothes', town: 'Lusaka', language: 'en', usesBarcodes });
+  await saveShopDetails(db, { name: 'Chiwala Fashions', profileId: 'fashion', town: 'Lusaka', language: 'en', usesBarcodes });
 }
 
 async function product(openingQuantity = 10, extra: Partial<Parameters<typeof createProduct>[1]> = {}) {
@@ -152,6 +152,39 @@ describe('IT-DB migrations and schema', () => {
     }
   });
 
+  it('IT-DB-04b upgrades a v9 phone and backfills each shop profile from its type', async () => {
+    const old = openBlankDb();
+    try {
+      await old.execAsync('PRAGMA foreign_keys = ON;');
+      for (let version = 0; version < 9; version += 1) await old.execAsync(migrations[version]);
+      await old.execAsync('PRAGMA user_version = 9;');
+      const insert = (id: string, type: string) =>
+        old.runAsync(
+          `INSERT INTO shop (id, name, type, town, created_at, updated_at) VALUES (?, 'Shop', ?, 'Lusaka', 'x', 'x')`,
+          id,
+          type
+        );
+      await insert('s_clothes', 'clothes');
+      await insert('s_shoes', 'shoes');
+      await insert('s_general', 'general');
+      await insert('s_other', 'other');
+
+      await initializeDatabase(old);
+
+      const rows = await old.getAllAsync<{ id: string; profile_id: string }>(
+        'SELECT id, profile_id FROM shop ORDER BY id'
+      );
+      expect(rows).toEqual([
+        { id: 's_clothes', profile_id: 'fashion' },
+        { id: 's_general', profile_id: 'general' },
+        { id: 's_other', profile_id: 'general' },
+        { id: 's_shoes', profile_id: 'fashion' },
+      ]);
+    } finally {
+      old.close();
+    }
+  });
+
   it('IT-DB-05 rejects a zero stock movement and an unknown reason', async () => {
     const { variantId } = await product();
     const insert = (qty: number, reason: string) =>
@@ -191,18 +224,59 @@ describe('IT-DB migrations and schema', () => {
 
 describe('IT-ONB onboarding and account', () => {
   it('IT-ONB-01 creates the shop once and updates the same row afterwards', async () => {
-    const first = await saveShopDetails(db, { name: ' Shop ', type: 'general', town: ' Ndola ', language: 'en', usesBarcodes: false });
-    const second = await saveShopDetails(db, { name: 'Shop 2', type: 'shoes', town: 'Kitwe', language: 'ny', usesBarcodes: true });
+    const first = await saveShopDetails(db, { name: ' Shop ', profileId: 'general', town: ' Ndola ', language: 'en', usesBarcodes: false });
+    const second = await saveShopDetails(db, { name: 'Shop 2', profileId: 'fashion', town: 'Kitwe', language: 'ny', usesBarcodes: true });
     expect(second).toBe(first);
     expect(await count(db, 'shop')).toBe(1);
-    expect(await getShop(db)).toMatchObject({ name: 'Shop 2', town: 'Kitwe', language: 'ny', usesBarcodes: true, onboardingCompleted: false });
+    expect(await getShop(db)).toMatchObject({ name: 'Shop 2', type: 'clothes', profileId: 'fashion', town: 'Kitwe', language: 'ny', usesBarcodes: true, onboardingCompleted: false });
     expect(await count(db, 'sync_queue', "entity = 'shop' AND operation = 'create'")).toBe(1);
     expect(await count(db, 'sync_queue', "entity = 'shop' AND operation = 'update'")).toBe(1);
   });
 
+  it('IT-ONB-01b stores the profile and writes its legacy type for sync and USSD', async () => {
+    await saveShopDetails(db, { name: 'Glow', profileId: 'health_beauty', town: 'Lusaka', language: 'en', usesBarcodes: true });
+    expect(await getShop(db)).toMatchObject({ type: 'other', profileId: 'health_beauty' });
+    const create = await db.getFirstAsync<{ payload: string }>(
+      "SELECT payload FROM sync_queue WHERE entity = 'shop' AND operation = 'create'"
+    );
+    expect(JSON.parse(create?.payload ?? '{}')).toMatchObject({ type: 'other', profileId: 'health_beauty' });
+
+    // A later edit (Settings) changes the profile and keeps the legacy mirror in step.
+    await saveShopDetails(db, { name: 'Glow', profileId: 'bar', town: 'Lusaka', language: 'en', usesBarcodes: true });
+    expect(await getShop(db)).toMatchObject({ type: 'other', profileId: 'bar' });
+    const update = await db.getFirstAsync<{ payload: string }>(
+      "SELECT payload FROM sync_queue WHERE entity = 'shop' AND operation = 'update'"
+    );
+    expect(JSON.parse(update?.payload ?? '{}')).toMatchObject({ type: 'other', profileId: 'bar' });
+  });
+
+  it('IT-ONB-01d never turns barcodes on for a trade without them', async () => {
+    await saveShopDetails(db, { name: 'Cuts', profileId: 'salon', town: 'Lusaka', language: 'en', usesBarcodes: true });
+    expect((await getShop(db))?.usesBarcodes).toBe(false);
+    expect(await count(db, 'shop', 'uses_barcodes = 0')).toBe(1);
+    const queued = await db.getFirstAsync<{ payload: string }>("SELECT payload FROM sync_queue WHERE entity = 'shop'");
+    expect(JSON.parse(queued?.payload ?? '{}')).toMatchObject({ usesBarcodes: false });
+
+    // A stored flag that disagrees (e.g. pulled from an older phone) is overruled on read,
+    // so new products get no automatic barcode.
+    await db.runAsync('UPDATE shop SET uses_barcodes = 1');
+    expect((await getShop(db))?.usesBarcodes).toBe(false);
+    const { variantId } = await product(1, { name: 'Haircut' });
+    const row = await db.getFirstAsync<{ barcode: string | null }>('SELECT barcode FROM product_variant WHERE id = ?', variantId);
+    expect(row?.barcode).toBeNull();
+  });
+
+  it('IT-ONB-01c falls back from the legacy type when a row has no usable profile', async () => {
+    await saveShopDetails(db, { name: 'Old', profileId: 'fashion', town: 'Lusaka', language: 'en', usesBarcodes: false });
+    await db.runAsync('UPDATE shop SET profile_id = NULL');
+    expect((await getShop(db))?.profileId).toBe('fashion');
+    await db.runAsync("UPDATE shop SET profile_id = 'restaurant', type = 'general'");
+    expect((await getShop(db))?.profileId).toBe('general');
+  });
+
   it('IT-ONB-02 trims and requires the shop name and town', async () => {
-    await expect(saveShopDetails(db, { name: '  ', type: 'other', town: 'Lusaka', language: 'en', usesBarcodes: false })).rejects.toThrow('Shop name');
-    await expect(saveShopDetails(db, { name: 'A', type: 'other', town: ' ', language: 'en', usesBarcodes: false })).rejects.toThrow('Town');
+    await expect(saveShopDetails(db, { name: '  ', profileId: 'general', town: 'Lusaka', language: 'en', usesBarcodes: false })).rejects.toThrow('Shop name');
+    await expect(saveShopDetails(db, { name: 'A', profileId: 'general', town: ' ', language: 'en', usesBarcodes: false })).rejects.toThrow('Town');
     expect(await count(db, 'shop')).toBe(0);
   });
 
@@ -434,6 +508,21 @@ describe('IT-STAFF staff identity', () => {
 });
 
 describe('IT-PROD products and stock', () => {
+  it('IT-PROD-00 stores the profile axis values in the legacy size and colour slots', async () => {
+    const { variantId } = await product(2, { name: 'Castle Lager', barcode: '6001234500018', size: ' Crate ', colour: '330 ml' });
+    const row = await db.getFirstAsync<{ size: string; colour: string }>(
+      'SELECT size, colour FROM product_variant WHERE id = ?',
+      variantId
+    );
+    expect(row).toEqual({ size: 'Crate', colour: '330 ml' });
+    const queued = await db.getFirstAsync<{ payload: string }>(
+      "SELECT payload FROM sync_queue WHERE entity = 'product_variant' AND entity_id = ?",
+      variantId
+    );
+    expect(JSON.parse(queued?.payload ?? '{}')).toMatchObject({ size: 'Crate', colour: '330 ml' });
+    expect((await findVariantByBarcode(db, '6001234500018'))?.variantLabel).toBe('Crate · 330 ml');
+  });
+
   it('IT-PROD-01 records opening stock as a movement and queues the product, variant and movement', async () => {
     const { productId, variantId } = await product(12);
     expect(await stockOf(db, variantId)).toBe(12);

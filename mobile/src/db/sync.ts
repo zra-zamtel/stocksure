@@ -138,6 +138,7 @@ function mapShop(p: JsonRecord): JsonRecord {
     id: text(p.id),
     name: text(p.name),
     type: text(p.type),
+    profile_id: text(p.profileId ?? p.profile_id),
     town: text(p.town),
     currency: text(p.currency),
     language: text(p.language),
