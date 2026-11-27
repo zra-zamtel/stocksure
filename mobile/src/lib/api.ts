@@ -10,7 +10,7 @@ const PASSWORD_RESET_CONFIRM_PATH = '/api/v1/auth/password-reset/confirm';
 const DEVICE_PIN_PATH = '/api/v1/auth/device-pin';
 const PIN_RESET_REQUEST_PATH = '/api/v1/auth/pin-reset/request';
 const PIN_RESET_CONFIRM_PATH = '/api/v1/auth/pin-reset/confirm';
-const STAFF_REGISTER_PATH = '/api/v1/staff';
+const STAFF_REGISTER_PATH = '/api/v1/auth/staff';
 const STAFF_SIGN_IN_CONFIRM_PATH = '/api/v1/auth/staff-sign-in/confirm';
 const SYNC_PUSH_PATH = '/api/v1/sync/push';
 const SYNC_PULL_PATH = '/api/v1/sync/pull';
@@ -18,7 +18,7 @@ const TOKEN_REFRESH_PATH = '/api/v1/auth/refresh/';
 const TIMEOUT_MS = 12_000;
 
 function staffPinResetPath(staffId: string): string {
-  return `/api/v1/staff/${encodeURIComponent(staffId)}/pin-reset`;
+  return `/api/v1/auth/staff/${encodeURIComponent(staffId)}/pin-reset`;
 }
 
 type RegisterOwnerRequest = {

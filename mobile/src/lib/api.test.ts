@@ -373,7 +373,7 @@ describe('UT-API staff identity client', () => {
 
     expect(created).toEqual({ id: 'staff_1', name: 'Given', phone: '0965551122', role: 'staff' });
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toBe('http://192.168.1.20:8000/api/v1/staff');
+    expect(url).toBe('http://192.168.1.20:8000/api/v1/auth/staff');
     expect((init.headers as Record<string, string>).Authorization).toBe(
       'Bearer owner-device-token'
     );
@@ -455,7 +455,7 @@ describe('UT-API staff identity client', () => {
 
     expect(result.id).toBe('staff_1');
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toBe('http://192.168.1.20:8000/api/v1/staff/staff_1/pin-reset');
+    expect(url).toBe('http://192.168.1.20:8000/api/v1/auth/staff/staff_1/pin-reset');
     expect((init.headers as Record<string, string>).Authorization).toBe(
       'Bearer owner-device-token'
     );
