@@ -227,3 +227,52 @@ export function variantLabel(
   // An empty product name is dropped too, so variantLabel('', v) is just the variant.
   return [productName, ...values].filter(Boolean).join(' · ');
 }
+
+/**
+ * A variant's attributes: the stored list when there is one, otherwise the
+ * legacy size/colour columns. A broken or non-list JSON value falls back too,
+ * so one bad row never stops a product screen loading.
+ */
+export function attributesOf(row: {
+  attributesJson?: string | null;
+  size?: string | null;
+  colour?: string | null;
+}): VariantAttribute[] {
+  if (row.attributesJson) {
+    try {
+      const parsed: unknown = JSON.parse(row.attributesJson);
+      if (Array.isArray(parsed)) {
+        return parsed.filter(
+          (item): item is VariantAttribute =>
+            typeof item === 'object' &&
+            item !== null &&
+            typeof (item as VariantAttribute).key === 'string' &&
+            typeof (item as VariantAttribute).value === 'string'
+        );
+      }
+    } catch {
+      // fall through to the legacy columns
+    }
+  }
+  return [
+    row.size ? { key: 'size', value: row.size } : null,
+    row.colour ? { key: 'colour', value: row.colour } : null,
+  ].filter((item): item is VariantAttribute => item !== null);
+}
+
+/** Trims values and drops empty ones, keeping the axis order. */
+export function cleanAttributes(attributes: VariantAttribute[]): VariantAttribute[] {
+  return attributes
+    .map((attribute) => ({ key: attribute.key.trim(), value: attribute.value.trim() }))
+    .filter((attribute) => attribute.key !== '' && attribute.value !== '');
+}
+
+/**
+ * Identifies a variant within its product, ignoring case and spacing, so
+ * "Crate" and " crate" count as the same variant.
+ */
+export function attributesKey(attributes: VariantAttribute[]): string {
+  return cleanAttributes(attributes)
+    .map((attribute) => `${attribute.key.toLowerCase()}=${attribute.value.toLowerCase()}`)
+    .join('|');
+}

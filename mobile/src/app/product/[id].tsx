@@ -20,7 +20,17 @@ import {
   SectionTitle,
   StatTile,
 } from '@/components/ui';
-import { DEFAULT_UNIT, isExpired, isValidEan13, parsePrice, sanitisePriceInput, todayLocal, variantLabel } from '@/core';
+import {
+  DEFAULT_UNIT,
+  isExpired,
+  isValidEan13,
+  isValidIsoDate,
+  parsePrice,
+  profileForShop,
+  sanitisePriceInput,
+  todayLocal,
+  variantLabel,
+} from '@/core';
 import { useMovements, useProducts, useShop } from '@/db/hooks';
 import { restockVariant, setVariantBarcode, type MovementRow } from '@/db/repos';
 import { useI18n } from '@/i18n';
@@ -63,11 +73,17 @@ export default function ProductScreen() {
   // null means "show the stored cost"; a string means the owner is editing it.
   const [priceDraft, setPriceDraft] = useState<string | null>(null);
   const [note, setNote] = useState('');
+  // A new delivery can carry its own expiry and batch; empty keeps the current ones.
+  const [restockExpiry, setRestockExpiry] = useState('');
+  const [restockBatch, setRestockBatch] = useState('');
   const [message, setMessage] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   const buyPrice = priceDraft ?? (selectedVariant ? (selectedVariant.buyPrice / 100).toFixed(2) : '');
+  const profile = profileForShop(shop);
+  const usesExpiry = profile.modules.includes('expiry');
+  const usesBatch = profile.modules.includes('batch');
 
   async function handleRestock() {
     if (!selectedVariant) return;
@@ -88,17 +104,26 @@ export default function ProductScreen() {
         setSubmitting(false);
         return;
       }
+      if (usesExpiry && restockExpiry.trim() && !isValidIsoDate(restockExpiry)) {
+        setSubmitError(t('product.new.error.expiry'));
+        setSubmitting(false);
+        return;
+      }
       const result = await restockVariant(db, {
         variantId: selectedVariant.id,
         quantity: Number.parseInt(quantity, 10),
         buyPrice: typedPrice ? typedPrice.ngwee : undefined,
         note: note.trim() || undefined,
+        expiryDate: usesExpiry ? restockExpiry.trim() || undefined : undefined,
+        batchNo: usesBatch ? restockBatch.trim() || undefined : undefined,
       });
       setMessage(
         t('products.restockDone', { added: result.quantityAdded, onHand: result.quantityOnHand })
       );
       setQuantity('1');
       setNote('');
+      setRestockExpiry('');
+      setRestockBatch('');
       setPriceDraft(null);
       reloadProducts();
       reloadMovements();
@@ -303,6 +328,26 @@ export default function ProductScreen() {
               onChangeText={setNote}
               placeholder={t('common.optional')}
             />
+            {usesExpiry ? (
+              <Field
+                label={t('product.new.expiry')}
+                value={restockExpiry}
+                onChangeText={(v) => setRestockExpiry(v.replace(/[^\d-]/g, ''))}
+                placeholder="YYYY-MM-DD"
+                hint={t('products.restockExpiryHint')}
+                maxLength={10}
+              />
+            ) : null}
+            {usesBatch ? (
+              <Field
+                label={t('product.new.batch')}
+                value={restockBatch}
+                onChangeText={setRestockBatch}
+                placeholder={t('common.optional')}
+                autoCapitalize="characters"
+                maxLength={60}
+              />
+            ) : null}
             <Button
               label={t('products.restock')}
               icon="add_box"

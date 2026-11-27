@@ -5,6 +5,7 @@ import {
   completeOnboarding,
   createOwner,
   createProduct,
+  createProductWithVariants,
   createStaff,
   ensureTaxPeriod,
   findVariantByBarcode,
@@ -685,6 +686,174 @@ describe('IT-PRODF trade-specific product fields', () => {
       expect(
         await old.getFirstAsync('SELECT size, expiry_date, batch_no FROM product_variant WHERE id = ?', 'v1')
       ).toEqual({ size: 'M', expiry_date: null, batch_no: null });
+    } finally {
+      old.close();
+    }
+  });
+});
+
+describe('IT-VAR products with several variants', () => {
+  const pack = (value: string, size = '') => [
+    { key: 'pack', value },
+    { key: 'size', value: size },
+  ];
+  const lager = (variants: Parameters<typeof createProductWithVariants>[1]['variants']) =>
+    createProductWithVariants(db, { name: 'Castle Lager', category: 'Beer', unit: 'bottle', saleWarning: '18+', variants });
+
+  it('IT-VAR-01 saves each variant with its own price, stock, barcode and attributes', async () => {
+    await shop();
+    const { productId, variantIds } = await lager([
+      { attributes: pack('Shot'), buyPrice: 300, sellPrice: 500, openingQuantity: 0 },
+      { attributes: pack('Bottle', '330 ml'), barcode: '6001234500018', buyPrice: 1200, sellPrice: 1800, openingQuantity: 24 },
+      { attributes: pack('Crate'), buyPrice: 26000, sellPrice: 36000, openingQuantity: 3, lowStockLevel: 1 },
+    ]);
+    expect(variantIds).toHaveLength(3);
+
+    const listed = (await listProductsWithStock(db)).find((item) => item.id === productId);
+    // Variants come back in the order they were entered; the first sets the default prices.
+    expect(listed).toMatchObject({ name: 'Castle Lager', unit: 'bottle', saleWarning: '18+', defaultSellPrice: 500, stock: 27 });
+    expect(listed?.variants.map((variant) => [variant.attributes, variant.sellPrice, variant.quantity])).toEqual([
+      [[{ key: 'pack', value: 'Shot' }], 500, 0],
+      [[{ key: 'pack', value: 'Bottle' }, { key: 'size', value: '330 ml' }], 1800, 24],
+      [[{ key: 'pack', value: 'Crate' }], 36000, 3],
+    ]);
+
+    // Legacy mirrors follow axis position; attributes_json keeps the keys.
+    const rows = await db.getAllAsync<{ size: string | null; colour: string | null; attributes_json: string }>(
+      'SELECT size, colour, attributes_json FROM product_variant WHERE product_id = ? ORDER BY created_at, size',
+      productId
+    );
+    expect(rows.map((row) => [row.size, row.colour])).toEqual(
+      expect.arrayContaining([['Bottle', '330 ml'], ['Crate', null], ['Shot', null]])
+    );
+    expect(await count(db, 'stock_movement', "reason = 'opening'")).toBe(2);
+    expect(await count(db, 'sync_queue', "entity = 'product_variant'")).toBe(3);
+    const queued = await db.getFirstAsync<{ payload: string }>(
+      "SELECT payload FROM sync_queue WHERE entity = 'product_variant' AND entity_id = ?",
+      variantIds[2]
+    );
+    expect(JSON.parse(queued?.payload ?? '{}')).toMatchObject({
+      productId,
+      size: 'Crate',
+      colour: null,
+      attributes: [{ key: 'pack', value: 'Crate' }],
+      lowStockLevel: 1,
+    });
+  });
+
+  it('IT-VAR-02 selling one variant takes stock from that variant only', async () => {
+    await shop();
+    const { variantIds } = await lager([
+      { attributes: pack('Bottle'), buyPrice: 5000, sellPrice: 8000, openingQuantity: 10 },
+      { attributes: pack('Crate'), buyPrice: 5000, sellPrice: 8000, openingQuantity: 4 },
+      { attributes: pack('Can'), buyPrice: 5000, sellPrice: 8000, openingQuantity: 6 },
+    ]);
+    await recordSale(db, cashSale(variantIds[1], 2));
+    expect([await stockOf(db, variantIds[0]), await stockOf(db, variantIds[1]), await stockOf(db, variantIds[2])]).toEqual([10, 2, 6]);
+  });
+
+  it('IT-VAR-03 refuses the same variant twice, ignoring case, and saves nothing', async () => {
+    await shop();
+    await expect(
+      lager([
+        { attributes: pack('Crate'), buyPrice: 1, sellPrice: 2, openingQuantity: 1 },
+        { attributes: pack(' crate '), buyPrice: 1, sellPrice: 2, openingQuantity: 1 },
+      ])
+    ).rejects.toThrow('Two variants are the same: crate');
+    await expect(
+      createProductWithVariants(db, {
+        name: 'Plain',
+        variants: [
+          { attributes: [], buyPrice: 1, sellPrice: 2, openingQuantity: 1 },
+          { attributes: [], buyPrice: 1, sellPrice: 2, openingQuantity: 1 },
+        ],
+      })
+    ).rejects.toThrow('Each variant needs its own size or type');
+    await expect(createProductWithVariants(db, { name: 'Empty', variants: [] })).rejects.toThrow('at least one variant');
+    expect(await count(db, 'product')).toBe(0);
+    expect(await count(db, 'sync_queue', "entity <> 'shop'")).toBe(0);
+  });
+
+  it('IT-VAR-04 refuses a barcode used twice in the form or already in the shop', async () => {
+    await shop();
+    await expect(
+      lager([
+        { attributes: pack('Bottle'), barcode: '012345678905', buyPrice: 1, sellPrice: 2, openingQuantity: 1 },
+        { attributes: pack('Can'), barcode: '0012345678905', buyPrice: 1, sellPrice: 2, openingQuantity: 1 },
+      ])
+    ).rejects.toThrow('Two variants have the same barcode');
+    await product(1, { barcode: '6001234500018' });
+    await expect(
+      lager([
+        { attributes: pack('Bottle'), buyPrice: 1, sellPrice: 2, openingQuantity: 1 },
+        { attributes: pack('Can'), barcode: '6001234500018', buyPrice: 1, sellPrice: 2, openingQuantity: 1 },
+      ])
+    ).rejects.toThrow('already belongs to another product');
+    expect(await count(db, 'product')).toBe(1);
+  });
+
+  it('IT-VAR-05 gives each variant its own barcode when the shop uses barcodes', async () => {
+    await shop(true);
+    const { barcodes } = await lager([
+      { attributes: pack('Bottle'), buyPrice: 1, sellPrice: 2, openingQuantity: 1 },
+      { attributes: pack('Crate'), buyPrice: 1, sellPrice: 2, openingQuantity: 1 },
+      { attributes: pack('Can'), barcode: '6001234500018', buyPrice: 1, sellPrice: 2, openingQuantity: 1 },
+    ]);
+    expect(barcodes[2]).toBe('6001234500018');
+    expect(isInStoreBarcode(barcodes[0]!)).toBe(true);
+    expect(isInStoreBarcode(barcodes[1]!)).toBe(true);
+    expect(new Set(barcodes).size).toBe(3);
+  });
+
+  it('IT-VAR-06 labels low stock, scans and sale lines from the attributes', async () => {
+    await shop();
+    const { variantIds } = await lager([
+      { attributes: pack('Crate', '330 ml'), barcode: '6001234500018', buyPrice: 5000, sellPrice: 8000, openingQuantity: 1, lowStockLevel: 2 },
+    ]);
+    expect((await lowStockVariants(db)).map((row) => row.label)).toEqual(['Castle Lager · Crate · 330 ml']);
+    expect((await findVariantByBarcode(db, '6001234500018'))?.variantLabel).toBe('Crate · 330 ml');
+    const { saleId } = await recordSale(db, cashSale(variantIds[0]));
+    expect((await getSaleDetail(db, saleId))?.lines[0].label).toBe('Castle Lager · Crate · 330 ml');
+  });
+
+  it('IT-VAR-07 still reads older variants that only have size and colour', async () => {
+    await shop();
+    const { productId, variantId } = await product(1, { size: 'M', colour: 'Blue' });
+    await db.runAsync('UPDATE product_variant SET attributes_json = NULL WHERE id = ?', variantId);
+    const listed = (await listProductsWithStock(db)).find((item) => item.id === productId);
+    expect(listed?.variants[0].attributes).toEqual([
+      { key: 'size', value: 'M' },
+      { key: 'colour', value: 'Blue' },
+    ]);
+    expect((await lowStockVariants(db)).map((row) => row.label)).toEqual(['School shirt · M · Blue']);
+  });
+
+  it('IT-VAR-08 keeps an empty first axis out of the size column', async () => {
+    await shop();
+    const { variantId } = await product(1, { colour: 'Red' });
+    expect(
+      await db.getFirstAsync('SELECT size, colour, attributes_json FROM product_variant WHERE id = ?', variantId)
+    ).toEqual({ size: null, colour: 'Red', attributes_json: '[{"key":"colour","value":"Red"}]' });
+  });
+
+  it('IT-VAR-09 upgrades a v11 phone without touching its variants', async () => {
+    const old = openBlankDb();
+    try {
+      await old.execAsync('PRAGMA foreign_keys = ON;');
+      for (let version = 0; version < 11; version += 1) await old.execAsync(migrations[version]);
+      await old.execAsync('PRAGMA user_version = 11;');
+      await old.runAsync(
+        `INSERT INTO product (id, name, default_buy_price, default_sell_price, created_at, updated_at)
+         VALUES ('p1', 'Old shirt', 100, 200, 'x', 'x')`
+      );
+      await old.runAsync(
+        `INSERT INTO product_variant (id, product_id, size, colour, buy_price, sell_price, created_at, updated_at)
+         VALUES ('v1', 'p1', 'M', 'Blue', 100, 200, 'x', 'x')`
+      );
+      await initializeDatabase(old);
+      expect(
+        await old.getFirstAsync('SELECT size, colour, attributes_json FROM product_variant WHERE id = ?', 'v1')
+      ).toEqual({ size: 'M', colour: 'Blue', attributes_json: null });
     } finally {
       old.close();
     }

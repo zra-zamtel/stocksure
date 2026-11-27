@@ -69,7 +69,7 @@ Every table has `id`, `created_at`, `updated_at`.
 | `staff` | name, phone (unique), pin_hash, role (`owner` \| `staff`) |
 | `shop` | name, type (legacy: `clothes` \| `shoes` \| `general` \| `other`), profile_id, town, currency (`ZMW`), language (`en` \| `ny`), uses_barcodes (0/1), low_stock_default, turnover_tax_registered (0/1), tpin, providers_json |
 | `product` | name, category, photo_uri, default_buy_price, default_sell_price, discount_json, unit, sale_warning |
-| `product_variant` | product_id, size, colour, barcode (unique when set), buy_price, sell_price, low_stock_level, expiry_date, batch_no |
+| `product_variant` | product_id, size, colour, attributes_json, barcode (unique when set), buy_price, sell_price, low_stock_level, expiry_date, batch_no |
 | `stock_movement` | variant_id, quantity_change (never 0), reason (`opening` \| `restock` \| `sale` \| `void` \| `correction`), note, sale_id |
 | `sale` | recorded_by, subtotal, discount_total, total, status (`active` \| `void`), void_reason, reconcile_status |
 | `sale_line` | sale_id, variant_id, quantity, buy_price, list_price, discount, final_price |
@@ -94,6 +94,14 @@ Shop profile and product fields (shop profiles, slices 1 and 2):
   confirmed on the phone before a sale.
 - `product_variant.expiry_date` is `YYYY-MM-DD` or null; an impossible date is
   rejected. `batch_no` is free text (60 characters).
+- `product_variant.attributes_json` (sent by the phone as `attributes`) is the
+  variant's values for the profile's axes, at most two
+  `{"key": ..., "value": ...}` objects, e.g. `[{"key": "pack", "value": "Crate"},
+  {"key": "size", "value": "330 ml"}]`. `size` and `colour` are still sent as
+  mirrors of the first and second axis; when a payload leaves them out, the
+  server fills them from the attributes. Malformed entries are dropped, not
+  rejected. A payload without attributes keeps whatever is stored, and older
+  rows read their values from `size`/`colour`.
 - Payloads accept both camelCase (`profileId`, `saleWarning`,
   `expiryDate`, `batchNo`) and snake_case.
 

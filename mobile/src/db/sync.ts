@@ -133,6 +133,12 @@ async function upsert(
   );
 }
 
+/** The phone sends a list; a stored JSON string is passed through as it is. */
+function attributesJson(value: unknown): string | undefined {
+  if (Array.isArray(value)) return JSON.stringify(value);
+  return typeof value === 'string' ? value : undefined;
+}
+
 function mapShop(p: JsonRecord): JsonRecord {
   return {
     id: text(p.id),
@@ -176,6 +182,7 @@ function mapVariant(p: JsonRecord): JsonRecord {
     product_id: text(p.productId),
     size: text(p.size),
     colour: text(p.colour) ?? text(p.color),
+    attributes_json: attributesJson(p.attributes ?? p.attributesJson ?? p.attributes_json),
     barcode: text(p.barcode),
     buy_price: integer(p.buyPrice),
     sell_price: integer(p.sellPrice),

@@ -5,6 +5,9 @@ import glyphs from '../theme/material-symbols.json';
 import {
   PROFILES,
   PROFILE_BY_ID,
+  attributesKey,
+  attributesOf,
+  cleanAttributes,
   legacyTypeForProfile,
   profileForShop,
   variantLabel,
@@ -110,5 +113,32 @@ describe('variantLabel', () => {
     expect(variantLabel('Soap', {})).toBe('Soap');
     expect(variantLabel('', { size: 'M', colour: '' })).toBe('M');
     expect(variantLabel('', {})).toBe('');
+  });
+});
+
+describe('variant attributes', () => {
+  it('reads the stored list, falling back to size and colour', () => {
+    expect(attributesOf({ attributesJson: '[{"key":"pack","value":"Crate"}]', size: 'Crate' })).toEqual([
+      { key: 'pack', value: 'Crate' },
+    ]);
+    expect(attributesOf({ size: 'M', colour: 'Blue' })).toEqual([
+      { key: 'size', value: 'M' },
+      { key: 'colour', value: 'Blue' },
+    ]);
+    expect(attributesOf({ attributesJson: 'not json', colour: 'Red' })).toEqual([{ key: 'colour', value: 'Red' }]);
+    expect(attributesOf({ attributesJson: '{"key":"size"}', size: 'L' })).toEqual([{ key: 'size', value: 'L' }]);
+    expect(attributesOf({ attributesJson: '[{"key":"size"},{"key":"pack","value":"Can"}]' })).toEqual([
+      { key: 'pack', value: 'Can' },
+    ]);
+    expect(attributesOf({})).toEqual([]);
+  });
+
+  it('treats the same values in another case or spacing as one variant', () => {
+    expect(attributesKey([{ key: 'pack', value: ' Crate ' }])).toBe(attributesKey([{ key: 'pack', value: 'crate' }]));
+    expect(attributesKey([{ key: 'pack', value: 'Crate' }])).not.toBe(attributesKey([{ key: 'pack', value: 'Can' }]));
+    expect(attributesKey([{ key: 'size', value: '' }])).toBe('');
+    expect(cleanAttributes([{ key: 'size', value: ' M ' }, { key: 'colour', value: '  ' }])).toEqual([
+      { key: 'size', value: 'M' },
+    ]);
   });
 });

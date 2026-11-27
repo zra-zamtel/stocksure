@@ -58,7 +58,12 @@ export default function ProductsScreen() {
   const visible = products.filter((product) => {
     if (filter !== 'all' && states.get(product.id) !== filter) return false;
     if (!needle) return true;
-    return [product.name, product.category ?? '', ...product.variants.map((variant) => variant.barcode ?? '')]
+    return [
+      product.name,
+      product.category ?? '',
+      ...product.variants.map((variant) => variant.barcode ?? ''),
+      ...product.variants.flatMap((variant) => variant.attributes.map((attribute) => attribute.value)),
+    ]
       .join(' ')
       .toLowerCase()
       .includes(needle);

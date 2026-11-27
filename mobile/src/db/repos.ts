@@ -1,5 +1,8 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 import {
+  attributesKey,
+  attributesOf,
+  cleanAttributes,
   cashVariance,
   generateInStoreBarcode,
   isValidPhone,
@@ -33,6 +36,7 @@ import {
   type StockMovement,
   type StockState,
   type TaxRules,
+  type VariantAttribute,
 } from '@/core';
 
 /** SQL fragment: column falls in [?, ?). julianday() copes with both Z and +02:00 stamps. */
@@ -47,6 +51,8 @@ const inRange = (column: string) =>
 
 export interface VariantWithStock {
   id: string;
+  /** The profile's axis values; older rows are read from size/colour. */
+  attributes: VariantAttribute[];
   size?: string;
   colour?: string;
   barcode?: string;
@@ -85,6 +91,7 @@ interface ProductRow {
   variantId: string | null;
   size: string | null;
   colour: string | null;
+  attributesJson: string | null;
   barcode: string | null;
   buyPrice: number | null;
   sellPrice: number | null;
@@ -111,7 +118,7 @@ export async function listProductsWithStock(db: SQLiteDatabase): Promise<Product
             p.default_sell_price AS defaultSellPrice,
             p.discount_json AS discountJson,
             p.unit, p.sale_warning AS saleWarning,
-            v.id AS variantId, v.size, v.colour, v.barcode,
+            v.id AS variantId, v.size, v.colour, v.attributes_json AS attributesJson, v.barcode,
             v.buy_price AS buyPrice, v.sell_price AS sellPrice,
             v.low_stock_level AS lowStockLevel,
             v.expiry_date AS expiryDate, v.batch_no AS batchNo,
@@ -119,7 +126,7 @@ export async function listProductsWithStock(db: SQLiteDatabase): Promise<Product
        FROM product p
        LEFT JOIN product_variant v ON v.product_id = p.id
        LEFT JOIN variant_stock s ON s.variant_id = v.id
-      ORDER BY p.name, v.size, v.colour`
+      ORDER BY p.name, v.created_at, v.rowid`
   );
 
   const byProduct = new Map<string, ProductWithStock>();
@@ -145,6 +152,7 @@ export async function listProductsWithStock(db: SQLiteDatabase): Promise<Product
       const lowStockLevel = row.lowStockLevel ?? 0;
       product.variants.push({
         id: row.variantId,
+        attributes: attributesOf(row),
         size: row.size ?? undefined,
         colour: row.colour ?? undefined,
         barcode: row.barcode ?? undefined,
@@ -243,9 +251,11 @@ export interface LowStockRow {
 }
 
 export async function lowStockVariants(db: SQLiteDatabase): Promise<LowStockRow[]> {
-  return db.getAllAsync<LowStockRow>(
-    `SELECT v.id AS variantId, v.product_id AS productId,
-            TRIM(p.name || ' ' || COALESCE(v.size, '') || ' ' || COALESCE(v.colour, '')) AS label,
+  const rows = await db.getAllAsync<
+    Omit<LowStockRow, 'label'> & { productName: string } & LabelColumns
+  >(
+    `SELECT v.id AS variantId, v.product_id AS productId, p.name AS productName,
+            v.size, v.colour, v.attributes_json AS attributesJson,
             COALESCE(s.quantity, 0) AS quantity,
             v.low_stock_level AS lowStockLevel
        FROM product_variant v
@@ -254,6 +264,24 @@ export async function lowStockVariants(db: SQLiteDatabase): Promise<LowStockRow[
       WHERE s.quantity <= v.low_stock_level
       ORDER BY s.quantity ASC, p.name ASC`
   );
+  return rows.map((row) => ({
+    variantId: row.variantId,
+    productId: row.productId,
+    label: labelOf(row.productName, row),
+    quantity: row.quantity,
+    lowStockLevel: row.lowStockLevel,
+  }));
+}
+
+/** The columns a variant label is built from. Labels are built here, not in SQL, so they can read attributes_json. */
+interface LabelColumns {
+  size: string | null;
+  colour: string | null;
+  attributesJson: string | null;
+}
+
+function labelOf(productName: string, row: LabelColumns): string {
+  return variantLabel(productName, { attributes: attributesOf(row) });
 }
 
 export interface RecordSaleInput {
@@ -1166,8 +1194,10 @@ export async function findVariantByBarcode(
     productName: string;
     size: string | null;
     colour: string | null;
+    attributesJson: string | null;
   }>(
-    `SELECT v.id AS variantId, p.id AS productId, p.name AS productName, v.size, v.colour
+    `SELECT v.id AS variantId, p.id AS productId, p.name AS productName, v.size, v.colour,
+            v.attributes_json AS attributesJson
        FROM product_variant v
        JOIN product p ON p.id = v.product_id
       WHERE v.barcode = ? OR v.barcode = ?
@@ -1180,8 +1210,213 @@ export async function findVariantByBarcode(
     variantId: row.variantId,
     productId: row.productId,
     productName: row.productName,
-    variantLabel: variantLabel('', row) || 'Single',
+    variantLabel: labelOf('', row) || 'Single',
   };
+}
+
+export interface VariantInput {
+  /** Values for the profile's axes, in axis order. Empty values are dropped. */
+  attributes: VariantAttribute[];
+  barcode?: string;
+  buyPrice: Ngwee;
+  sellPrice: Ngwee;
+  openingQuantity: number;
+  lowStockLevel?: number;
+  /** YYYY-MM-DD. */
+  expiryDate?: string;
+  batchNo?: string;
+}
+
+export interface CreateProductWithVariantsInput {
+  name: string;
+  category?: string;
+  /** Defaults to 'piece'. */
+  unit?: string;
+  /** e.g. 'Rx only' or '18+'; confirmed before each sale. */
+  saleWarning?: string;
+  variants: VariantInput[];
+}
+
+export interface CreatedProduct {
+  productId: string;
+  variantIds: string[];
+  /** The barcode each variant ended up with, in input order. */
+  barcodes: (string | undefined)[];
+}
+
+/**
+ * Creates a product with one or more variants (Bottle / Crate / Shot, three
+ * shades, two sizes...), each with its own price, barcode, opening stock and
+ * optional expiry. Everything is checked before anything is written, so a bad
+ * row saves nothing.
+ */
+export async function createProductWithVariants(
+  db: SQLiteDatabase,
+  input: CreateProductWithVariantsInput
+): Promise<CreatedProduct> {
+  const name = input.name.trim();
+  if (!name) throw new Error('Product name is required');
+  if (input.variants.length === 0) throw new Error('Add at least one variant');
+
+  const seenCombinations = new Set<string>();
+  const seenBarcodes = new Set<string>();
+  const variants = input.variants.map((variant, index) => {
+    const row = input.variants.length > 1 ? ` (row ${index + 1})` : '';
+    if (variant.buyPrice < 0 || variant.sellPrice < 0) throw new Error(`Prices cannot be negative${row}`);
+    if (!Number.isInteger(variant.openingQuantity) || variant.openingQuantity < 0) {
+      throw new Error(`Opening quantity must be a whole number, zero or more${row}`);
+    }
+    const attributes = cleanAttributes(variant.attributes);
+    const combination = attributesKey(attributes);
+    if (seenCombinations.has(combination)) {
+      throw new Error(
+        combination
+          ? `Two variants are the same: ${attributes.map((attribute) => attribute.value).join(' · ')}`
+          : 'Each variant needs its own size or type'
+      );
+    }
+    seenCombinations.add(combination);
+
+    const barcode = variant.barcode?.trim() ? normaliseBarcode(variant.barcode) : undefined;
+    if (barcode) {
+      if (seenBarcodes.has(barcode)) throw new Error(`Two variants have the same barcode: ${barcode}`);
+      seenBarcodes.add(barcode);
+    }
+    const expiryDate = variant.expiryDate?.trim() || null;
+    if (expiryDate && !isValidIsoDate(expiryDate)) {
+      throw new Error(`Expiry date must be a real date, YYYY-MM-DD${row}`);
+    }
+    return {
+      attributes,
+      // Legacy mirrors follow axis position, so an empty first axis keeps the
+      // second value in colour rather than shifting it into size.
+      size: variant.attributes[0]?.value.trim() || null,
+      colour: variant.attributes[1]?.value.trim() || null,
+      barcode,
+      buyPrice: variant.buyPrice,
+      sellPrice: variant.sellPrice,
+      openingQuantity: variant.openingQuantity,
+      lowStockLevel: variant.lowStockLevel ?? 3,
+      expiryDate,
+      batchNo: variant.batchNo?.trim() || null,
+    };
+  });
+
+  for (const code of seenBarcodes) {
+    const clash = await db.getFirstAsync<{ id: string }>('SELECT id FROM product_variant WHERE barcode = ?', code);
+    if (clash) throw new Error(`That barcode already belongs to another product: ${code}`);
+  }
+  // A shop that uses barcodes gets one per variant that was saved without one.
+  const barcodes: (string | undefined)[] = [];
+  for (const variant of variants) {
+    const code = variant.barcode ?? (await autoBarcode(db, seenBarcodes));
+    if (code) seenBarcodes.add(code);
+    barcodes.push(code);
+  }
+
+  const productId = newId('prod');
+  const variantIds = variants.map(() => newId('var'));
+  const stamp = nowIso();
+  const category = input.category?.trim() || null;
+  const unit = input.unit?.trim() || DEFAULT_UNIT;
+  const saleWarning = input.saleWarning?.trim() || null;
+  // The product's default prices are the first variant's, as before.
+  const [first] = variants;
+
+  await db.withTransactionAsync(async () => {
+    await db.runAsync(
+      `INSERT INTO product (id, name, category, default_buy_price, default_sell_price, unit, sale_warning,
+         created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      productId,
+      name,
+      category,
+      first.buyPrice,
+      first.sellPrice,
+      unit,
+      saleWarning,
+      stamp,
+      stamp
+    );
+    await enqueueSync(db, 'product', productId, 'create', {
+      id: productId,
+      name,
+      category,
+      defaultBuyPrice: first.buyPrice,
+      defaultSellPrice: first.sellPrice,
+      unit,
+      saleWarning,
+      createdAt: stamp,
+      updatedAt: stamp,
+    });
+
+    for (const [index, variant] of variants.entries()) {
+      const variantId = variantIds[index];
+      const barcode = barcodes[index] ?? null;
+      // Legacy mirrors: old payloads, old records, USSD and the backend still read these.
+      const { size, colour } = variant;
+      const attributesJson = variant.attributes.length > 0 ? JSON.stringify(variant.attributes) : null;
+      await db.runAsync(
+        `INSERT INTO product_variant (id, product_id, size, colour, attributes_json, barcode, buy_price, sell_price,
+           low_stock_level, expiry_date, batch_no, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        variantId,
+        productId,
+        size,
+        colour,
+        attributesJson,
+        barcode,
+        variant.buyPrice,
+        variant.sellPrice,
+        variant.lowStockLevel,
+        variant.expiryDate,
+        variant.batchNo,
+        stamp,
+        stamp
+      );
+      await enqueueSync(db, 'product_variant', variantId, 'create', {
+        id: variantId,
+        productId,
+        size,
+        colour,
+        attributes: variant.attributes,
+        barcode,
+        buyPrice: variant.buyPrice,
+        sellPrice: variant.sellPrice,
+        lowStockLevel: variant.lowStockLevel,
+        expiryDate: variant.expiryDate,
+        batchNo: variant.batchNo,
+        createdAt: stamp,
+        updatedAt: stamp,
+      });
+
+      // Opening stock syncs too (after its variant), or a restored shop would
+      // show every starting quantity as zero.
+      if (variant.openingQuantity > 0) {
+        const movementId = newId('mv');
+        await db.runAsync(
+          `INSERT INTO stock_movement (id, variant_id, quantity_change, reason, created_at, updated_at)
+           VALUES (?, ?, ?, 'opening', ?, ?)`,
+          movementId,
+          variantId,
+          variant.openingQuantity,
+          stamp,
+          stamp
+        );
+        await enqueueSync(db, 'stock_movement', movementId, 'create', {
+          id: movementId,
+          variantId,
+          quantityChange: variant.openingQuantity,
+          reason: 'opening',
+          note: null,
+          createdAt: stamp,
+          updatedAt: stamp,
+        });
+      }
+    }
+  });
+
+  return { productId, variantIds, barcodes };
 }
 
 export interface CreateProductInput {
@@ -1192,9 +1427,9 @@ export interface CreateProductInput {
   sellPrice: Ngwee;
   openingQuantity: number;
   lowStockLevel?: number;
-  /** First profile axis value, stored in the legacy size slot. */
+  /** First axis value, stored under the 'size' key. */
   size?: string;
-  /** Second profile axis value, stored in the legacy colour slot. */
+  /** Second axis value, stored under the 'colour' key. */
   colour?: string;
   /** Defaults to 'piece'. */
   unit?: string;
@@ -1205,130 +1440,33 @@ export interface CreateProductInput {
   batchNo?: string;
 }
 
-/**
- * Creates a product with a single variant and its opening stock. Sizes and
- * colours as extra variants land with #30; this is the demo-path shape.
- */
+/** One product with a single variant: the onboarding and test shape. */
 export async function createProduct(
   db: SQLiteDatabase,
   input: CreateProductInput
 ): Promise<{ productId: string; variantId: string; barcode?: string }> {
-  const name = input.name.trim();
-  if (!name) throw new Error('Product name is required');
-  if (input.buyPrice < 0 || input.sellPrice < 0) throw new Error('Prices cannot be negative');
-  if (!Number.isInteger(input.openingQuantity) || input.openingQuantity < 0) {
-    throw new Error('Opening quantity must be a whole number, zero or more');
-  }
-
-  const barcode = input.barcode?.trim() ? normaliseBarcode(input.barcode) : await autoBarcode(db);
-  if (barcode) {
-    const clash = await db.getFirstAsync<{ id: string }>(
-      'SELECT id FROM product_variant WHERE barcode = ?',
-      barcode
-    );
-    if (clash) throw new Error('That barcode already belongs to another product');
-  }
-
-  const productId = newId('prod');
-  const variantId = newId('var');
-  const stamp = nowIso();
-  const lowStockLevel = input.lowStockLevel ?? 3;
-  const size = input.size?.trim() || null;
-  const colour = input.colour?.trim() || null;
-  const unit = input.unit?.trim() || DEFAULT_UNIT;
-  const saleWarning = input.saleWarning?.trim() || null;
-  const expiryDate = input.expiryDate?.trim() || null;
-  const batchNo = input.batchNo?.trim() || null;
-  if (expiryDate && !isValidIsoDate(expiryDate)) throw new Error('Expiry date must be a real date, YYYY-MM-DD');
-
-  await db.withTransactionAsync(async () => {
-    await db.runAsync(
-      `INSERT INTO product (id, name, category, default_buy_price, default_sell_price, unit, sale_warning,
-         created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      productId,
-      name,
-      input.category?.trim() || null,
-      input.buyPrice,
-      input.sellPrice,
-      unit,
-      saleWarning,
-      stamp,
-      stamp
-    );
-
-    await db.runAsync(
-      `INSERT INTO product_variant (id, product_id, size, colour, barcode, buy_price, sell_price, low_stock_level,
-         expiry_date, batch_no, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      variantId,
-      productId,
-      size,
-      colour,
-      barcode ?? null,
-      input.buyPrice,
-      input.sellPrice,
-      lowStockLevel,
-      expiryDate,
-      batchNo,
-      stamp,
-      stamp
-    );
-
-    const openingMovementId = newId('mv');
-    if (input.openingQuantity > 0) {
-      await db.runAsync(
-        `INSERT INTO stock_movement (id, variant_id, quantity_change, reason, created_at, updated_at)
-         VALUES (?, ?, ?, 'opening', ?, ?)`,
-        openingMovementId,
-        variantId,
-        input.openingQuantity,
-        stamp,
-        stamp
-      );
-    }
-
-    await enqueueSync(db, 'product', productId, 'create', {
-      id: productId,
-      name,
-      category: input.category?.trim() || null,
-      defaultBuyPrice: input.buyPrice,
-      defaultSellPrice: input.sellPrice,
-      unit,
-      saleWarning,
-      createdAt: stamp,
-      updatedAt: stamp,
-    });
-    await enqueueSync(db, 'product_variant', variantId, 'create', {
-      id: variantId,
-      productId,
-      size,
-      colour,
-      barcode: barcode ?? null,
-      buyPrice: input.buyPrice,
-      sellPrice: input.sellPrice,
-      lowStockLevel,
-      expiryDate,
-      batchNo,
-      createdAt: stamp,
-      updatedAt: stamp,
-    });
-    // Opening stock syncs too (after its variant), or a restored shop would show
-    // every starting quantity as zero.
-    if (input.openingQuantity > 0) {
-      await enqueueSync(db, 'stock_movement', openingMovementId, 'create', {
-        id: openingMovementId,
-        variantId,
-        quantityChange: input.openingQuantity,
-        reason: 'opening',
-        note: null,
-        createdAt: stamp,
-        updatedAt: stamp,
-      });
-    }
+  const result = await createProductWithVariants(db, {
+    name: input.name,
+    category: input.category,
+    unit: input.unit,
+    saleWarning: input.saleWarning,
+    variants: [
+      {
+        attributes: [
+          { key: 'size', value: input.size ?? '' },
+          { key: 'colour', value: input.colour ?? '' },
+        ],
+        barcode: input.barcode,
+        buyPrice: input.buyPrice,
+        sellPrice: input.sellPrice,
+        openingQuantity: input.openingQuantity,
+        lowStockLevel: input.lowStockLevel,
+        expiryDate: input.expiryDate,
+        batchNo: input.batchNo,
+      },
+    ],
   });
-
-  return { productId, variantId, barcode };
+  return { productId: result.productId, variantId: result.variantIds[0], barcode: result.barcodes[0] };
 }
 
 /**
@@ -1337,12 +1475,13 @@ export async function createProduct(
  * Only shops with barcodes switched on get one; for the others the field stays
  * empty on purpose.
  */
-async function autoBarcode(db: SQLiteDatabase): Promise<string | undefined> {
+async function autoBarcode(db: SQLiteDatabase, taken: Set<string> = new Set()): Promise<string | undefined> {
   const shop = await getShop(db);
   if (!shop?.usesBarcodes) return undefined;
 
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const candidate = generateInStoreBarcode();
+    if (taken.has(candidate)) continue;
     const clash = await db.getFirstAsync<{ id: string }>(
       'SELECT id FROM product_variant WHERE barcode = ?',
       candidate
@@ -1581,9 +1720,10 @@ export async function getSaleDetail(db: SQLiteDatabase, saleId: string): Promise
   );
   if (!sale) return null;
 
-  const lines = await db.getAllAsync<SaleDetail['lines'][number]>(
-    `SELECT l.id,
-            TRIM(p.name || ' ' || COALESCE(v.size, '') || ' ' || COALESCE(v.colour, '')) AS label,
+  const lineRows = await db.getAllAsync<
+    Omit<SaleDetail['lines'][number], 'label'> & { productName: string } & LabelColumns
+  >(
+    `SELECT l.id, p.name AS productName, v.size, v.colour, v.attributes_json AS attributesJson,
             l.quantity, l.buy_price AS buyPrice, l.list_price AS listPrice,
             l.discount, l.final_price AS finalPrice
        FROM sale_line l
@@ -1593,6 +1733,10 @@ export async function getSaleDetail(db: SQLiteDatabase, saleId: string): Promise
       ORDER BY l.id`,
     saleId
   );
+  const lines: SaleDetail['lines'] = lineRows.map(({ productName, size, colour, attributesJson, ...line }) => ({
+    ...line,
+    label: labelOf(productName, { size, colour, attributesJson }),
+  }));
 
   const payments = await db.getAllAsync<SaleDetail['payments'][number]>(
     `SELECT id, method, provider, amount, mobile_money_reference AS reference

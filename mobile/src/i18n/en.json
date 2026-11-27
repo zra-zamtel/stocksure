@@ -979,5 +979,13 @@
   "products.batch": "Batch",
   "products.saleWarning": "Sale warning",
   "products.expired": "Expired",
+  "product.new.variants": "Variants",
+  "product.new.variantN": "Variant {n}",
+  "product.new.addVariant": "Add another {axis}",
+  "product.new.removeVariant": "Remove",
+  "product.new.error.noAxisValue": "Enter a {axis} so each variant can be told apart.",
+  "product.new.error.duplicateVariant": "Variants {a} and {b} are the same. Change one or remove it.",
+  "product.new.error.duplicateBarcode": "Variants {a} and {b} have the same barcode. Each needs its own.",
+  "products.restockExpiryHint": "The new stock's expiry date. Leave empty to keep the current one.",
   "settings.profile": "Shop profile"
 }

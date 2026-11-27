@@ -315,4 +315,12 @@ export const migrations: string[] = [
   ALTER TABLE product_variant ADD COLUMN expiry_date TEXT;
   ALTER TABLE product_variant ADD COLUMN batch_no TEXT;
   `,
+
+  // v12 - a variant's values for the shop profile's axes, as a JSON list of
+  // {key, value} (e.g. pack = Crate, size = 330 ml). size and colour stay as
+  // mirrors of the first two values for old payloads, USSD and the backend.
+  // NULL on older rows: they read their attributes from size/colour instead.
+  `
+  ALTER TABLE product_variant ADD COLUMN attributes_json TEXT;
+  `,
 ];

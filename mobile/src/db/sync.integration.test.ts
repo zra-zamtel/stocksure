@@ -288,6 +288,52 @@ describe('IT-SYNC pull and apply', () => {
     ).toEqual({ expiry_date: '2028-01-31', batch_no: 'B12', buy_price: 1000 });
   });
 
+  it('stores a pulled variant\'s attributes, and keeps them when an update leaves them out', async () => {
+    await applyPulledChange(db, {
+      entity: 'shop',
+      entityId: 'shop_1',
+      operation: 'create',
+      payload: { id: 'shop_1', name: 'Bar', type: 'other', profileId: 'bar', town: 'Kabwe', providers: [], createdAt: NOW, updatedAt: NOW },
+      cursor: '1',
+      clientCreatedAt: NOW,
+    });
+    await applyPulledChange(db, {
+      entity: 'product',
+      entityId: 'prod_1',
+      operation: 'create',
+      payload: { id: 'prod_1', name: 'Castle Lager', defaultBuyPrice: 1, defaultSellPrice: 2, createdAt: NOW, updatedAt: NOW },
+      cursor: '2',
+      clientCreatedAt: NOW,
+    });
+    const attributes = [
+      { key: 'pack', value: 'Crate' },
+      { key: 'size', value: '330 ml' },
+    ];
+    await applyPulledChange(db, {
+      entity: 'product_variant',
+      entityId: 'var_1',
+      operation: 'create',
+      payload: { id: 'var_1', productId: 'prod_1', size: 'Crate', colour: '330 ml', attributes, buyPrice: 1, sellPrice: 2, createdAt: NOW, updatedAt: NOW },
+      cursor: '3',
+      clientCreatedAt: NOW,
+    });
+    await applyPulledChange(db, {
+      entity: 'product_variant',
+      entityId: 'var_1',
+      operation: 'update',
+      payload: { id: 'var_1', buyPrice: 3, updatedAt: NOW },
+      cursor: '4',
+      clientCreatedAt: NOW,
+    });
+
+    const row = await db.getFirstAsync<{ attributes_json: string; buy_price: number }>(
+      'SELECT attributes_json, buy_price FROM product_variant WHERE id = ?',
+      'var_1'
+    );
+    expect(JSON.parse(row?.attributes_json ?? 'null')).toEqual(attributes);
+    expect(row?.buy_price).toBe(3);
+  });
+
   it('applies a sale with its lines, payment and stock movement', async () => {
     const shop = {
       id: 'shop_1',

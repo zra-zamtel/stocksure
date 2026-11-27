@@ -663,6 +663,100 @@ class SyncTestCase(SyncBase):
         self.assertIn("expiryDate", response.json()["rejected"][0]["reason"])
         self.assertIsNone(ProductVariant.objects.get(id="var_1").expiry_date)
 
+    # ---- variant attributes ----
+
+    def test_variant_attributes_round_trip_with_their_mirrors(self):
+        attributes = [{"key": "pack", "value": "Crate"}, {"key": "size", "value": "330 ml"}]
+        response = self.push(
+            [
+                self.change("q_shop", "shop", "shop_1", shop_payload(type="other", profileId="bar")),
+                self.change("q_product", "product", "prod_1", product_payload(name="Castle Lager")),
+                self.change(
+                    "q_variant",
+                    "product_variant",
+                    "var_1",
+                    variant_payload(size="Crate", colour="330 ml", attributes=attributes),
+                ),
+            ]
+        )
+        self.assertEqual(response.json()["rejected"], [])
+        variant = ProductVariant.objects.get(id="var_1")
+        self.assertEqual(variant.attributes_json, attributes)
+        self.assertEqual(str(variant), "Castle Lager Crate 330 ml")
+
+        pulled = [
+            change["payload"]
+            for change in self.client.get("/api/v1/sync/pull?cursor=0", **auth(self.owner)).json()["changes"]
+            if change["entity"] == "product_variant"
+        ]
+        self.assertEqual(pulled[0]["attributes"], attributes)
+
+    def test_attributes_fill_size_and_colour_when_they_are_missing(self):
+        payload = variant_payload(attributes=[{"key": "shade", "value": "Medium"}, {"key": "pack", "value": "50 ml"}])
+        del payload["size"]
+        del payload["colour"]
+        self.push(
+            [
+                self.change("q_shop", "shop", "shop_1", shop_payload()),
+                self.change("q_product", "product", "prod_1", product_payload()),
+                self.change("q_variant", "product_variant", "var_1", payload),
+            ]
+        )
+        variant = ProductVariant.objects.get(id="var_1")
+        self.assertEqual((variant.size, variant.colour), ("Medium", "50 ml"))
+
+    def test_malformed_attributes_are_dropped_not_fatal(self):
+        messy = [
+            {"key": "pack", "value": " Bottle "},
+            "Crate",
+            {"key": "size"},
+            {"key": "", "value": "x"},
+            {"key": "colour", "value": "Green"},
+            {"key": "extra", "value": "ignored, only two are kept"},
+        ]
+        response = self.push(
+            [
+                self.change("q_shop", "shop", "shop_1", shop_payload()),
+                self.change("q_product", "product", "prod_1", product_payload()),
+                self.change("q_variant", "product_variant", "var_1", variant_payload(attributes=messy)),
+            ]
+        )
+        self.assertEqual(response.json()["rejected"], [])
+        self.assertEqual(
+            ProductVariant.objects.get(id="var_1").attributes_json,
+            [{"key": "pack", "value": "Bottle"}, {"key": "colour", "value": "Green"}],
+        )
+
+    def test_older_variant_payloads_still_apply_and_keep_attributes_on_update(self):
+        self.push_schema()  # no attributes at all
+        variant = ProductVariant.objects.get(id="var_1")
+        self.assertEqual(variant.attributes_json, [])
+        self.assertEqual(str(variant), "Sneaker 41 Black")
+
+        ProductVariant.objects.filter(id="var_1").update(attributes_json=[{"key": "size", "value": "41"}])
+        self.push(
+            [self.change("q_up", "product_variant", "var_1", {"id": "var_1", "sellPrice": 46000, "updatedAt": NOW}, operation="update")]
+        )
+        variant = ProductVariant.objects.get(id="var_1")
+        self.assertEqual((variant.sell_price, variant.attributes_json), (46000, [{"key": "size", "value": "41"}]))
+
+    def test_ussd_stock_line_uses_the_attributes(self):
+        from apps.ussd.services import handle
+
+        self.push(
+            [
+                self.change("q_shop", "shop", "shop_1", shop_payload()),
+                self.change("q_product", "product", "prod_1", product_payload(name="Lager")),
+                self.change(
+                    "q_variant",
+                    "product_variant",
+                    "var_1",
+                    variant_payload(size="", colour="", attributes=[{"key": "pack", "value": "Crate"}]),
+                ),
+            ]
+        )
+        self.assertIn("Lager Crate: 0", handle("0971234567", "2*1"))
+
     def test_ussd_check_stock_by_barcode(self):
         from apps.ussd.services import handle
 

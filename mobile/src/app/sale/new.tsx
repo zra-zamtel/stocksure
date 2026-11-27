@@ -143,7 +143,13 @@ export default function NewSaleScreen() {
     ? products.filter(
         (product) =>
           product.variants.some((variant) => (quantityByVariant[variant.id] ?? 0) > 0) ||
-          [product.name, product.category ?? '', ...product.variants.map((variant) => variant.barcode ?? '')]
+          [
+            product.name,
+            product.category ?? '',
+            ...product.variants.map((variant) => variant.barcode ?? ''),
+            // Variant values too, so "crate" or "500 mg" finds the right line.
+            ...product.variants.flatMap((variant) => variant.attributes.map((attribute) => attribute.value)),
+          ]
             .join(' ')
             .toLowerCase()
             .includes(needle)

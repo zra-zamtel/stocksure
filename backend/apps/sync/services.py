@@ -1,3 +1,4 @@
+import json
 import logging
 from datetime import date, datetime
 
@@ -428,6 +429,33 @@ def upsert_product(payload, shop: Shop, *, partial: bool = False) -> Product:
     return product
 
 
+MAX_ATTRIBUTES = 2
+
+
+def _attributes(payload) -> list[dict] | None:
+    """A variant's attribute list, or None when the payload has none. Malformed
+    entries are dropped rather than failing the batch, so a newer phone that
+    sends something unexpected still syncs its stock and sales."""
+    raw = _get(payload, "attributes", "attributesJson", "attributes_json")
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except ValueError:
+            return []
+    if not isinstance(raw, list):
+        return []
+    cleaned = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        key, value = item.get("key"), item.get("value")
+        if isinstance(key, str) and isinstance(value, str) and key.strip() and value.strip():
+            cleaned.append({"key": key.strip()[:30], "value": value.strip()[:40]})
+    return cleaned[:MAX_ATTRIBUTES]
+
+
 def upsert_variant(payload, shop: Shop, *, partial: bool = False) -> ProductVariant:
     ids = _record(payload)
     variant = ProductVariant.objects.filter(id=ids["id"]).first()
@@ -471,6 +499,15 @@ def upsert_variant(payload, shop: Shop, *, partial: bool = False) -> ProductVari
             raise SyncError("expiryDate must be YYYY-MM-DD.")
     if sent("batchNo", "batch_no"):
         variant.batch_no = _text(payload, "batchNo", "batch_no", default="", max_length=60)
+    attributes = _attributes(payload)
+    if attributes is not None:
+        variant.attributes_json = attributes
+        # Older readers (USSD, admin, reports) use size and colour: fill them
+        # from the attributes when the payload left them out.
+        if "size" not in payload and attributes:
+            variant.size = attributes[0]["value"][:20]
+        if not any(key in payload for key in ("colour", "color")) and len(attributes) > 1:
+            variant.colour = attributes[1]["value"][:40]
     variant.updated_at = ids["updated_at"]
     variant.save()
     return variant

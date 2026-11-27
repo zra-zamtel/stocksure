@@ -77,10 +77,8 @@ def _with_stock(shop):
 
 
 def _stock_label(variant, width=22):
-    """One USSD line: product, size and colour, trimmed to fit the screen."""
-    text = " ".join(
-        part for part in (variant.product.name, variant.size, variant.colour) if part
-    )
+    """One USSD line: product and its variant values, trimmed to fit the screen."""
+    text = " ".join([variant.product.name, *variant.label_values])
     return text if len(text) <= width else text[: width - 3].rstrip() + "..."
 
 

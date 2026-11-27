@@ -67,6 +67,9 @@ class ProductVariant(PhoneRecord):
     low_stock_level = models.PositiveIntegerField(default=3)
     expiry_date = models.DateField(null=True, blank=True)
     batch_no = models.CharField(max_length=60, blank=True)
+    # The shop profile's axis values, e.g. [{"key": "pack", "value": "Crate"}].
+    # size and colour stay as mirrors of the first two values.
+    attributes_json = models.JSONField(default=list, blank=True)
 
     class Meta:
         constraints = [
@@ -79,8 +82,14 @@ class ProductVariant(PhoneRecord):
     def quantity(self) -> int:
         return self.movements.aggregate(total=models.Sum("quantity_change"))["total"] or 0
 
+    @property
+    def label_values(self) -> list[str]:
+        """The values that tell this variant apart: its attributes, else size and colour."""
+        values = [item["value"] for item in self.attributes_json or [] if item.get("value")]
+        return values or [part for part in (self.size, self.colour) if part]
+
     def __str__(self):
-        return f"{self.product.name} {self.size}".strip()
+        return " ".join([self.product.name, *self.label_values]).strip()
 
 
 class StockMovement(PhoneRecord):

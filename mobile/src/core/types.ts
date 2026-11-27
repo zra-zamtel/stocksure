@@ -74,7 +74,11 @@ export interface ProductDiscount {
 
 export interface ProductVariant extends BaseRecord {
   productId: Id;
+  /** The profile's axis values, e.g. [{ key: 'pack', value: 'Crate' }]. Optional so old fixtures compile; repos always fill it. */
+  attributes?: VariantAttribute[];
+  /** Legacy mirror of attributes[0]; old payloads, USSD and the backend read it. */
   size?: string;
+  /** Legacy mirror of attributes[1]. */
   colour?: string;
   barcode?: string;
   buyPrice: Ngwee;
