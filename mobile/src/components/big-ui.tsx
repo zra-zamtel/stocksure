@@ -5,8 +5,18 @@
 // 0.97 and back, nothing scales from zero, sheets rise from the bottom and leave
 // the same way, and with reduce motion on only opacity changes.
 import type { AndroidSymbol } from 'expo-symbols';
-import { useEffect, useState, type ReactNode } from 'react';
-import { Modal, Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  Modal,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+  type AccessibilityActionEvent,
+  type AccessibilityActionInfo,
+  type StyleProp,
+  type ViewStyle,
+} from 'react-native';
 import Animated, {
   Easing,
   runOnJS,
@@ -37,7 +47,12 @@ export function PressScale({
   accessibilityLabel,
   accessibilityHint,
   accessibilityRole = 'button',
+  accessibilityActions,
+  onAccessibilityAction,
 }: {
+  /** Extra TalkBack actions, for a control drawn inside the tile (e.g. "remove one"). */
+  accessibilityActions?: readonly AccessibilityActionInfo[];
+  onAccessibilityAction?: (event: AccessibilityActionEvent) => void;
   onPress?: () => void;
   disabled?: boolean;
   style?: StyleProp<ViewStyle>;
@@ -60,6 +75,8 @@ export function PressScale({
       accessibilityLabel={accessibilityLabel}
       accessibilityHint={accessibilityHint}
       accessibilityState={{ disabled: !!disabled }}
+      accessibilityActions={accessibilityActions}
+      onAccessibilityAction={onAccessibilityAction}
       disabled={disabled}
       onPress={onPress}
       onPressIn={() => {
@@ -151,9 +168,12 @@ export function BottomSheet({
   title,
   closeLabel,
   children,
+  onClosed,
 }: {
   visible: boolean;
   onClose: () => void;
+  /** Called once the sheet has fully left, so another Modal can open without overlapping it. */
+  onClosed?: () => void;
   title: string;
   closeLabel: string;
   children: ReactNode;
@@ -168,6 +188,16 @@ export function BottomSheet({
   // first frame never shows it in a guessed position.
   const [height, setHeight] = useState(0);
   const progress = useSharedValue(0);
+  // The latest callback, read when the exit animation ends rather than when it starts.
+  const onClosedRef = useRef(onClosed);
+  useEffect(() => {
+    onClosedRef.current = onClosed;
+  }, [onClosed]);
+
+  function finishClose() {
+    setMounted(false);
+    onClosedRef.current?.();
+  }
 
   useEffect(() => {
     if (visible) {
@@ -177,7 +207,7 @@ export function BottomSheet({
     } else if (mounted) {
       // Leaving is quicker than arriving.
       progress.value = withTiming(0, { duration: 200, easing: EASE_OUT }, (finished) => {
-        if (finished) runOnJS(setMounted)(false);
+        if (finished) runOnJS(finishClose)();
       });
     }
     // `mounted` is read, not a trigger: only `visible` drives the animation.

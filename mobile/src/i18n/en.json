@@ -1015,5 +1015,25 @@
   "home.backup.okLong": "Your sales and stock are saved online.",
   "home.alert.seeProduct": "See product",
   "home.alert.seeStock": "See stock",
-  "home.today.profitShort": "Profit"
+  "home.today.profitShort": "Profit",
+
+  "sale.ask": "Tap what the customer buys",
+  "sale.pick.removeOne": "Remove one",
+  "sale.pick.inBasket": "{count} in basket",
+  "sale.pick.addHint": "Adds one to the sale",
+  "sale.pay": "Pay",
+  "sale.pay.title": "How did they pay?",
+  "sale.pay.cash": "Cash",
+  "sale.pay.mobile": "Mobile money",
+  "sale.pay.more": "Cash and mobile money",
+  "sale.pay.continue": "Continue",
+  "sale.done.title": "Sale saved",
+  "sale.done.cash": "Paid with cash",
+  "sale.done.mobile": "Paid by mobile money",
+  "sale.done.split": "Paid with cash and mobile money",
+  "sale.done.newSale": "New sale",
+  "sale.done.finish": "Done",
+  "sale.done.receipt": "See receipt",
+  "sale.noAccess": "Only someone who can record sales can use this screen.",
+  "sale.pay.alreadyPaid": "Already paid: {amount}. Payment code {code}."
 }
