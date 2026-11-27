@@ -14,7 +14,7 @@ import { useI18n } from '@/i18n';
 import { ApiError, feeQuoteOnServer, type PaymentRequest, paymentRequestStatusOnServer, requestToPayOnServer } from '@/lib/api';
 import { formatKwacha } from '@/lib/format';
 import { colors, radii, spacing, themed, typeScale } from '@/theme/tokens';
-import { ConnectDevice } from './connect-device';
+import { ConnectNotice } from './connect-device';
 import { DetectedNetwork, NetworkOption, WALLET_NAMES } from './network-mark';
 import { Button, Field, FormError, Icon, TextLink } from './ui';
 
@@ -263,14 +263,9 @@ export function RequestToPayDialog({
                 </View>
               </View>
               {error ? <FormError message={error} /> : null}
+              {/* A small warning, not the whole connect form: tap it, connect, then Send again. */}
               {needsConnect ? (
-                <ConnectDevice
-                  bare
-                  onConnected={(token) => {
-                    setNeedsConnect(false);
-                    void send(token);
-                  }}
-                />
+                <ConnectNotice title={t('connect.forRequest')} onConnected={() => setNeedsConnect(false)} />
               ) : null}
               <Button
                 label={t('rtp.send')}

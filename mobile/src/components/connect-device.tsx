@@ -235,6 +235,46 @@ export function ConnectSheet({ visible, onClose }: { visible: boolean; onClose: 
 }
 
 /**
+ * A small warning row, like the backup one, for a screen that needs the phone
+ * connected (asking for mobile money, Smart Invoice, a trading record). It
+ * replaces the full connect form inline: one line, and the steps open in a
+ * sheet when tapped. Settings keeps the full form.
+ */
+export function ConnectNotice({ title, onConnected }: { title: string; onConnected?: () => void }) {
+  const { t } = useI18n();
+  const { deviceToken } = useAuth();
+  const [open, setOpen] = useState(false);
+  // Stay mounted while the sheet is open: connecting sets the key mid-sheet,
+  // and the sheet must still close properly and report back.
+  if (deviceToken && !open) return null;
+  return (
+    <>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`${title}. ${t('connect.tapToConnect')}`}
+        onPress={() => setOpen(true)}
+        android_ripple={{ color: colors.ripple }}
+        style={({ pressed }) => [styles.reminder, pressed && styles.reminderPressed]}
+      >
+        <Icon name="cloud_off" size={iconSize.md} color={colors.warning} />
+        <View style={styles.flex}>
+          <Text style={styles.reminderTitle}>{title}</Text>
+          <Text style={styles.reminderText}>{t('connect.tapToConnect')}</Text>
+        </View>
+        <Icon name="chevron_right" size={iconSize.md} color={colors.warning} />
+      </Pressable>
+      <ConnectSheet
+        visible={open}
+        onClose={() => {
+          setOpen(false);
+          onConnected?.();
+        }}
+      />
+    </>
+  );
+}
+
+/**
  * One slim line on Home for an owner whose phone is not connected, because
  * without the key nothing is backed up. Tapping it opens the sheet; the cross
  * hides it until the app is opened again.

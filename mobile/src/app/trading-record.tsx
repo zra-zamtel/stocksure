@@ -6,7 +6,7 @@ import { useCallback, useState } from 'react';
 import { Alert, Share, StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '@/auth/session';
 import { Notice } from '@/components/auth';
-import { ConnectDevice } from '@/components/connect-device';
+import { ConnectNotice } from '@/components/connect-device';
 import { EvidenceBreakdown } from '@/components/evidence-breakdown';
 import { Button, Card, Choice, IconButton, Pill, Screen, SectionTitle } from '@/components/ui';
 import { useShop } from '@/db/hooks';
@@ -160,7 +160,7 @@ export default function TradingRecordScreen() {
       subtitle={t('tr.subtitle')}
       action={<IconButton name="close" label={t('common.back')} onPress={() => router.back()} />}
     >
-      {deviceToken ? null : <ConnectDevice />}
+      {deviceToken ? null : <ConnectNotice title={t('connect.forRecord')} />}
       {error ? <Notice tone="error">{error}</Notice> : null}
       {message ? <Notice tone="success">{message}</Notice> : null}
 

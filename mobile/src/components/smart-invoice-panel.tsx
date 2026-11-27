@@ -4,7 +4,7 @@ import { useCallback, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '@/auth/session';
 import { Notice } from '@/components/auth';
-import { ConnectDevice } from '@/components/connect-device';
+import { ConnectNotice } from '@/components/connect-device';
 import { Button, Card, Field, Icon, Pill, Row, SectionTitle, TextLink } from '@/components/ui';
 import { useShop } from '@/db/hooks';
 import { saveSmartInvoiceLink } from '@/db/repos';
@@ -155,7 +155,7 @@ export function SmartInvoicePanel({ compact = false }: { compact?: boolean }) {
 
       {/* Smart Invoice talks to the server, so an unconnected phone reconnects
           right here; the status reloads by itself once the key is saved. */}
-      {deviceToken ? null : <ConnectDevice />}
+      {deviceToken ? null : <ConnectNotice title={t('connect.forSmartInvoice')} />}
 
       {connected ? (
         <>
