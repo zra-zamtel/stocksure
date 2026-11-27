@@ -29,8 +29,6 @@ export interface ShopProfile {
   legacyType: ShopType;
   /** Starting answer to "Does your shop use barcodes?". The owner can change it. */
   barcodesDefault: boolean;
-  /** Salaula: every piece is one-off, so quantity is always 1. */
-  uniqueItems: boolean;
   axes: ProfileAxis[];
   /** Suggestions, not a constraint. The owner can still type a category. */
   categories: string[];
@@ -42,6 +40,9 @@ export interface ShopProfile {
 
 const CLOTHING_SIZES = ['S', 'M', 'L', 'XL', 'XXL', '36', '38', '40', '42', '44'];
 const COLOURS = ['Black', 'White', 'Blue', 'Brown', 'Beige', 'Grey'];
+// A salaula bale is opened and sorted: the better pieces go on top at a higher
+// price, the rest go down at a lower one. Each grade is its own variant.
+const SALAULA_GRADES = ['Top', 'Down'];
 const BEAUTY_VARIANTS = ['Fair', 'Medium', 'Deep', 'SPF 30', 'SPF 50', '250 mg', '500 mg'];
 const BEAUTY_PACKS = ['50 ml', '100 ml', '200 ml', 'Strip of 10', 'Box of 100'];
 const BAR_PACKS = ['Bottle', 'Crate', 'Can', 'Shot'];
@@ -59,7 +60,6 @@ export const PROFILES: ShopProfile[] = [
     captionKey: 'profile.fashion.caption',
     legacyType: 'clothes',
     barcodesDefault: false,
-    uniqueItems: false,
     axes: [
       { key: 'size', labelKey: 'field.size', placeholder: 'M', quickPicks: CLOTHING_SIZES, maxLength: 20 },
       { key: 'colour', labelKey: 'field.colour', placeholder: 'Black', quickPicks: COLOURS, maxLength: 40 },
@@ -77,8 +77,7 @@ export const PROFILES: ShopProfile[] = [
     captionKey: 'profile.salaula.caption',
     legacyType: 'clothes',
     barcodesDefault: false,
-    uniqueItems: true,
-    axes: [],
+    axes: [{ key: 'grade', labelKey: 'field.grade', placeholder: 'Top', quickPicks: SALAULA_GRADES, maxLength: 20 }],
     categories: ['Women', 'Men', 'Children', 'Shoes', 'Bags', 'Household'],
     units: ['piece'],
     defaultUnit: 'piece',
@@ -92,7 +91,6 @@ export const PROFILES: ShopProfile[] = [
     captionKey: 'profile.health_beauty.caption',
     legacyType: 'other',
     barcodesDefault: true,
-    uniqueItems: false,
     axes: [
       {
         key: 'variant',
@@ -125,7 +123,6 @@ export const PROFILES: ShopProfile[] = [
     captionKey: 'profile.bar.caption',
     legacyType: 'other',
     barcodesDefault: true,
-    uniqueItems: false,
     axes: [
       { key: 'pack', labelKey: 'field.pack', placeholder: 'Bottle', quickPicks: BAR_PACKS, maxLength: 20 },
       { key: 'size', labelKey: 'field.size', placeholder: '330 ml', quickPicks: BAR_SIZES, maxLength: 20 },
@@ -143,7 +140,6 @@ export const PROFILES: ShopProfile[] = [
     captionKey: 'profile.grocery.caption',
     legacyType: 'general',
     barcodesDefault: true,
-    uniqueItems: false,
     axes: [
       { key: 'size', labelKey: 'field.size', placeholder: '1 kg', quickPicks: GROCERY_SIZES, maxLength: 20 },
       { key: 'pack', labelKey: 'field.pack', placeholder: 'Single', quickPicks: GROCERY_PACKS, maxLength: 20 },
@@ -161,7 +157,6 @@ export const PROFILES: ShopProfile[] = [
     captionKey: 'profile.electronics.caption',
     legacyType: 'other',
     barcodesDefault: true,
-    uniqueItems: false,
     axes: [
       {
         key: 'storage',
@@ -185,7 +180,6 @@ export const PROFILES: ShopProfile[] = [
     captionKey: 'profile.general.caption',
     legacyType: 'general',
     barcodesDefault: true,
-    uniqueItems: false,
     axes: [],
     categories: ['Food', 'Drinks', 'Household', 'Clothing', 'Electronics', 'Other'],
     units: ['piece', 'pack', 'box', 'kg'],

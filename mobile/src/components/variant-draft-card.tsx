@@ -16,7 +16,6 @@ export function VariantDraftCard({
   title,
   onRemove,
   axes,
-  uniqueItems,
   usesBarcodes,
   usesExpiry,
   usesBatch,
@@ -29,7 +28,6 @@ export function VariantDraftCard({
   /** Absent when this is the only row, which cannot be removed. */
   onRemove?: () => void;
   axes: ProfileAxis[];
-  uniqueItems: boolean;
   usesBarcodes: boolean;
   usesExpiry: boolean;
   usesBatch: boolean;
@@ -113,22 +111,15 @@ export function VariantDraftCard({
         </Text>
       ) : null}
 
-      {uniqueItems ? (
-        <View style={styles.group}>
-          <Text style={styles.label}>{t('product.new.openingQty')}</Text>
-          <Text style={styles.fixedValue}>{t('product.new.uniqueQty')}</Text>
-        </View>
-      ) : (
-        <Field
-          label={t('product.new.openingQty')}
-          value={draft.quantity}
-          onChangeText={(value) => set({ quantity: value.replace(/\D/g, '') })}
-          placeholder={t('product.new.qtyPlaceholder')}
-          hint={t('product.new.qtyHint')}
-          keyboardType="numeric"
-          required
-        />
-      )}
+      <Field
+        label={t('product.new.openingQty')}
+        value={draft.quantity}
+        onChangeText={(value) => set({ quantity: value.replace(/\D/g, '') })}
+        placeholder={t('product.new.qtyPlaceholder')}
+        hint={t('product.new.qtyHint')}
+        keyboardType="numeric"
+        required
+      />
       <Field
         label={t('product.new.lowStock')}
         value={draft.lowStock}
@@ -167,8 +158,6 @@ const styles = themed(() =>
     title: { fontSize: typeScale.body, color: colors.text, fontWeight: '700' },
     group: { gap: spacing.sm },
     chips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-    label: { fontSize: typeScale.label, color: colors.textMuted, fontWeight: '600' },
-    fixedValue: { fontSize: typeScale.body, color: colors.text, fontWeight: '600' },
     success: { fontSize: typeScale.label, color: colors.success, fontWeight: '600' },
     warning: { fontSize: typeScale.label, color: colors.warning, fontWeight: '600' },
   })

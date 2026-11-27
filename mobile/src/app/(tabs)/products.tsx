@@ -1,9 +1,10 @@
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '@/auth/session';
 import {
   Button,
+  Choice,
   EmptyState,
   ErrorState,
   Icon,
@@ -16,13 +17,22 @@ import {
   SearchField,
   StatTile,
 } from '@/components/ui';
+import { expiryStatus, profileForShop, todayLocal } from '@/core';
 import { useProducts, useShop } from '@/db/hooks';
 import type { ProductWithStock } from '@/db/repos';
 import { useI18n } from '@/i18n';
 import { formatKwacha } from '@/lib/format';
 import { colors, fonts, spacing, themed, typeScale } from '@/theme/tokens';
 
-type Filter = 'all' | 'low' | 'out';
+type Filter = 'all' | 'low' | 'out' | 'expiring';
+
+/** Has stock on hand that is past its expiry or within the warning window. */
+function isExpiring(product: ProductWithStock, today: string): boolean {
+  return product.variants.some((variant) => {
+    const status = expiryStatus(variant.expiryDate, today);
+    return variant.quantity > 0 && (status === 'expired' || status === 'soon');
+  });
+}
 
 function worstState(product: ProductWithStock): 'ok' | 'low' | 'out' {
   return product.variants.reduce<'ok' | 'low' | 'out'>((worst, variant) => {
@@ -45,18 +55,31 @@ export default function ProductsScreen() {
   const { data: shop } = useShop();
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
+  // null = every category.
+  const [category, setCategory] = useState<string | null>(null);
 
+  const profile = profileForShop(shop);
+  const showsExpiry = profile.modules.includes('expiry');
+  const today = todayLocal();
   const managesProducts = can('products.manage');
   const states = new Map(products.map((product) => [product.id, worstState(product)]));
+  const expiring = new Set(products.filter((product) => isExpiring(product, today)).map((product) => product.id));
   const counts = {
     all: products.length,
     low: products.filter((product) => states.get(product.id) === 'low').length,
     out: products.filter((product) => states.get(product.id) === 'out').length,
+    expiring: expiring.size,
   };
+  const categories = [...new Set(products.map((product) => product.category?.trim()).filter((name): name is string => !!name))].sort(
+    (a, b) => a.localeCompare(b)
+  );
 
   const needle = query.trim().toLowerCase();
   const visible = products.filter((product) => {
-    if (filter !== 'all' && states.get(product.id) !== filter) return false;
+    if (filter === 'expiring' ? !expiring.has(product.id) : filter !== 'all' && states.get(product.id) !== filter) {
+      return false;
+    }
+    if (category && product.category?.trim() !== category) return false;
     if (!needle) return true;
     return [
       product.name,
@@ -146,7 +169,31 @@ export default function ProductsScreen() {
           selected={filter === 'out'}
           onPress={() => setFilter('out')}
         />
+        {showsExpiry ? (
+          <StatTile
+            label={t('products.filter.expiring')}
+            value={counts.expiring}
+            icon="event"
+            tone={counts.expiring > 0 ? 'warning' : 'neutral'}
+            selected={filter === 'expiring'}
+            onPress={() => setFilter('expiring')}
+          />
+        ) : null}
       </View>
+
+      {categories.length > 1 ? (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categories}>
+          <Choice label={t('products.category.all')} selected={category === null} onPress={() => setCategory(null)} />
+          {categories.map((name) => (
+            <Choice
+              key={name}
+              label={name}
+              selected={category === name}
+              onPress={() => setCategory((current) => (current === name ? null : name))}
+            />
+          ))}
+        </ScrollView>
+      ) : null}
 
       <SearchField
         value={query}
@@ -226,6 +273,7 @@ export default function ProductsScreen() {
 
 const styles = themed(() => StyleSheet.create({
   counts: { flexDirection: 'row', gap: spacing.sm },
+  categories: { flexDirection: 'row', gap: spacing.sm },
   stock: { fontSize: typeScale.label, color: colors.textMuted, fontVariant: ['tabular-nums'] },
   price: {
     fontFamily: fonts.display,

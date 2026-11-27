@@ -12,10 +12,12 @@ import {
   listProductsWithStock,
   listSales,
   listStaff,
+  expiringVariants,
   lowStockVariants,
   reconcileDay,
   taxSnapshot,
   totalsForDay,
+  type ExpiringRow,
   type LowStockRow,
   type MovementRow,
   type ProductWithStock,
@@ -165,6 +167,10 @@ export function useDayTotals() {
 
 export function useLowStock() {
   return useQuery<LowStockRow[]>([], (db) => lowStockVariants(db));
+}
+
+export function useExpiring() {
+  return useQuery<ExpiringRow[]>([], (db) => expiringVariants(db, todayLocal()));
 }
 
 export function useTaxSnapshot() {

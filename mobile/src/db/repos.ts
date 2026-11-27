@@ -1,5 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 import {
+  addDaysIso,
   attributesKey,
   attributesOf,
   cleanAttributes,
@@ -30,6 +31,7 @@ import {
   type ProductDiscount,
   type ProfileId,
   DEFAULT_UNIT,
+  EXPIRY_WARN_DAYS,
   isValidIsoDate,
   type Role,
   type ShopType,
@@ -270,6 +272,46 @@ export async function lowStockVariants(db: SQLiteDatabase): Promise<LowStockRow[
     label: labelOf(row.productName, row),
     quantity: row.quantity,
     lowStockLevel: row.lowStockLevel,
+  }));
+}
+
+export interface ExpiringRow {
+  variantId: string;
+  productId: string;
+  label: string;
+  expiryDate: string;
+  quantity: number;
+}
+
+/**
+ * Stock on hand that has expired or expires within the warning window, soonest
+ * first. The window is worked out from the shop's own calendar day, not SQLite's
+ * UTC 'now', so it does not shift at midnight UTC.
+ */
+export async function expiringVariants(
+  db: SQLiteDatabase,
+  today: string,
+  days = EXPIRY_WARN_DAYS
+): Promise<ExpiringRow[]> {
+  const rows = await db.getAllAsync<Omit<ExpiringRow, 'label'> & { productName: string } & LabelColumns>(
+    `SELECT v.id AS variantId, v.product_id AS productId, p.name AS productName,
+            v.size, v.colour, v.attributes_json AS attributesJson,
+            v.expiry_date AS expiryDate, COALESCE(s.quantity, 0) AS quantity
+       FROM product_variant v
+       JOIN product p ON p.id = v.product_id
+       LEFT JOIN variant_stock s ON s.variant_id = v.id
+      WHERE v.expiry_date IS NOT NULL
+        AND v.expiry_date <= ?
+        AND COALESCE(s.quantity, 0) > 0
+      ORDER BY v.expiry_date, p.name`,
+    addDaysIso(today, days)
+  );
+  return rows.map((row) => ({
+    variantId: row.variantId,
+    productId: row.productId,
+    label: labelOf(row.productName, row),
+    expiryDate: row.expiryDate,
+    quantity: row.quantity,
   }));
 }
 

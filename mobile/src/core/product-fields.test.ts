@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  addDaysIso,
   collectSaleWarnings,
+  expiryStatus,
   hasSaleWarnings,
   isExpired,
   isValidIsoDate,
@@ -67,5 +69,27 @@ describe('collectSaleWarnings', () => {
   it('has nothing to say about an ordinary basket', () => {
     const warnings = collectSaleWarnings([{ label: 'Shirt', saleWarning: '  ', expiryDate: '2027-01-01' }], today);
     expect(hasSaleWarnings(warnings)).toBe(false);
+  });
+});
+
+describe('expiryStatus', () => {
+  const today = '2026-11-27';
+
+  it('is expired after the day, soon within 30 days, ok beyond', () => {
+    expect(expiryStatus('2026-11-26', today)).toBe('expired');
+    expect(expiryStatus('2026-11-27', today)).toBe('soon');
+    expect(expiryStatus('2026-12-27', today)).toBe('soon');
+    expect(expiryStatus('2026-12-28', today)).toBe('ok');
+    expect(expiryStatus('2026-12-01', today, 3)).toBe('ok');
+  });
+
+  it('has nothing to say without a usable date', () => {
+    expect(expiryStatus(undefined, today)).toBeNull();
+    expect(expiryStatus('2026-02-30', today)).toBeNull();
+  });
+
+  it('adds days across month and year ends', () => {
+    expect(addDaysIso('2026-12-15', 30)).toBe('2027-01-14');
+    expect(addDaysIso('2028-02-28', 1)).toBe('2028-02-29');
   });
 });

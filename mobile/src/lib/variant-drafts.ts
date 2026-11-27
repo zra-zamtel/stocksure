@@ -51,8 +51,6 @@ export function nextDraft(last: DraftVariant | undefined, key: string): DraftVar
 export interface DraftOptions {
   /** The profile's axes, in order. */
   axes: { key: string }[];
-  /** Salaula: one row, quantity always 1. */
-  uniqueItems: boolean;
   usesBarcodes: boolean;
   usesExpiry: boolean;
   usesBatch: boolean;
@@ -80,8 +78,8 @@ export function draftsToVariants(drafts: DraftVariant[], options: DraftOptions):
     const sell = parsePrice(draft.sellPrice);
     if (!sell.ok) return { ok: false, problem: { row, code: 'sellPrice', priceError: sell.error } };
 
-    const quantity = options.uniqueItems ? 1 : Number.parseInt(draft.quantity, 10);
-    if (!options.uniqueItems && (draft.quantity.trim() === '' || !Number.isInteger(quantity) || quantity < 0)) {
+    const quantity = Number.parseInt(draft.quantity, 10);
+    if (draft.quantity.trim() === '' || !Number.isInteger(quantity) || quantity < 0) {
       return { ok: false, problem: { row, code: 'quantity' } };
     }
 

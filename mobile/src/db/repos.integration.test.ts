@@ -6,6 +6,7 @@ import {
   createOwner,
   createProduct,
   createProductWithVariants,
+  expiringVariants,
   createStaff,
   ensureTaxPeriod,
   findVariantByBarcode,
@@ -857,6 +858,33 @@ describe('IT-VAR products with several variants', () => {
     } finally {
       old.close();
     }
+  });
+});
+
+describe('IT-EXP expiring stock', () => {
+  const today = '2026-11-27';
+
+  it('IT-EXP-01 lists stock on hand that has expired or expires within 30 days, soonest first', async () => {
+    await shop();
+    const { variantIds } = await createProductWithVariants(db, {
+      name: 'Panadol',
+      variants: [
+        { attributes: [{ key: 'pack', value: 'Strip' }], buyPrice: 1, sellPrice: 2, openingQuantity: 4, expiryDate: '2026-12-20' },
+        { attributes: [{ key: 'pack', value: 'Box' }], buyPrice: 1, sellPrice: 2, openingQuantity: 2, expiryDate: '2026-11-01' },
+        { attributes: [{ key: 'pack', value: 'Bottle' }], buyPrice: 1, sellPrice: 2, openingQuantity: 5, expiryDate: '2027-06-30' },
+        { attributes: [{ key: 'pack', value: 'Sachet' }], buyPrice: 1, sellPrice: 2, openingQuantity: 0, expiryDate: '2026-11-02' },
+      ],
+    });
+    await product(3, { name: 'No expiry' });
+
+    expect(await expiringVariants(db, today)).toEqual([
+      { variantId: variantIds[1], productId: expect.any(String), label: 'Panadol · Box', expiryDate: '2026-11-01', quantity: 2 },
+      { variantId: variantIds[0], productId: expect.any(String), label: 'Panadol · Strip', expiryDate: '2026-12-20', quantity: 4 },
+    ]);
+
+    // Once sold out it drops off the list.
+    await recordSale(db, cashSale(variantIds[1], 2));
+    expect((await expiringVariants(db, today)).map((row) => row.variantId)).toEqual([variantIds[0]]);
   });
 });
 

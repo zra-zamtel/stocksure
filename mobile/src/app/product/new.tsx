@@ -57,7 +57,7 @@ export default function NewProductScreen() {
   const lowStockDefault = shop?.lowStockDefault ?? 3;
   const firstAxis = profile.axes[0];
   // Several variants only make sense when the trade has something to tell them apart.
-  const canAddVariant = firstAxis !== undefined && !profile.uniqueItems;
+  const canAddVariant = firstAxis !== undefined;
 
   // The share/print label card covers the single-variant case, as before; with
   // several variants, each label is printed from the product page.
@@ -112,7 +112,6 @@ export default function NewProductScreen() {
     if (!name.trim()) return setError('Product name is required');
     const result = draftsToVariants(drafts, {
       axes: profile.axes,
-      uniqueItems: profile.uniqueItems,
       usesBarcodes,
       usesExpiry,
       usesBatch,
@@ -254,7 +253,6 @@ export default function NewProductScreen() {
           title={drafts.length > 1 ? t('product.new.variantN', { n: index + 1 }) : undefined}
           onRemove={drafts.length > 1 ? () => removeDraft(draft.key) : undefined}
           axes={profile.axes}
-          uniqueItems={profile.uniqueItems}
           usesBarcodes={usesBarcodes}
           usesExpiry={usesExpiry}
           usesBatch={usesBatch}

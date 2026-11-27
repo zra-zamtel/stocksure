@@ -19,6 +19,13 @@
 > service mode (`track_stock`, the "Service" pill, skipping stock for services)
 > are out of this phase. Seven profiles ship. Where this plan still mentions
 > them (sections 2.1, 3.3, 4.2, 7, 9.2, 10, 13), skip those parts.
+>
+> **Salaula changed (27 Nov 2026):** salaula is not one-off pieces. A bale is
+> opened and sorted into **Top** (better pieces, higher price) and **Down**
+> (lower price). The profile has one axis, `grade`, and each grade is a
+> variant with its own price and piece count. `uniqueItems` and the one-off
+> rules in 6.7, 8.3 and 9.4 are dropped. Salaula traders usually pay a council
+> levy rather than ZRA tax, so no bale-cost splitting was built.
 
 ---
 

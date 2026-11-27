@@ -18,7 +18,8 @@ import {
   Skeleton,
   type Tone,
 } from '@/components/ui';
-import { useDayTotals, useLowStock, useProducts, useShop } from '@/db/hooks';
+import { profileForShop, todayLocal } from '@/core';
+import { useDayTotals, useExpiring, useLowStock, useProducts, useShop } from '@/db/hooks';
 import { useI18n } from '@/i18n';
 import { formatKwacha } from '@/lib/format';
 import { colors, elevation, fonts, iconSize, radii, spacing, themed, touch, typeScale } from '@/theme/tokens';
@@ -39,6 +40,10 @@ export default function HomeScreen() {
   const { data: alerts, initialLoading: alertsLoading } = useLowStock();
   const { data: products } = useProducts();
   const { data: shopRecord } = useShop();
+  const { data: expiring } = useExpiring();
+  const profile = profileForShop(shopRecord);
+  const showsExpiry = profile.modules.includes('expiry');
+  const today = todayLocal();
   const seesProfit = can('money.insights');
 
   const hour = new Date().getHours();
@@ -162,6 +167,41 @@ export default function HomeScreen() {
           </Pressable>
         ))}
       </View>
+
+      {showsExpiry && products.length > 0 ? (
+        <>
+          <SectionTitle>{t('home.expiring.title')}</SectionTitle>
+          {expiring.length === 0 ? (
+            <View style={styles.calm}>
+              <IconBadge name="event_available" tone="success" size={36} />
+              <Text style={[styles.allGoodText, styles.flexText]}>{t('home.expiring.empty')}</Text>
+            </View>
+          ) : (
+            <ListGroup>
+              {expiring.map((item, index) => {
+                const expired = item.expiryDate < today;
+                return (
+                  <ListRow
+                    key={item.variantId}
+                    last={index === expiring.length - 1}
+                    icon={expired ? 'event_busy' : 'event'}
+                    iconTone={expired ? 'danger' : 'warning'}
+                    title={item.label}
+                    meta={t('home.expiring.left', { count: item.quantity })}
+                    right={
+                      <Pill
+                        label={expired ? t('products.expired') : item.expiryDate}
+                        tone={expired ? 'danger' : 'warning'}
+                      />
+                    }
+                    onPress={can('products.manage') ? () => router.push(`/product/${item.productId}`) : undefined}
+                  />
+                );
+              })}
+            </ListGroup>
+          )}
+        </>
+      ) : null}
 
       <SectionTitle
         action={alerts.length > 0 ? { label: t('nav.products'), onPress: () => router.push('/(tabs)/products') } : undefined}

@@ -3,7 +3,6 @@ import { draftsToVariants, emptyDraft, nextDraft, type DraftOptions, type DraftV
 
 const bar: DraftOptions = {
   axes: [{ key: 'pack' }, { key: 'size' }],
-  uniqueItems: false,
   usesBarcodes: true,
   usesExpiry: false,
   usesBatch: false,
@@ -103,16 +102,25 @@ describe('draftsToVariants', () => {
     expect(saved.ok && saved.variants[0]).toMatchObject({ expiryDate: '2027-06-30', batchNo: 'b1' });
   });
 
+  it('sorts a salaula bale into Top and Down grades at their own prices', () => {
+    const salaula = { ...bar, axes: [{ key: 'grade' }], usesBarcodes: false };
+    const result = draftsToVariants(
+      [
+        draft('a', { attributes: { grade: 'Top' }, buyPrice: '20', sellPrice: '80', quantity: '30' }),
+        draft('b', { attributes: { grade: 'Down' }, buyPrice: '20', sellPrice: '25', quantity: '70' }),
+      ],
+      salaula
+    );
+    expect(result.ok && result.variants.map((variant) => [variant.attributes, variant.sellPrice, variant.openingQuantity])).toEqual([
+      [[{ key: 'grade', value: 'Top' }], 8000, 30],
+      [[{ key: 'grade', value: 'Down' }], 2500, 70],
+    ]);
+  });
+
   it('ignores barcode, expiry and batch when the shop or trade does not use them', () => {
     const plain = { ...bar, usesBarcodes: false };
     const result = draftsToVariants([draft('a', { barcode: '6001234500018', expiryDate: 'junk', batchNo: 'X' })], plain);
     expect(result.ok && result.variants[0]).toMatchObject({ barcode: undefined, expiryDate: undefined, batchNo: undefined });
-  });
-
-  it('fixes a one-off piece at one, whatever was typed', () => {
-    const salaula = { ...bar, axes: [], uniqueItems: true, usesBarcodes: false };
-    const result = draftsToVariants([draft('a', { quantity: '' })], salaula);
-    expect(result.ok && result.variants[0].openingQuantity).toBe(1);
   });
 });
 

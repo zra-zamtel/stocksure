@@ -22,7 +22,7 @@ import {
 } from '@/components/ui';
 import {
   DEFAULT_UNIT,
-  isExpired,
+  expiryStatus,
   isValidEan13,
   isValidIsoDate,
   parsePrice,
@@ -264,14 +264,14 @@ export default function ProductScreen() {
             {product.unit !== DEFAULT_UNIT ? <Row label={t('products.unit')} value={product.unit} /> : null}
             {product.saleWarning ? <Row label={t('products.saleWarning')} value={product.saleWarning} /> : null}
             {selectedVariant.expiryDate ? (
-              <Row
-                label={t('products.expiry')}
-                value={
-                  isExpired(selectedVariant.expiryDate, todayLocal())
-                    ? `${selectedVariant.expiryDate} · ${t('products.expired')}`
-                    : selectedVariant.expiryDate
-                }
-              />
+              <>
+                <Row label={t('products.expiry')} value={selectedVariant.expiryDate} />
+                {expiryStatus(selectedVariant.expiryDate, todayLocal()) === 'expired' ? (
+                  <Pill label={t('products.expired')} tone="danger" />
+                ) : expiryStatus(selectedVariant.expiryDate, todayLocal()) === 'soon' ? (
+                  <Pill label={t('products.expiresSoon')} tone="warning" />
+                ) : null}
+              </>
             ) : null}
             {selectedVariant.batchNo ? <Row label={t('products.batch')} value={selectedVariant.batchNo} /> : null}
             {selectedVariant.barcode ? (

@@ -64,3 +64,25 @@ export function hasSaleWarnings(warnings: SaleWarnings): boolean {
     warnings.rx.length + warnings.age.length + warnings.other.length + warnings.expired.length > 0
   );
 }
+
+/** How far ahead "Expiring soon" looks. */
+export const EXPIRY_WARN_DAYS = 30;
+
+/** YYYY-MM-DD plus a number of days, by the calendar (no time zone involved). */
+export function addDaysIso(day: string, days: number): string {
+  const [year, month, date] = day.split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, date + days)).toISOString().slice(0, 10);
+}
+
+export type ExpiryStatus = 'expired' | 'soon' | 'ok';
+
+/** Red once past its expiry day, amber within EXPIRY_WARN_DAYS, otherwise fine. Null without a usable date. */
+export function expiryStatus(
+  expiryDate: string | undefined | null,
+  today: string,
+  warnDays = EXPIRY_WARN_DAYS
+): ExpiryStatus | null {
+  if (!expiryDate || !isValidIsoDate(expiryDate)) return null;
+  if (expiryDate < today) return 'expired';
+  return expiryDate <= addDaysIso(today, warnDays) ? 'soon' : 'ok';
+}
