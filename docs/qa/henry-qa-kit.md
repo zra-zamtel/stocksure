@@ -1,190 +1,131 @@
-# StockSure QA kit: can a shopkeeper use it without help?
+# StockSure QA kit for Henry
 
-For Henry. This kit tests the picture-first redesign with real shopkeepers.
-Each session takes 20 minutes. You need 3 testers, and at least one should
-be someone who reads little.
+Henry, use this to test the new picture-first StockSure on your own, then
+write a short report. Pretend you have never seen the app: do each job,
+check what you see against what should happen, and write down anything
+slow, confusing or wrong. About 45 minutes.
 
-The question we are answering: **can a first-time user sell, restock and
-check money without anyone explaining?** You watch and count. You do not
-teach.
+The same kit is in Claude Docs as "StockSure QA kit for Henry", with a
+results sheet you can fill in on the phone or print.
 
----
+## Set up the test shop (once, about 20 minutes)
 
-## 1. Before testing day (once, about 30 minutes)
+A new install starts with an empty shop, so set one up first. You need an
+Android phone with the latest StockSure test APK, mobile data, and this
+sheet.
 
-You need: one Android phone with the latest StockSure test APK, mobile data,
-a second phone for the customer's mobile money (optional), a pen, this kit
-printed, and some small paper strips with tape (for the cover-the-words test).
-
-Set up the test shop on the test phone, as the owner:
-
-1. Open StockSure and finish setup:
-   - Language: the tester's language. (Nyanja is still partly English; note
-     any English word a Nyanja tester stumbles on.)
+1. Open StockSure and finish setup as the owner, in **English**:
    - Shop: **Chiwala Fashions**, town **Lusaka**, trade **Clothing &
      footwear**, barcodes **Pick from a list**.
    - Money: tick **MTN** and **Airtel**. Tax: **No, not yet**.
-2. Add these products (Stock > **Add product**). Take a photo of a real item
-   for each if you can; it makes the test closer to real life.
+2. Add these products (**Stock** > **Add product**). Take a photo of a real
+   item for at least two of them, so you also test photos.
+3. Record 3 cash sales of socks (**Sell** > tap **Sports socks** > **Pay** >
+   **Cash**) so the Tax screen shows an amount.
 
-   | Product | Size | Buy | Sell | How many | Low-stock level |
-   |---|---|---|---|---|---|
-   | Black school shoes | 42 | 180 | 280 | 8 | 3 |
-   | Blue shirt | M | 90 | 160 | 2 | 3 |
-   | Ladies handbag | | 250 | 450 | 1 | 2 |
-   | Canvas sneakers | 41 | 200 | 320 | 2 | 3 |
-   | Sports socks | | 25 | 60 | 20 | 5 |
-
-   Blue shirt, Ladies handbag and Canvas sneakers start low. That gives one
-   low item per tester for Task 3.
-3. Record 3 cash sales of socks (Sell > tap Sports socks > **Pay** > **Cash**),
-   so the Tax screen shows an amount.
-4. Do the **reset** below once.
-
-## 2. Reset before each tester (2 minutes)
-
-1. If the last tester did not finish Task 4, open **Money** and press
-   **Money came** on the old Airtel card first, so only one is waiting.
-2. Make one unpaid Airtel sale for Task 4: **Sell** > tap **Sports socks**
-   twice (K120) > **Pay** > **Mobile money** > **Already paid? Type the
-   code** > network **Airtel**, leave the code empty > **Save sale**.
-   Do **not** add a payment message for it. It now waits on **Money** as
-   "Sale, no money yet".
-3. Go back to **Today** (the first tab).
-4. Note which low item is still low (it should be the next one in the table
-   above) and write it in the score sheet.
-5. Put the phone down, screen on, on the Today tab.
-
-## 3. What to say (read this out, word for word)
-
-> "Thank you for helping. We are testing the app, not you. If something is
-> hard, that is the app's fault. I will ask you to do five shop jobs on this
-> phone. Please try on your own. I will not help unless you are stuck for a
-> long time. Say out loud what you are thinking if you can. There is no
-> wrong answer."
-
-Then give each task by reading the line in **Say**. Do not point at the
-screen. Do not name buttons.
-
-## 4. The five tasks
-
-Start a timer when you finish reading the task. Stop it when the tester
-reaches the **Done when** screen or gives up.
-
-**If they are stuck for 60 seconds**, say once: "What are you looking
-for?" If still stuck after another 30 seconds, show them, and mark the task
-**Helped**.
-
-### Task 1: Sell shoes for cash (limit 2 minutes)
-
-- **Say:** "A customer wants the black school shoes and pays you cash. Sell them."
-- **Expected path:** **Sell** (the blue button in the middle of the bottom bar) >
-  tap the **Black school shoes** picture > **Pay · K…** > **Cash**.
-- **Done when:** the big green tick appears with the amount.
-- **Watch for:** do they find Sell? Do they tap the picture or look for a
-  list? Do they understand the total on the bottom button?
-
-### Task 2: Add a dress (limit 4 minutes)
-
-- **Say:** "You bought a new dress for 100 kwacha. You will sell it for 150.
-  You have 5 of them. Add it to the shop."
-- **Expected path:** **Stock** tab > **Add product** (or **Add product** on
-  Today) > photo (take one or **Skip**) > **Next** > name "Dress" > **Next** >
-  "You pay" 100, "You sell for" 150 > **Next** > How many 5 (or tap **+5**) >
-  **Save product**.
-- **Done when:** the new product page opens.
-- **Watch for:** do they skip the photo or get stuck? Do they see the green
-  "Profit K50 each" line? Do they find the +5 button?
-
-### Task 3: Add 10 to a low item (limit 2 minutes)
-
-- **Say:** "You just got 10 more of the [name the low item from the reset].
-  Put them in the shop."
-- **Expected path:** either **Today** > the alert card > **Restock**, or
-  **Stock** > tap the item. Then **+10** > **Add 10**.
-- **Done when:** the sheet closes and the number has gone up by 10.
-- **Watch for:** do they tap **+10** more than once by mistake? Do they use
-  **−** to fix it? Do they press **Add 10** at the end?
-
-### Task 4: Check the Airtel money came (limit 2 minutes)
-
-- **Say:** "A customer paid you by Airtel earlier. She shows you the message
-  on her phone: the money came. Tell the app."
-- **Expected path:** **Money** tab > the card "Sale, no money yet" (Airtel,
-  K120) > **Money came**.
-- **Done when:** the card disappears and the status says **All good**.
-- **Watch for:** do they press **No money** by mistake? (It asks first, with
-  a red **Cancel sale**. If they confirm it, write that down: it cancels the
-  sale.)
-
-### Task 5: See the tax (limit 1 minute)
-
-- **Say:** "How much tax might you have to pay, and by when?"
-- **Expected path:** **Tax** tab, read the big amount and the date.
-- **Done when:** they say the amount and the date out loud.
-- **Watch for:** do they think the app takes the money? Ask afterwards:
-  "Does the app send the money to ZRA?" (The right answer is no.)
-
-## 5. Cover-the-words test (4 minutes)
-
-This tests whether the pictures work on their own.
-
-1. On the **Sell** screen, tape paper strips over the product names and over
-   the words on the bottom button. Leave the pictures and prices showing.
-2. **Say:** "Sell one pair of sports socks for cash."
-3. Mark **Yes** if they finish without reading or asking, **No** if not.
-4. Remove the paper. Cancel nothing; the sale is fine.
-
-## 6. How to score
-
-For each task, write:
-
-- **Result:** ✔ alone, H with help, ✘ gave up.
-- **Time** in seconds.
-- **Wrong taps:** each tap that went somewhere they did not want (count
-  them).
-- **Read aloud:** words they read out or asked about, e.g. "what is Pay?".
-  These are the words to fix.
-- **Stuck at:** the screen and what they looked for.
-
-**A task passes** when at least 2 of 3 testers do it alone (✔) within the
-limit. **Any task the low-reading tester cannot do alone is a priority**,
-even if the other two pass.
-
-## 7. Score sheet (one per tester; print it)
-
-Tester: ________  Reads: well / a little / not at all  Language: ______
-Phone user for: ______ years  Low item for Task 3: ______________
-
-| Task | Result (✔ / H / ✘) | Time (s) | Wrong taps | Words read aloud or asked | Stuck at |
+| Product | Size | Buy (K) | Sell (K) | How many | Low-stock level |
 |---|---|---|---|---|---|
-| 1 Sell shoes for cash | | | | | |
-| 2 Add a dress | | | | | |
-| 3 Add 10 to low item | | | | | |
-| 4 Airtel money came | | | | | |
-| 5 See the tax | | | | | |
-| Cover the words: sell socks | Yes / No | | | | |
+| Black school shoes | 42 | 180 | 280 | 8 | 3 |
+| Blue shirt | M | 90 | 160 | 2 | 3 |
+| Ladies handbag | | 250 | 450 | 1 | 2 |
+| Canvas sneakers | 41 | 200 | 320 | 2 | 3 |
+| Sports socks | | 25 | 60 | 20 | 5 |
 
-After the tasks, ask and write the answers:
+Blue shirt, Ladies handbag and Canvas sneakers start low, so you have a low
+item for each round.
 
-1. "What was the hardest part?"
-2. "What would you change?"
-3. "Does the app send money to ZRA?" (yes / no / not sure)
+## Reset before each round (2 minutes)
 
-## 8. How to report
+Do one round of the five jobs in English, then a second round in Nyanja (see
+Extra checks). Before each round:
 
-Within a day of testing, post on the agent board thread **#ux-overhaul**
-(or send to the team):
+1. If an old Airtel card is still waiting on **Money**, press **Money came**
+   on it.
+2. Make one unpaid Airtel sale for job 4: **Sell** > tap **Sports socks**
+   twice (K120) > **Pay** > **Mobile money** > **Already paid? Type the code**
+   > network **Airtel**, leave the code empty > **Save sale**. Do not add a
+   payment message.
+3. Go back to **Today**, the first tab.
 
-1. **The table:** for each task, how many testers passed alone (e.g. "Task 2:
-   1 of 3 alone").
-2. **Top 3 problems**, each with the screen, what happened, and how many
-   testers hit it. Example: "Add product, price step: 2 of 3 typed the sell
-   price into 'You pay'."
-3. **Words to fix:** every word testers read aloud or asked about.
-4. **Photos** of the screen where someone got stuck (screenshot: hold power +
-   volume down).
-5. **Anything that looked broken** (wrong numbers, a crash, a frozen screen),
-   with the time it happened.
+## How to test
 
-The team fixes the top 3 problems, builds a new APK, and you test again.
+The app is meant for a shopkeeper who reads little and has never used it.
+Act like that person.
+
+- Look for the picture first, then the words. Note any step where you had to
+  read to know what to do.
+- Use one thumb, holding the phone in one hand, like at a counter.
+- Time each job with your phone's stopwatch.
+- Each time you hesitate, tap the wrong thing, or the screen surprises you,
+  write it down straight away, with a screenshot (hold power and volume
+  down).
+- Compare what you see with the **You should see** column. Anything
+  different is a problem, even if small.
+
+## The five jobs
+
+| Job | Do | Expected path | You should see | Target time |
+|---|---|---|---|---|
+| 1 Sell shoes for cash | Sell the black school shoes, paid in cash | **Sell** (blue, middle of the bottom bar) > tap the shoes picture > **Pay · K…** > **Cash** | A big green tick with K280; shoes stock goes down by 1 | 1 min |
+| 2 Add a dress | Add a dress: buy 100, sell 150, 5 in stock | **Stock** > **Add product** > photo or **Skip** > **Next** > name > **Next** > You pay 100, You sell for 150 > **Next** > 5 (or **+5**) > **Save product** | "Profit K50 each" with a green up arrow on the price step; then the dress page with 5 in stock | 3 min |
+| 3 Add 10 to a low item | Add 10 to the next low item | **Today** alert card > **Restock** (or **Stock** > tap the item) > **+10** > **Add 10** | "Now N" goes up by 10 before you save; nothing saved if you close the sheet; after saving, the card no longer shows it as low | 1 min |
+| 4 Airtel money came | Mark the K120 Airtel sale as paid | **Money** > the "Sale, no money yet" card > **Money came** | The card goes; the status turns green **All good**; **No money** first asks "Cancel this sale?" | 1 min |
+| 5 See the tax | Find how much tax you may owe and by when | **Tax** tab | "You may owe K…" with a date; the jar; "An estimate, not a tax return"; **I put aside K…** on the next screen does not move money | 30 s |
+
+## Extra checks
+
+- [ ] **No internet:** turn on airplane mode and do job 1 again. The sale
+  must save and show the green tick.
+- [ ] **Nyanja:** Settings > language **Nyanja**, then do the five jobs
+  again. Write down every word still in English and every word that reads
+  oddly.
+- [ ] **Dark mode:** Settings > theme **Dark**. Look at Today, Sell, Stock,
+  Money and Tax. Note anything hard to read.
+- [ ] **Numbers add up:** the Today total equals the sales you made; stock
+  numbers match what you sold and added; the profit shown for the dress is
+  K50.
+- [ ] **Pictures only:** on Sell, Stock and Money, check that every button
+  has a picture or icon next to its word, and that no status is shown by
+  colour alone.
+- [ ] **Photos:** a product with a photo shows the photo on Sell and Stock;
+  one without shows a coloured tile with an icon.
+- [ ] **Backup cloud:** the cloud at the top of Today opens a sheet that says
+  what to do.
+
+## Results sheet
+
+Fill one row per job and round. Pass = done without reading the words,
+matching **You should see**, within the target time.
+
+| Job | Round | Pass / Fail | Time | What went wrong or slowed you | Screenshot |
+|---|---|---|---|---|---|
+| 1 Sell shoes for cash | English | | | | |
+| 2 Add a dress | English | | | | |
+| 3 Add 10 to a low item | English | | | | |
+| 4 Airtel money came | English | | | | |
+| 5 See the tax | English | | | | |
+| 1 Sell shoes for cash | Nyanja | | | | |
+| 2 Add a dress | Nyanja | | | | |
+| 3 Add 10 to a low item | Nyanja | | | | |
+| 4 Airtel money came | Nyanja | | | | |
+| 5 See the tax | Nyanja | | | | |
+
+## Write your report
+
+When you have finished, write a short report and send it to Elton, with your
+screenshots. Use these headings:
+
+1. **Summary:** how many jobs passed, e.g. "English 4 of 5, Nyanja 3 of 5",
+   and the APK version you tested.
+2. **Problems:** one line each, worst first. For each: the screen, what you
+   did, what happened, what you expected, and how bad it is: **blocks**
+   (cannot finish the job), **slows** (finished but hard), or **looks wrong**
+   (a wrong number, word or picture).
+3. **Words to change:** every word you had to read to understand, and every
+   Nyanja word that is wrong or still in English.
+4. **Extra checks:** which ones failed, and what you saw.
+5. **Ideas:** anything that would make it easier for a shopkeeper who reads
+   little.
+
+Keep it short. A list of clear problems with screenshots is more useful than
+long paragraphs.
