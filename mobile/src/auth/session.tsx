@@ -278,7 +278,6 @@ const SHOP_STORAGE_KEYS = [
   RESTORE_KEY,
   'stocksure.emailPending',
   'stocksure.pinGuard',
-  'stocksure.plan',
   'stocksure.start.reconcile',
   'stocksure.start.tax',
   'stocksure.start.hidden',

@@ -53,7 +53,7 @@ export default function ShopScreen() {
     try {
       await saveShopDetails(db, { name, profileId, town, language, usesBarcodes });
       await refresh();
-      router.push('/onboarding/plan');
+      router.push('/onboarding/money');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : t('onboarding.account.error.generic'));
     } finally {

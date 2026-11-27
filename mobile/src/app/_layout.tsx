@@ -184,7 +184,6 @@ function RootNavigator() {
         guard={signedIn && isOwner && !onboardingComplete && !shopRestorePending}
       >
         <Stack.Screen name="onboarding/shop" />
-        <Stack.Screen name="onboarding/plan" />
         <Stack.Screen name="onboarding/money" />
         <Stack.Screen name="onboarding/first-products" />
       </Stack.Protected>

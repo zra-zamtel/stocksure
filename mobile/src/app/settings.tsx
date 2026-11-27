@@ -6,11 +6,10 @@ import { useAuth } from '@/auth/session';
 import { displayName } from '@/components/auth';
 import { Toggle } from '@/components/charts';
 import { Button, Choice, Field, Icon, IconButton, Screen, SectionTitle, TextLink } from '@/components/ui';
-import { isValidTpin, PROFILES, profileForShop, trialDaysLeft, type ProfileId } from '@/core';
+import { isValidTpin, PROFILES, profileForShop, type ProfileId } from '@/core';
 import { useShop, useSmartInvoiceLink } from '@/db/hooks';
 import { saveMoneySettings, saveShopDetails } from '@/db/repos';
 import { useSync } from '@/db/use-sync';
-import { readPlanChoice } from '@/lib/plan-store';
 import { LANGUAGE_LABELS, useI18n, type Language } from '@/i18n';
 import { ConnectReminder, SyncProblemBanner } from '@/components/connect-device';
 import { formatDateTime } from '@/lib/format';
@@ -20,18 +19,6 @@ const PROVIDERS = ['MTN', 'Airtel', 'Zamtel'] as const;
 
 export default function SettingsScreen() {
   const { t, language, setLanguage } = useI18n();
-  const [plan] = useState(readPlanChoice);
-  const planLabel =
-    plan.kind === 'free'
-      ? t('settings.plan.free')
-      : trialDaysLeft(plan.startedAt) > 0
-        ? t('settings.plan.trial', {
-            plan: t(`onboarding.plan.${plan.plan}.name`),
-            days: trialDaysLeft(plan.startedAt),
-          })
-        : t('settings.plan.trialEnded', {
-            plan: t(`onboarding.plan.${plan.plan}.name`),
-          });
   const router = useRouter();
   const db = useSQLiteContext();
   const { ownerPreview, signOut, refresh, deviceToken } = useAuth();
@@ -249,8 +236,8 @@ export default function SettingsScreen() {
           <ListRow
             label={t('settings.barcodes')}
             value={shop ? (shop.usesBarcodes ? t('common.yes') : t('common.no')) : t('common.notYet')}
+            last
           />
-          <ListRow label={t('settings.plan')} value={planLabel} last />
         </Group>
       )}
 

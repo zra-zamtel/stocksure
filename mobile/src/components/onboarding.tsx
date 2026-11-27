@@ -25,11 +25,10 @@ import { colors, radii, spacing, themed, touch, typeScale } from '../theme/token
 export const SETUP_STEPS = {
   account: 1,
   shop: 2,
-  plan: 3,
-  money: 4,
-  products: 5,
+  money: 3,
+  products: 4,
 } as const;
-export const SETUP_TOTAL = 5;
+export const SETUP_TOTAL = 4;
 
 type Props = {
   /** Omit outside setup (e.g. sign-in): no progress bar or step count. */
