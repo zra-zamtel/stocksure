@@ -110,6 +110,11 @@ export default function TaxPotScreen() {
       {actionError ? <Notice tone="error">{actionError}</Notice> : null}
 
       <TaxJar saved={data.potBalance} owed={estimate.estimatedTax} state={pot.state} />
+      {/* The pot is a record of money the owner keeps aside; the app never moves money. */}
+      <View style={styles.recordOnly}>
+        <Icon name="info" size={iconSize.lg} color={colors.primaryInk} />
+        <Text style={styles.recordOnlyText}>{t('tax.pot.recordOnly')}</Text>
+      </View>
 
       <SectionTitle>{t('tax.pot.topUp')}</SectionTitle>
       <MoneyKeypad value={value} onChange={setDraft} label={t('tax.pot.amount')} disabled={busy} />
@@ -164,6 +169,8 @@ export default function TaxPotScreen() {
 
 const styles = themed(() => StyleSheet.create({
   caption: { fontSize: typeScale.caption, color: colors.textMuted, marginBottom: spacing.xs },
+  recordOnly: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  recordOnlyText: { flex: 1, fontSize: typeScale.body, color: colors.text },
   entry: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, minHeight: touch.big },
   entryText: { flex: 1, gap: spacing.xxs },
   entryKind: { fontSize: typeScale.body, color: colors.text, fontWeight: '600' },

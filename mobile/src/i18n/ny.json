@@ -1094,11 +1094,12 @@
   "tax.jar.covered": "Covered",
   "tax.jar.short": "Short {amount}",
   "tax.jar.over": "{amount} extra",
-  "tax.pot.putAsideAmount": "Put aside {amount}",
+  "tax.pot.putAsideAmount": "I put aside {amount}",
   "tax.pot.confirmPayTitle": "Record ZRA payment?",
   "tax.pot.confirmPayBody": "Only do this after you have paid ZRA. It empties the pot ({amount}).",
   "tax.pot.confirmPay": "Record payment",
   "connect.forRequest": "Connect this phone to ask for mobile money",
   "connect.forSmartInvoice": "Connect this phone to use Smart Invoice",
-  "connect.forRecord": "Connect this phone to make a trading record"
+  "connect.forRecord": "Connect this phone to make a trading record",
+  "tax.pot.recordOnly": "StockSure doesn't move money. Keep this amount somewhere safe, then record it here."
 }
