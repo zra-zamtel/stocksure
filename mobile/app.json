@@ -20,7 +20,8 @@
       "predictiveBackGestureEnabled": false,
       "package": "zm.zrazamtel.stocksure",
       "permissions": [
-        "android.permission.CAMERA"
+        "android.permission.CAMERA",
+        "android.permission.POST_NOTIFICATIONS"
       ]
     },
     "web": {
@@ -62,6 +63,14 @@
         {
           "cameraPermission": "StockSure uses the camera to take a photo of each product, so it is easy to find when you sell.",
           "microphonePermission": false
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/android-icon-monochrome.png",
+          "color": "#2F6BFF",
+          "enableRemoteNotifications": false
         }
       ]
     ],

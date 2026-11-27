@@ -7,6 +7,7 @@ import { displayName } from '@/components/auth';
 import { BackupStatusButton, useBackupState } from '@/components/backup-status';
 import { BigTile, PressScale, ProductTile } from '@/components/big-ui';
 import { SyncProblemBanner } from '@/components/connect-device';
+import { NotificationPrompt } from '@/components/notification-prompt';
 import { ProfileMenu } from '@/components/profile-menu';
 import { RestockSheet } from '@/components/stock/restock-sheet';
 import { Button, Icon, IconBadge, Pill, Screen, Skeleton } from '@/components/ui';
@@ -52,7 +53,7 @@ export default function HomeScreen() {
     ...(managesProducts && products.length > 0
       ? [{ key: 'add', icon: 'add_box' as AndroidSymbol, label: t('home.tiles.add'), onPress: () => router.push('/product/new') }]
       : []),
-    { key: 'sales', icon: 'receipt_long', label: t('home.tiles.sales'), onPress: () => router.push('/(tabs)/sales') },
+    { key: 'sales', icon: 'receipt_long', label: t('home.tiles.sales'), onPress: () => router.push('/sales') },
   ];
 
   // The one thing to act on now: something expired or expiring beats running low.
@@ -72,7 +73,7 @@ export default function HomeScreen() {
       }
     >
       <PressScale
-        onPress={() => router.push('/(tabs)/sales')}
+        onPress={() => router.push('/sales')}
         accessibilityLabel={[
           `${t('home.today.salesToday')}: ${formatKwacha(totals.salesTotal)}`,
           t(totals.saleCount === 1 ? 'home.today.countOne' : 'home.today.countMany', { count: totals.saleCount }),
@@ -120,6 +121,8 @@ export default function HomeScreen() {
 
       {/* Losing changes is the one backup problem too important to keep behind the cloud. */}
       {backupExpired ? <SyncProblemBanner /> : null}
+
+      <NotificationPrompt />
 
       <View style={styles.tiles}>
         {tiles.map((tile) => (
@@ -218,6 +221,7 @@ export default function HomeScreen() {
         initialVariantId={restocking?.variantId}
         onClose={() => setRestocking(null)}
         onSaved={() => {
+          // The sheet already told notifications; this only refreshes the cards.
           reloadAlerts();
           reloadProducts();
         }}

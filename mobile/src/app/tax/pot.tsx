@@ -11,6 +11,7 @@ import { useTaxPot } from '@/db/hooks';
 import { payTaxPot, topUpTaxPot } from '@/db/repos';
 import { taxRules } from '@/data/fake';
 import { useI18n } from '@/i18n';
+import { useNotifications } from '@/notifications/provider';
 import { formatDay, formatKwacha } from '@/lib/format';
 import { useFlash } from '@/lib/use-flash';
 import { colors, fonts, iconSize, spacing, themed, touch, typeScale } from '@/theme/tokens';
@@ -24,6 +25,7 @@ export default function TaxPotScreen() {
   const router = useRouter();
   const db = useSQLiteContext();
   const { data, loading, error, reload } = useTaxPot();
+  const { afterTaxChange } = useNotifications();
 
   // null means "show the suggestion"; the owner's typing replaces it.
   const [draft, setDraft] = useState<string | null>(null);
@@ -43,6 +45,8 @@ export default function TaxPotScreen() {
     setMessage(null);
     try {
       await action();
+      // The pot changed, so the due-day reminder may now be needed or not.
+      afterTaxChange();
       reload();
     } catch (cause) {
       setActionError(cause instanceof Error ? cause.message : 'Something went wrong');

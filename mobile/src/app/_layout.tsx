@@ -11,6 +11,7 @@ import { Button } from '@/components/ui';
 import { canAccessScreen } from '@/core';
 import { DatabaseProvider } from '@/db/provider';
 import { I18nProvider, useI18n } from '@/i18n';
+import { NotificationsProvider } from '@/notifications/provider';
 import { colors, spacing, themed, typeScale, useScheme } from '@/theme/tokens';
 
 // The database is initialised once here, before any screen renders, so screens
@@ -21,8 +22,10 @@ export default function RootLayout() {
       <DatabaseProvider>
         <I18nProvider>
           <AuthProvider>
-            <ThemedStatusBar />
-            <AppShell />
+            <NotificationsProvider>
+              <ThemedStatusBar />
+              <AppShell />
+            </NotificationsProvider>
           </AuthProvider>
         </I18nProvider>
       </DatabaseProvider>
@@ -216,6 +219,7 @@ function RootNavigator() {
 
       <Stack.Protected guard={signedIn && onboardingComplete}>
         <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="sales" />
         <Stack.Screen name="sale/[id]" />
       </Stack.Protected>
 

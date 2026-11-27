@@ -62,8 +62,9 @@ export default function TabsLayout() {
     >
       {/*
         Two places each side of Sell, so Sell sits in the middle under the
-        thumb: Today, Stock | Sell | Money, Tax. Sales is still a route, reached
-        from Home, but kept off the bar.
+        thumb: Today, Stock | Sell | Money, Tax. The sales list is a stack
+        screen (app/sales.tsx), not a tab: expo-router now redirects any
+        navigation to an `href: null` tab back to Today.
       */}
       <Tabs.Screen
           name="index"
@@ -96,7 +97,6 @@ export default function TabsLayout() {
             tabBarIcon: ({ color, focused }) => <TabIcon name="payments" color={color} focused={focused} />,
           }}
         />
-      <Tabs.Screen name="sales" options={{ href: null, title: t('nav.sales') }} />
       {/*
         The same matrix that hides the tax controls also protects the tab, so a
         staff deep link to /tax is not registered and falls back to an available

@@ -10,6 +10,7 @@ import { Button, Choice, FormError, Icon, TextLink } from '@/components/ui';
 import { variantLabel } from '@/core';
 import { restockVariant, type ProductWithStock } from '@/db/repos';
 import { useI18n } from '@/i18n';
+import { useNotifications } from '@/notifications/provider';
 import { colors, fonts, iconSize, radii, spacing, themed, touch, typeScale } from '@/theme/tokens';
 
 const STEPS = [1, 5, 10, 20];
@@ -36,6 +37,7 @@ export function RestockSheet({
   const db = useSQLiteContext();
   const router = useRouter();
   const guard = usePermissionGuard();
+  const { afterRestock } = useNotifications();
   const [variantId, setVariantId] = useState<string | undefined>();
   const [draft, setDraft] = useState(0);
   const [saving, setSaving] = useState(false);
@@ -84,6 +86,7 @@ export function RestockSheet({
     setSaving(true);
     try {
       const result = await restockVariant(db, { variantId: variant.id, quantity: draft });
+      afterRestock();
       onSaved?.({ variantId: variant.id, added: result.quantityAdded, onHand: result.quantityOnHand });
       onClose();
     } catch (e) {

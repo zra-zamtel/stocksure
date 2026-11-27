@@ -43,6 +43,7 @@ import {
   type StockShortfall,
 } from '@/db/repos';
 import { useI18n } from '@/i18n';
+import { useNotifications } from '@/notifications/provider';
 import { formatKwacha } from '@/lib/format';
 import { colors, fonts, iconSize, radii, spacing, themed, touch, typeScale } from '@/theme/tokens';
 
@@ -61,6 +62,7 @@ export default function NewSaleScreen() {
   const router = useRouter();
   const db = useSQLiteContext();
   const { user, can } = useAuth();
+  const { afterSale } = useNotifications();
   const guard = usePermissionGuard();
   const { data: products, initialLoading, error: loadError, reload: reloadProducts } = useProducts();
   const { data: shop } = useShop();
@@ -355,6 +357,8 @@ export default function NewSaleScreen() {
           // The sale is saved; checking money can still pair it later.
         }
       }
+      // After any reconcile above, so the alert and reminders see the saved sale.
+      afterSale();
       setSheetOpen(false);
       setDone({ saleId: result.saleId, total: priced.total, method: via.method });
       setQuantityByVariant({});
