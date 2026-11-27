@@ -35,6 +35,7 @@ import {
   saveCashCount,
   saveMoneySettings,
   saveShopDetails,
+  setProductPhoto,
   setVariantBarcode,
   taxSnapshot,
   topUpTaxPot,
@@ -858,6 +859,43 @@ describe('IT-VAR products with several variants', () => {
     } finally {
       old.close();
     }
+  });
+});
+
+describe('IT-PHOTO product photos', () => {
+  it('IT-PHOTO-01 saves a photo with a new product and reads it back', async () => {
+    await shop();
+    const { productId } = await createProductWithVariants(db, {
+      name: 'Dress',
+      photoUri: 'file:///data/product-photos/p1.jpg',
+      variants: [{ attributes: [], buyPrice: 10000, sellPrice: 15000, openingQuantity: 5 }],
+    });
+    const listed = (await listProductsWithStock(db)).find((item) => item.id === productId);
+    expect(listed?.photoUri).toBe('file:///data/product-photos/p1.jpg');
+    const queued = await db.getFirstAsync<{ payload: string }>(
+      "SELECT payload FROM sync_queue WHERE entity = 'product' AND entity_id = ?",
+      productId
+    );
+    expect(JSON.parse(queued?.payload ?? '{}')).toMatchObject({ photoUri: 'file:///data/product-photos/p1.jpg' });
+  });
+
+  it('IT-PHOTO-02 adds a photo later and syncs only that change', async () => {
+    await shop();
+    const { productId } = await product(2);
+    expect((await listProductsWithStock(db)).find((item) => item.id === productId)?.photoUri).toBeUndefined();
+
+    await setProductPhoto(db, productId, ' file:///x/p2.jpg ');
+    expect((await listProductsWithStock(db)).find((item) => item.id === productId)?.photoUri).toBe('file:///x/p2.jpg');
+    const update = await db.getFirstAsync<{ payload: string }>(
+      "SELECT payload FROM sync_queue WHERE entity = 'product' AND operation = 'update' AND entity_id = ?",
+      productId
+    );
+    const payload = JSON.parse(update?.payload ?? '{}');
+    expect(payload).toMatchObject({ id: productId, photoUri: 'file:///x/p2.jpg' });
+    expect(payload).not.toHaveProperty('name');
+
+    await expect(setProductPhoto(db, productId, '  ')).rejects.toThrow('No photo');
+    await expect(setProductPhoto(db, 'missing', 'file:///y.jpg')).rejects.toThrow('not found');
   });
 });
 

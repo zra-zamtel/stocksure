@@ -77,6 +77,8 @@ export interface ProductWithStock {
   /** 'piece' for products saved before units existed. */
   unit: string;
   saleWarning?: string;
+  /** A photo saved on this phone (file URI); absent until the owner takes one. */
+  photoUri?: string;
   stock: number;
   variants: VariantWithStock[];
 }
@@ -90,6 +92,7 @@ interface ProductRow {
   discountJson: string | null;
   unit: string | null;
   saleWarning: string | null;
+  photoUri: string | null;
   variantId: string | null;
   size: string | null;
   colour: string | null;
@@ -119,7 +122,7 @@ export async function listProductsWithStock(db: SQLiteDatabase): Promise<Product
             p.default_buy_price AS defaultBuyPrice,
             p.default_sell_price AS defaultSellPrice,
             p.discount_json AS discountJson,
-            p.unit, p.sale_warning AS saleWarning,
+            p.unit, p.sale_warning AS saleWarning, p.photo_uri AS photoUri,
             v.id AS variantId, v.size, v.colour, v.attributes_json AS attributesJson, v.barcode,
             v.buy_price AS buyPrice, v.sell_price AS sellPrice,
             v.low_stock_level AS lowStockLevel,
@@ -144,6 +147,7 @@ export async function listProductsWithStock(db: SQLiteDatabase): Promise<Product
         discount: parseDiscount(row.discountJson),
         unit: row.unit || DEFAULT_UNIT,
         saleWarning: row.saleWarning ?? undefined,
+        photoUri: row.photoUri ?? undefined,
         stock: 0,
         variants: [],
       };
@@ -1276,6 +1280,8 @@ export interface CreateProductWithVariantsInput {
   unit?: string;
   /** e.g. 'Rx only' or '18+'; confirmed before each sale. */
   saleWarning?: string;
+  /** A photo already saved on this phone (see lib/photos). */
+  photoUri?: string;
   variants: VariantInput[];
 }
 
@@ -1362,14 +1368,15 @@ export async function createProductWithVariants(
   const category = input.category?.trim() || null;
   const unit = input.unit?.trim() || DEFAULT_UNIT;
   const saleWarning = input.saleWarning?.trim() || null;
+  const photoUri = input.photoUri?.trim() || null;
   // The product's default prices are the first variant's, as before.
   const [first] = variants;
 
   await db.withTransactionAsync(async () => {
     await db.runAsync(
       `INSERT INTO product (id, name, category, default_buy_price, default_sell_price, unit, sale_warning,
-         created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         photo_uri, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       productId,
       name,
       category,
@@ -1377,6 +1384,7 @@ export async function createProductWithVariants(
       first.sellPrice,
       unit,
       saleWarning,
+      photoUri,
       stamp,
       stamp
     );
@@ -1388,6 +1396,7 @@ export async function createProductWithVariants(
       defaultSellPrice: first.sellPrice,
       unit,
       saleWarning,
+      photoUri,
       createdAt: stamp,
       updatedAt: stamp,
     });
@@ -1531,6 +1540,23 @@ async function autoBarcode(db: SQLiteDatabase, taken: Set<string> = new Set()): 
     if (!clash) return candidate;
   }
   throw new Error('Could not allocate a unique barcode');
+}
+
+/**
+ * Puts a photo on a product (or replaces it). The file stays on this phone;
+ * the sync carries only its path, so another phone keeps showing the tile.
+ */
+export async function setProductPhoto(db: SQLiteDatabase, productId: string, photoUri: string): Promise<void> {
+  const uri = photoUri.trim();
+  if (!uri) throw new Error('No photo to save');
+  const product = await db.getFirstAsync<{ id: string }>('SELECT id FROM product WHERE id = ?', productId);
+  if (!product) throw new Error('Product not found');
+  const stamp = nowIso();
+  await db.withTransactionAsync(async () => {
+    await db.runAsync('UPDATE product SET photo_uri = ?, updated_at = ? WHERE id = ?', uri, stamp, productId);
+    // Only what changed: the server applies product updates as partial changes.
+    await enqueueSync(db, 'product', productId, 'update', { id: productId, photoUri: uri, updatedAt: stamp });
+  });
 }
 
 /** Adds a barcode to a product that was created without one. */

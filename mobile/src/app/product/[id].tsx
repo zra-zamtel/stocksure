@@ -3,8 +3,10 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { useAuth } from '@/auth/session';
 import { usePermissionGuard } from '@/auth/permissions';
 import { Notice } from '@/components/auth';
+import { ProductTile } from '@/components/big-ui';
 import {
   Button,
   Card,
@@ -12,6 +14,7 @@ import {
   EmptyState,
   ErrorState,
   Field,
+  FormError,
   Icon,
   LoadingList,
   Pill,
@@ -32,11 +35,12 @@ import {
   variantLabel,
 } from '@/core';
 import { useMovements, useProducts, useShop } from '@/db/hooks';
-import { restockVariant, setVariantBarcode, type MovementRow } from '@/db/repos';
+import { restockVariant, setProductPhoto, setVariantBarcode, type MovementRow } from '@/db/repos';
 import { useI18n } from '@/i18n';
 import { formatDay, formatKwacha, formatTime, localDayKey } from '@/lib/format';
 import { labelHtml } from '@/lib/label';
-import { colors, fonts, iconSize, spacing, themed, typeScale } from '@/theme/tokens';
+import { discardPhoto, takeProductPhoto } from '@/lib/photos';
+import { colors, fonts, iconSize, spacing, themed, touch, typeScale } from '@/theme/tokens';
 
 /**
  * Newest first, with the stock level right after each change, worked back
@@ -58,6 +62,7 @@ export default function ProductScreen() {
   const { t } = useI18n();
   const db = useSQLiteContext();
   const guard = usePermissionGuard();
+  const { can } = useAuth();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { data: products, loading, error, reload: reloadProducts } = useProducts();
   const { data: shop } = useShop();
@@ -79,6 +84,9 @@ export default function ProductScreen() {
   const [message, setMessage] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // Which photo button is working, so only that one shows its spinner.
+  const [photoBusy, setPhotoBusy] = useState<'camera' | 'library' | null>(null);
+  const [photoError, setPhotoError] = useState<string | null>(null);
 
   const buyPrice = priceDraft ?? (selectedVariant ? (selectedVariant.buyPrice / 100).toFixed(2) : '');
   const profile = profileForShop(shop);
@@ -131,6 +139,33 @@ export default function ProductScreen() {
       setSubmitError(cause instanceof Error ? cause.message : 'Could not restock');
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function handlePhoto(source: 'camera' | 'library') {
+    if (!product || photoBusy) return;
+    setPhotoError(null);
+    try {
+      guard('products.manage');
+    } catch {
+      setPhotoError(t('permission.denied'));
+      return;
+    }
+    setPhotoBusy(source);
+    try {
+      const result = await takeProductPhoto(source, product.name);
+      if (result.status === 'saved') {
+        const previous = product.photoUri;
+        await setProductPhoto(db, product.id, result.uri);
+        discardPhoto(previous);
+        reloadProducts();
+      } else if (result.status === 'denied') {
+        setPhotoError(t('product.photo.denied'));
+      }
+    } catch (cause) {
+      setPhotoError(cause instanceof Error ? cause.message : 'Could not save the photo');
+    } finally {
+      setPhotoBusy(null);
     }
   }
 
@@ -210,6 +245,38 @@ export default function ProductScreen() {
 
   return (
     <Screen back title={product.name} subtitle={product.category}>
+      <View style={styles.pictureRow}>
+        <ProductTile
+          id={product.id}
+          name={product.name}
+          category={product.category}
+          photoUri={product.photoUri}
+          size={touch.big * 2}
+        />
+        {can('products.manage') ? (
+          // Wraps under the picture on narrow phones instead of squeezing the labels.
+          <View style={styles.photoButtons}>
+            <Button
+              label={product.photoUri ? t('product.photo.retake') : t('product.photo.take')}
+              icon="photo_camera"
+              variant="secondary"
+              disabled={photoBusy !== null}
+              loading={photoBusy === 'camera'}
+              onPress={() => handlePhoto('camera')}
+            />
+            <Button
+              label={t('product.photo.gallery')}
+              icon="photo_library"
+              variant="secondary"
+              disabled={photoBusy !== null}
+              loading={photoBusy === 'library'}
+              onPress={() => handlePhoto('library')}
+            />
+          </View>
+        ) : null}
+      </View>
+      {photoError ? <FormError message={photoError} /> : null}
+
       <View style={styles.stats}>
         <StatTile value={formatKwacha(product.defaultSellPrice)} label={t('products.sellPrice')} />
         <StatTile
@@ -406,6 +473,8 @@ const styles = themed(() => StyleSheet.create({
   muted: { fontSize: typeScale.label, color: colors.textMuted },
   choices: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   stats: { flexDirection: 'row', gap: spacing.sm },
+  pictureRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.md },
+  photoButtons: { flexGrow: 1, flexBasis: 160, gap: spacing.sm },
   movement: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 44 },
   movementText: { flex: 1, gap: 2 },
   movementLabel: { fontSize: typeScale.body, color: colors.text },

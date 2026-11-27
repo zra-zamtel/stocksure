@@ -2,17 +2,15 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '@/auth/session';
+import { RestockSheet } from '@/components/stock/restock-sheet';
+import { StockCard } from '@/components/stock/stock-card';
 import {
   Button,
   Choice,
   EmptyState,
   ErrorState,
-  Icon,
   IconButton,
-  ListGroup,
-  ListRow,
   LoadingList,
-  Pill,
   Screen,
   SearchField,
   StatTile,
@@ -21,7 +19,6 @@ import { expiryStatus, profileForShop, todayLocal } from '@/core';
 import { useProducts, useShop } from '@/db/hooks';
 import type { ProductWithStock } from '@/db/repos';
 import { useI18n } from '@/i18n';
-import { formatKwacha } from '@/lib/format';
 import { colors, fonts, spacing, themed, typeScale } from '@/theme/tokens';
 
 type Filter = 'all' | 'low' | 'out' | 'expiring';
@@ -34,6 +31,9 @@ function isExpiring(product: ProductWithStock, today: string): boolean {
   });
 }
 
+// Out first, then low: what needs restocking is at the top.
+const STATE_ORDER = { out: 0, low: 1, ok: 2 } as const;
+
 function worstState(product: ProductWithStock): 'ok' | 'low' | 'out' {
   return product.variants.reduce<'ok' | 'low' | 'out'>((worst, variant) => {
     if (variant.state === 'out') return 'out';
@@ -44,8 +44,7 @@ function worstState(product: ProductWithStock): 'ok' | 'low' | 'out' {
 
 /**
  * The stock list. Three counts at the top double as filters, so "what is
- * running out?" is one tap. Each product is a single row; tapping it opens the
- * product, where restocking lives.
+ * running out?" is one tap. Each product is a card; owners tap one to add stock.
  */
 export default function ProductsScreen() {
   const { t } = useI18n();
@@ -56,11 +55,18 @@ export default function ProductsScreen() {
   const [query, setQuery] = useState('');
   // Home's "N more" opens the list already narrowed to what it was about.
   const { filter: initialFilter } = useLocalSearchParams<{ filter?: string }>();
-  const [filter, setFilter] = useState<Filter>(
-    initialFilter === 'low' || initialFilter === 'out' || initialFilter === 'expiring' ? initialFilter : 'all'
-  );
+  const asFilter = (value?: string): Filter =>
+    value === 'low' || value === 'out' || value === 'expiring' ? value : 'all';
+  const [filter, setFilter] = useState<Filter>(asFilter(initialFilter));
+  // The tab stays mounted, so a later "See stock" from Home must still apply.
+  const [seenFilter, setSeenFilter] = useState(initialFilter);
+  if (initialFilter !== seenFilter) {
+    setSeenFilter(initialFilter);
+    if (initialFilter) setFilter(asFilter(initialFilter));
+  }
   // null = every category.
   const [category, setCategory] = useState<string | null>(null);
+  const [restocking, setRestocking] = useState<ProductWithStock | null>(null);
 
   const profile = profileForShop(shop);
   const showsExpiry = profile.modules.includes('expiry');
@@ -185,6 +191,8 @@ export default function ProductsScreen() {
         ) : null}
       </View>
 
+      {managesProducts ? <Text style={styles.ask}>{t('stock.ask')}</Text> : null}
+
       {categories.length > 1 ? (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categories}>
           <Choice label={t('products.category.all')} selected={category === null} onPress={() => setCategory(null)} />
@@ -215,62 +223,41 @@ export default function ProductsScreen() {
             secondary={{ label: t('products.noMatch.clear'), icon: 'close', onPress: () => setQuery('') }}
           />
         ) : (
-          <View style={styles.empty}>
-            <Icon name="inventory_2" size={40} color={colors.border} />
-            <Text style={styles.emptyText}>{t('products.noMatch')}</Text>
-          </View>
+          <EmptyState
+            icon="inventory_2"
+            message={t('products.noMatch')}
+            secondary={{
+              label: t('products.showAll'),
+              icon: 'apps',
+              onPress: () => {
+                setFilter('all');
+                setCategory(null);
+              },
+            }}
+          />
         )
       ) : null}
 
       {visible.length > 0 ? (
-        <ListGroup>
-          {visible.map((product, index) => {
-            const state = states.get(product.id) ?? 'ok';
-            const barcode = product.variants.find((variant) => variant.barcode)?.barcode;
-            const meta = [
-              product.variants.length > 1
-                ? t('products.variantCount', { count: product.variants.length })
-                : null,
-              product.category,
-              barcode,
-            ]
-              .filter(Boolean)
-              .join(' · ');
-            // One scheme everywhere: red = out, amber = low (at or under the
-            // product's own low-stock level), no colour = fine.
-            const stockLabel =
-              state === 'out'
-                ? t('products.filter.out')
-                : state === 'low'
-                  ? t('products.lowLeft', { count: product.stock })
-                  : t('products.stockCount', { count: product.stock });
-            return (
-              <ListRow
+        <View style={styles.grid}>
+          {[...visible]
+            .sort(
+              (a, b) =>
+                STATE_ORDER[states.get(a.id) ?? 'ok'] - STATE_ORDER[states.get(b.id) ?? 'ok'] ||
+                a.name.localeCompare(b.name)
+            )
+            .map((product) => (
+              <StockCard
                 key={product.id}
-                last={index === visible.length - 1}
-                title={product.name}
-                meta={meta || null}
-                right={
-                  <>
-                    <Text style={styles.price} numberOfLines={1}>
-                      {formatKwacha(product.defaultSellPrice)}
-                    </Text>
-                    {state === 'ok' ? (
-                      <Text style={styles.stock} numberOfLines={1}>
-                        {stockLabel}
-                      </Text>
-                    ) : (
-                      <Pill label={stockLabel} tone={state === 'out' ? 'danger' : 'warning'} />
-                    )}
-                  </>
-                }
-                accessibilityLabel={`${product.name}, ${formatKwacha(product.defaultSellPrice)}, ${stockLabel}`}
-                onPress={managesProducts ? () => router.push(`/product/${product.id}`) : undefined}
+                product={product}
+                state={states.get(product.id) ?? 'ok'}
+                onPress={managesProducts ? () => setRestocking(product) : undefined}
               />
-            );
-          })}
-        </ListGroup>
+            ))}
+        </View>
       ) : null}
+
+      <RestockSheet product={restocking} onClose={() => setRestocking(null)} onSaved={reload} />
     </Screen>
   );
 }
@@ -278,21 +265,6 @@ export default function ProductsScreen() {
 const styles = themed(() => StyleSheet.create({
   counts: { flexDirection: 'row', gap: spacing.sm },
   categories: { flexDirection: 'row', gap: spacing.sm },
-  stock: { fontSize: typeScale.label, color: colors.textMuted, fontVariant: ['tabular-nums'] },
-  price: {
-    fontFamily: fonts.display,
-    fontSize: typeScale.body,
-    color: colors.text,
-    fontVariant: ['tabular-nums'],
-  },
-  empty: {
-    alignItems: 'center',
-    gap: spacing.sm,
-    paddingVertical: spacing.xxl,
-  },
-  emptyText: {
-    fontSize: typeScale.body,
-    color: colors.textMuted,
-    textAlign: 'center',
-  },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  ask: { fontFamily: fonts.display, fontSize: typeScale.heading, color: colors.text },
 }));

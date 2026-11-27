@@ -12,6 +12,7 @@ export function PickTile({
   productId,
   productName,
   category,
+  photoUri,
   label,
   price,
   onHand,
@@ -25,6 +26,8 @@ export function PickTile({
   /** Product name: picks the category icon when category is missing. */
   productName: string;
   category?: string | null;
+  /** The product photo, when one has been taken. */
+  photoUri?: string | null;
   /** What the cashier sees, e.g. "Castle Lager · Crate". */
   label: string;
   /** Sell price in ngwee (integer). */
@@ -66,7 +69,7 @@ export function PickTile({
       style={[styles.tile, inBasket && styles.tileSelected, quantity >= max && styles.tileFull]}
     >
       <View style={styles.top}>
-        <ProductTile id={productId} name={productName} category={category} size={touch.big + spacing.lg} />
+        <ProductTile id={productId} name={productName} category={category} photoUri={photoUri} size={touch.big + spacing.lg} />
         {inBasket ? (
           <View style={styles.badge}>
             <Text style={styles.badgeText}>{quantity}</Text>

@@ -20,7 +20,10 @@ export function VariantDraftCard({
   usesExpiry,
   usesBatch,
   lowStockDefault,
+  extrasOnly = false,
 }: {
+  /** Leave out prices and opening stock: the step-by-step form asked for them already. */
+  extrasOnly?: boolean;
   draft: DraftVariant;
   onChange: (next: DraftVariant) => void;
   /** Shown only when there is more than one row. */
@@ -85,6 +88,8 @@ export function VariantDraftCard({
         />
       ) : null}
 
+      {extrasOnly ? null : (
+      <>
       <Field
         label={t('products.buyPrice')}
         value={draft.buyPrice}
@@ -120,6 +125,8 @@ export function VariantDraftCard({
         keyboardType="numeric"
         required
       />
+      </>
+      )}
       <Field
         label={t('product.new.lowStock')}
         value={draft.lowStock}

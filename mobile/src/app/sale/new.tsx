@@ -473,6 +473,7 @@ export default function NewSaleScreen() {
               productId={product.id}
               productName={product.name}
               category={product.category}
+              photoUri={product.photoUri}
               label={variantLabel(product.name, variant)}
               price={variant.sellPrice}
               onHand={variant.quantity}

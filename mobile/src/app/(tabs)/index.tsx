@@ -1,5 +1,6 @@
 import { useRouter } from 'expo-router';
 import type { AndroidSymbol } from 'expo-symbols';
+import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '@/auth/session';
 import { displayName } from '@/components/auth';
@@ -7,9 +8,11 @@ import { BackupStatusButton, useBackupState } from '@/components/backup-status';
 import { BigTile, PressScale, ProductTile } from '@/components/big-ui';
 import { SyncProblemBanner } from '@/components/connect-device';
 import { ProfileMenu } from '@/components/profile-menu';
+import { RestockSheet } from '@/components/stock/restock-sheet';
 import { Button, Icon, IconBadge, Pill, Screen, Skeleton } from '@/components/ui';
 import { profileForShop, todayLocal } from '@/core';
 import { useDayTotals, useExpiring, useLowStock, useProducts, useShop } from '@/db/hooks';
+import type { ProductWithStock } from '@/db/repos';
 import { useI18n } from '@/i18n';
 import { formatDay, formatKwacha } from '@/lib/format';
 import { colors, elevation, fonts, iconSize, radii, spacing, themed, touch, typeScale } from '@/theme/tokens';
@@ -27,8 +30,10 @@ export default function HomeScreen() {
   const router = useRouter();
   const { user, can } = useAuth();
   const { data: totals, initialLoading: totalsLoading } = useDayTotals();
-  const { data: alerts, initialLoading: alertsLoading } = useLowStock();
-  const { data: products, initialLoading: productsLoading } = useProducts();
+  const { data: alerts, initialLoading: alertsLoading, reload: reloadAlerts } = useLowStock();
+  const { data: products, initialLoading: productsLoading, reload: reloadProducts } = useProducts();
+  // Restock happens right here in a sheet; nothing is saved until its Add button.
+  const [restocking, setRestocking] = useState<{ product: ProductWithStock; variantId: string } | null>(null);
   const { data: shopRecord } = useShop();
   const { data: expiring } = useExpiring();
   const { expired: backupExpired } = useBackupState();
@@ -141,6 +146,7 @@ export default function HomeScreen() {
               id={urgentExpiry.productId}
               name={urgentExpiry.label}
               category={productById.get(urgentExpiry.productId)?.category}
+              photoUri={productById.get(urgentExpiry.productId)?.photoUri}
             />
             <View style={styles.cardBody}>
               <Text style={styles.cardTitle} numberOfLines={2}>
@@ -172,6 +178,7 @@ export default function HomeScreen() {
               id={urgentStock.productId}
               name={urgentStock.label}
               category={productById.get(urgentStock.productId)?.category}
+              photoUri={productById.get(urgentStock.productId)?.photoUri}
             />
             <View style={styles.cardBody}>
               <Text style={styles.cardTitle} numberOfLines={2}>
@@ -188,7 +195,11 @@ export default function HomeScreen() {
             <Button
               label={t('home.alert.restock')}
               icon="inventory"
-              onPress={() => router.push(`/product/${urgentStock.productId}`)}
+              onPress={() => {
+                const product = productById.get(urgentStock.productId);
+                if (product) setRestocking({ product, variantId: urgentStock.variantId });
+                else router.push(`/product/${urgentStock.productId}`);
+              }}
             />
           ) : (
             <SeeStockButton filter={urgentStock.quantity <= 0 ? 'out' : 'low'} />
@@ -201,6 +212,16 @@ export default function HomeScreen() {
           <Text style={[styles.cardText, styles.allGood]}>{t('home.alert.allGood')}</Text>
         </View>
       )}
+
+      <RestockSheet
+        product={restocking?.product ?? null}
+        initialVariantId={restocking?.variantId}
+        onClose={() => setRestocking(null)}
+        onSaved={() => {
+          reloadAlerts();
+          reloadProducts();
+        }}
+      />
     </Screen>
   );
 }
