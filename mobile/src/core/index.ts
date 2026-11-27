@@ -12,3 +12,4 @@ export * from './plan';
 export * from './insights';
 export * from './momo-message';
 export * from './profiles';
+export * from './product-fields';

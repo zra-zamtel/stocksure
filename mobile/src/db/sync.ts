@@ -163,6 +163,8 @@ function mapProduct(p: JsonRecord): JsonRecord {
     default_buy_price: integer(p.defaultBuyPrice),
     default_sell_price: integer(p.defaultSellPrice),
     discount_json: json(p.discountJson),
+    unit: text(p.unit),
+    sale_warning: text(p.saleWarning ?? p.sale_warning),
     created_at: text(p.createdAt),
     updated_at: text(p.updatedAt),
   };
@@ -178,6 +180,8 @@ function mapVariant(p: JsonRecord): JsonRecord {
     buy_price: integer(p.buyPrice),
     sell_price: integer(p.sellPrice),
     low_stock_level: integer(p.lowStockLevel),
+    expiry_date: text(p.expiryDate ?? p.expiry_date),
+    batch_no: text(p.batchNo ?? p.batch_no),
     created_at: text(p.createdAt),
     updated_at: text(p.updatedAt),
   };

@@ -15,6 +15,11 @@
 > then stop and report what changed. Do not start Slice 2 in the same pass
 > unless the human explicitly asks for it.
 
+> **Scope cut (27 Nov 2026):** the `salon` and `hardware` profiles and the
+> service mode (`track_stock`, the "Service" pill, skipping stock for services)
+> are out of this phase. Seven profiles ship. Where this plan still mentions
+> them (sections 2.1, 3.3, 4.2, 7, 9.2, 10, 13), skip those parts.
+
 ---
 
 ## 0. TL;DR for the building agent

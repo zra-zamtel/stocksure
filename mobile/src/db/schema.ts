@@ -303,4 +303,16 @@ export const migrations: string[] = [
   END
   WHERE profile_id IS NULL;
   `,
+
+  // v11 - fields some trades need. unit is how the item is counted (NULL on
+  // older rows reads as 'piece'); sale_warning ('Rx only', '18+') is confirmed
+  // before a sale. Expiry and batch sit on the variant, so each pack size can
+  // carry its own.
+  `
+  ALTER TABLE product ADD COLUMN unit TEXT;
+  ALTER TABLE product ADD COLUMN sale_warning TEXT;
+
+  ALTER TABLE product_variant ADD COLUMN expiry_date TEXT;
+  ALTER TABLE product_variant ADD COLUMN batch_no TEXT;
+  `,
 ];

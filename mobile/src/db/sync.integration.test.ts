@@ -227,6 +227,67 @@ describe('IT-SYNC pull and apply', () => {
     expect(shop?.profile_id).toBe('bar');
   });
 
+  it('applies pulled product fields for unit, warning, expiry and batch', async () => {
+    await applyPulledChange(db, {
+      entity: 'shop',
+      entityId: 'shop_1',
+      operation: 'create',
+      payload: { id: 'shop_1', name: 'Glow', type: 'other', profileId: 'health_beauty', town: 'Kabwe', providers: [], createdAt: NOW, updatedAt: NOW },
+      cursor: '1',
+      clientCreatedAt: NOW,
+    });
+    await applyPulledChange(db, {
+      entity: 'product',
+      entityId: 'prod_1',
+      operation: 'create',
+      payload: {
+        id: 'prod_1',
+        name: 'Amoxil',
+        defaultBuyPrice: 1000,
+        defaultSellPrice: 2000,
+        unit: 'strip',
+        sale_warning: 'Rx only',
+        createdAt: NOW,
+        updatedAt: NOW,
+      },
+      cursor: '2',
+      clientCreatedAt: NOW,
+    });
+    await applyPulledChange(db, {
+      entity: 'product_variant',
+      entityId: 'var_1',
+      operation: 'create',
+      payload: {
+        id: 'var_1',
+        productId: 'prod_1',
+        buyPrice: 1000,
+        sellPrice: 2000,
+        lowStockLevel: 1,
+        expiryDate: '2027-06-30',
+        batchNo: 'B12',
+        createdAt: NOW,
+        updatedAt: NOW,
+      },
+      cursor: '3',
+      clientCreatedAt: NOW,
+    });
+    // A later restock update sends only what changed; the rest stays.
+    await applyPulledChange(db, {
+      entity: 'product_variant',
+      entityId: 'var_1',
+      operation: 'update',
+      payload: { id: 'var_1', expiry_date: '2028-01-31', updatedAt: NOW },
+      cursor: '4',
+      clientCreatedAt: NOW,
+    });
+    expect(
+      await db.getFirstAsync('SELECT unit, sale_warning FROM product WHERE id = ?', 'prod_1')
+    ).toEqual({ unit: 'strip', sale_warning: 'Rx only' });
+    expect(
+      await db.getFirstAsync('SELECT expiry_date, batch_no, buy_price FROM product_variant WHERE id = ?', 'var_1')
+    ).toEqual({ expiry_date: '2028-01-31', batch_no: 'B12', buy_price: 1000 });
+  });
+
   it('applies a sale with its lines, payment and stock movement', async () => {
     const shop = {
       id: 'shop_1',

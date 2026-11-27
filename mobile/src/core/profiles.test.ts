@@ -7,7 +7,6 @@ import {
   PROFILE_BY_ID,
   legacyTypeForProfile,
   profileForShop,
-  shopUsesBarcodes,
   variantLabel,
 } from './profiles';
 import type { ShopType } from './types';
@@ -65,23 +64,6 @@ describe('shop profile catalogue', () => {
       expect(LEGACY_TYPES).toContain(legacyTypeForProfile(profile.id));
     }
     expect(legacyTypeForProfile('fashion')).toBe('clothes');
-  });
-});
-
-describe('barcodes by trade', () => {
-  it('leaves barcodes out only for trades that never scan (services)', () => {
-    const without = PROFILES.filter((profile) => !profile.barcodesAvailable).map((profile) => profile.id);
-    expect(without).toEqual(['salon']);
-    for (const profile of PROFILES) {
-      if (!profile.barcodesAvailable) expect(profile.barcodesDefault, profile.id).toBe(false);
-    }
-  });
-
-  it('needs both the trade and the owner to say yes', () => {
-    expect(shopUsesBarcodes('bar', true)).toBe(true);
-    expect(shopUsesBarcodes('bar', false)).toBe(false);
-    expect(shopUsesBarcodes('fashion', true)).toBe(true);
-    expect(shopUsesBarcodes('salon', true)).toBe(false);
   });
 });
 

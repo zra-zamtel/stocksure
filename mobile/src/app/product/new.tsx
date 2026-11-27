@@ -10,9 +10,12 @@ import { BarcodeLabel } from '@/components/barcode-label';
 import { Button, Card, Choice, Field, Screen, SectionTitle } from '@/components/ui';
 import {
   isValidEan13,
+  isValidIsoDate,
   normaliseBarcode,
   parsePrice,
   profileForShop,
+  SALE_WARNING_AGE,
+  SALE_WARNING_RX,
   sanitisePriceInput,
   type PriceError,
 } from '@/core';
@@ -44,12 +47,21 @@ export default function NewProductScreen() {
   // Values for the profile's variant axes, keyed by axis key (e.g. size, shade, pack).
   const [attributes, setAttributes] = useState<Record<string, string>>({});
   const [lowStock, setLowStock] = useState('');
+  // null until the owner picks one, so the profile's default applies once the shop loads.
+  const [unitDraft, setUnitDraft] = useState<string | null>(null);
+  const [expiryDate, setExpiryDate] = useState('');
+  const [batchNo, setBatchNo] = useState('');
+  const [saleWarning, setSaleWarning] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   const labelRef = useRef<ComponentRef<typeof View>>(null);
   const usesBarcodes = shop?.usesBarcodes ?? false;
+  const unit = unitDraft ?? profile.defaultUnit;
+  const usesExpiry = profile.modules.includes('expiry');
+  const usesBatch = profile.modules.includes('batch');
+  const usesSaleWarning = profile.modules.includes('saleWarning');
   // Compare what will actually be saved: a 12-digit UPC-A is stored padded to EAN-13.
   const savedCode = barcode.trim() === '' ? '' : normaliseBarcode(barcode);
   const scannable = savedCode !== '' && isValidEan13(savedCode);
@@ -90,6 +102,7 @@ export default function NewProductScreen() {
     if (!sellResult.ok) return setError(priceMessage(t('products.sellPrice'), sellResult.error));
     if (!profile.uniqueItems && quantity.trim() === '') return setError(t('product.new.error.qty'));
     if (!Number.isInteger(opening) || opening < 0) return setError('Opening quantity must be a whole number');
+    if (usesExpiry && expiryDate.trim() && !isValidIsoDate(expiryDate)) return setError(t('product.new.error.expiry'));
     const buy = buyResult.ngwee;
     const sell = sellResult.ngwee;
     // The first two axes fill the legacy size/colour slots that sync and USSD read.
@@ -108,6 +121,10 @@ export default function NewProductScreen() {
         lowStockLevel: Number.parseInt(lowStock, 10) || shop?.lowStockDefault,
         size: first,
         colour: second,
+        unit,
+        saleWarning: usesSaleWarning ? saleWarning || undefined : undefined,
+        expiryDate: usesExpiry ? expiryDate.trim() || undefined : undefined,
+        batchNo: usesBatch ? batchNo.trim() || undefined : undefined,
       });
       if (onboarding) {
         // Return to the setup screen that opened this form, dismissing any
@@ -221,6 +238,34 @@ export default function NewProductScreen() {
             </View>
           </View>
         ))}
+        {profile.units.length > 1 ? (
+          <View style={styles.axis}>
+            <Text style={styles.label}>{t('product.new.unit')}</Text>
+            <View style={styles.chips}>
+              {profile.units.map((option) => (
+                <Choice key={option} label={option} selected={option === unit} onPress={() => setUnitDraft(option)} />
+              ))}
+            </View>
+          </View>
+        ) : null}
+        {usesSaleWarning ? (
+          <View style={styles.axis}>
+            <Text style={styles.label}>{t('product.new.saleWarning')}</Text>
+            <View style={styles.chips}>
+              <Choice label={t('product.new.saleWarning.none')} selected={saleWarning === ''} onPress={() => setSaleWarning('')} />
+              <Choice
+                label={t('product.new.saleWarning.rx')}
+                selected={saleWarning === SALE_WARNING_RX}
+                onPress={() => setSaleWarning(SALE_WARNING_RX)}
+              />
+              <Choice
+                label={t('product.new.saleWarning.age')}
+                selected={saleWarning === SALE_WARNING_AGE}
+                onPress={() => setSaleWarning(SALE_WARNING_AGE)}
+              />
+            </View>
+          </View>
+        ) : null}
         {usesBarcodes ? (
           <Field
             label={t('product.new.barcode')}
@@ -294,6 +339,26 @@ export default function NewProductScreen() {
           hint={t('product.new.lowStockHint')}
           keyboardType="numeric"
         />
+        {usesExpiry ? (
+          <Field
+            label={t('product.new.expiry')}
+            value={expiryDate}
+            onChangeText={(v) => setExpiryDate(v.replace(/[^\d-]/g, ''))}
+            placeholder="YYYY-MM-DD"
+            hint={t('product.new.expiryHint')}
+            maxLength={10}
+          />
+        ) : null}
+        {usesBatch ? (
+          <Field
+            label={t('product.new.batch')}
+            value={batchNo}
+            onChangeText={setBatchNo}
+            placeholder={t('common.optional')}
+            autoCapitalize="characters"
+            maxLength={60}
+          />
+        ) : null}
       </Card>
 
       {error ? <Text style={styles.error}>{error}</Text> : null}

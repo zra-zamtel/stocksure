@@ -20,7 +20,7 @@ import {
   SectionTitle,
   StatTile,
 } from '@/components/ui';
-import { isValidEan13, parsePrice, sanitisePriceInput, variantLabel } from '@/core';
+import { DEFAULT_UNIT, isExpired, isValidEan13, parsePrice, sanitisePriceInput, todayLocal, variantLabel } from '@/core';
 import { useMovements, useProducts, useShop } from '@/db/hooks';
 import { restockVariant, setVariantBarcode, type MovementRow } from '@/db/repos';
 import { useI18n } from '@/i18n';
@@ -236,6 +236,19 @@ export default function ProductScreen() {
                 }
               />
             </View>
+            {product.unit !== DEFAULT_UNIT ? <Row label={t('products.unit')} value={product.unit} /> : null}
+            {product.saleWarning ? <Row label={t('products.saleWarning')} value={product.saleWarning} /> : null}
+            {selectedVariant.expiryDate ? (
+              <Row
+                label={t('products.expiry')}
+                value={
+                  isExpired(selectedVariant.expiryDate, todayLocal())
+                    ? `${selectedVariant.expiryDate} · ${t('products.expired')}`
+                    : selectedVariant.expiryDate
+                }
+              />
+            ) : null}
+            {selectedVariant.batchNo ? <Row label={t('products.batch')} value={selectedVariant.batchNo} /> : null}
             {selectedVariant.barcode ? (
               <>
                 <Row label="Barcode" value={selectedVariant.barcode} />

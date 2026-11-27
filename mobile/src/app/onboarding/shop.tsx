@@ -6,7 +6,7 @@ import { useAuth } from '@/auth/session';
 import type { AndroidSymbol } from 'expo-symbols';
 import { Button, Field, FormError } from '@/components/ui';
 import { OptionCard, OptionGrid, SETUP_STEPS, SetupStep, StepSection } from '@/components/onboarding';
-import { PROFILE_BY_ID, PROFILES, profileForShop, type ProfileId } from '@/core';
+import { PROFILES, profileForShop, type ProfileId } from '@/core';
 import { useShop } from '@/db/hooks';
 import { saveShopDetails } from '@/db/repos';
 import { useI18n } from '@/i18n';
@@ -27,8 +27,6 @@ export default function ShopScreen() {
   const [nameError, setNameError] = useState<string | null>(null);
   const [townError, setTownError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  // Services (salon) never scan anything, so the barcode question is not asked.
-  const barcodesAvailable = PROFILE_BY_ID[profileId].barcodesAvailable;
 
   // Fill the form once from an existing shop (a resumed setup or an upgrade),
   // without overwriting edits when the focus hook refreshes.
@@ -53,7 +51,7 @@ export default function ShopScreen() {
 
     setSaving(true);
     try {
-      await saveShopDetails(db, { name, profileId, town, language, usesBarcodes: barcodesAvailable && usesBarcodes });
+      await saveShopDetails(db, { name, profileId, town, language, usesBarcodes });
       await refresh();
       router.push('/onboarding/plan');
     } catch (cause) {
@@ -121,27 +119,23 @@ export default function ShopScreen() {
         ))}
       </OptionGrid>
 
-      {barcodesAvailable ? (
-        <>
-          <StepSection>{t('onboarding.shop.howYouSell')}</StepSection>
-          <OptionGrid>
-            <OptionCard
-              icon="barcode_scanner"
-              title={t('onboarding.shop.barcodes.yes')}
-              caption={t('onboarding.shop.barcodes.yesCaption')}
-              selected={usesBarcodes}
-              onPress={() => setUsesBarcodes(true)}
-            />
-            <OptionCard
-              icon="list"
-              title={t('onboarding.shop.barcodes.no')}
-              caption={t('onboarding.shop.barcodes.noCaption')}
-              selected={!usesBarcodes}
-              onPress={() => setUsesBarcodes(false)}
-            />
-          </OptionGrid>
-        </>
-      ) : null}
+      <StepSection>{t('onboarding.shop.howYouSell')}</StepSection>
+      <OptionGrid>
+        <OptionCard
+          icon="barcode_scanner"
+          title={t('onboarding.shop.barcodes.yes')}
+          caption={t('onboarding.shop.barcodes.yesCaption')}
+          selected={usesBarcodes}
+          onPress={() => setUsesBarcodes(true)}
+        />
+        <OptionCard
+          icon="list"
+          title={t('onboarding.shop.barcodes.no')}
+          caption={t('onboarding.shop.barcodes.noCaption')}
+          selected={!usesBarcodes}
+          onPress={() => setUsesBarcodes(false)}
+        />
+      </OptionGrid>
 
       {error ? <FormError message={error} /> : null}
     </SetupStep>

@@ -20,6 +20,9 @@ class Shop(PhoneRecord):
     )
     name = models.CharField(max_length=150)
     type = models.CharField(max_length=20, default="other")
+    # The trade profile (fashion, health_beauty, bar...). Free text on purpose:
+    # a new trade on the phone must not need a server migration.
+    profile_id = models.CharField(max_length=30, default="general")
     town = models.CharField(max_length=80, blank=True)
     currency = models.CharField(max_length=3, default="ZMW")
     language = models.CharField(max_length=2, default="en")
@@ -45,6 +48,9 @@ class Product(PhoneRecord):
     default_buy_price = models.PositiveIntegerField(default=0)  # ngwee
     default_sell_price = models.PositiveIntegerField(default=0)  # ngwee
     discount_json = models.JSONField(null=True, blank=True)
+    unit = models.CharField(max_length=20, blank=True)
+    # Confirmed on the phone before a sale, e.g. "Rx only" or "18+".
+    sale_warning = models.CharField(max_length=60, blank=True)
 
     def __str__(self):
         return self.name
@@ -59,6 +65,8 @@ class ProductVariant(PhoneRecord):
     buy_price = models.PositiveIntegerField(default=0)  # ngwee
     sell_price = models.PositiveIntegerField(default=0)  # ngwee
     low_stock_level = models.PositiveIntegerField(default=3)
+    expiry_date = models.DateField(null=True, blank=True)
+    batch_no = models.CharField(max_length=60, blank=True)
 
     class Meta:
         constraints = [

@@ -27,11 +27,8 @@ export interface ShopProfile {
   captionKey: string;
   /** Value written to the legacy shop.type column. */
   legacyType: ShopType;
-  /** False when the trade never scans anything (services); the shop then has no barcode UI at all. */
-  barcodesAvailable: boolean;
-  /** Starting answer to "Does your shop use barcodes?". The owner can change it when available. */
+  /** Starting answer to "Does your shop use barcodes?". The owner can change it. */
   barcodesDefault: boolean;
-  trackStockDefault: boolean;
   /** Salaula: every piece is one-off, so quantity is always 1. */
   uniqueItems: boolean;
   axes: ProfileAxis[];
@@ -51,8 +48,6 @@ const BAR_PACKS = ['Bottle', 'Crate', 'Can', 'Shot'];
 const BAR_SIZES = ['330 ml', '500 ml', '750 ml', '1 L'];
 const GROCERY_SIZES = ['Single', '500 g', '1 kg', '2 kg', '5 kg'];
 const GROCERY_PACKS = ['Single', 'Pack of 6', 'Pack of 12'];
-const HARDWARE_SIZES = ['10 mm', '15 mm', '20 mm', '1 m', '2 m', '5 m'];
-const HARDWARE_UNITS = ['Piece', 'Metre', 'Kilogram', 'Bag', 'Roll'];
 const ELECTRONICS_STORAGE = ['32 GB', '64 GB', '128 GB', '256 GB', '512 GB'];
 const ELECTRONICS_COLOURS = ['Black', 'White', 'Blue', 'Silver'];
 
@@ -63,9 +58,7 @@ export const PROFILES: ShopProfile[] = [
     nameKey: 'profile.fashion',
     captionKey: 'profile.fashion.caption',
     legacyType: 'clothes',
-    barcodesAvailable: true,
     barcodesDefault: false,
-    trackStockDefault: true,
     uniqueItems: false,
     axes: [
       { key: 'size', labelKey: 'field.size', placeholder: 'M', quickPicks: CLOTHING_SIZES, maxLength: 20 },
@@ -83,9 +76,7 @@ export const PROFILES: ShopProfile[] = [
     nameKey: 'profile.salaula',
     captionKey: 'profile.salaula.caption',
     legacyType: 'clothes',
-    barcodesAvailable: true,
     barcodesDefault: false,
-    trackStockDefault: true,
     uniqueItems: true,
     axes: [],
     categories: ['Women', 'Men', 'Children', 'Shoes', 'Bags', 'Household'],
@@ -100,9 +91,7 @@ export const PROFILES: ShopProfile[] = [
     nameKey: 'profile.health_beauty',
     captionKey: 'profile.health_beauty.caption',
     legacyType: 'other',
-    barcodesAvailable: true,
     barcodesDefault: true,
-    trackStockDefault: true,
     uniqueItems: false,
     axes: [
       {
@@ -135,9 +124,7 @@ export const PROFILES: ShopProfile[] = [
     nameKey: 'profile.bar',
     captionKey: 'profile.bar.caption',
     legacyType: 'other',
-    barcodesAvailable: true,
     barcodesDefault: true,
-    trackStockDefault: true,
     uniqueItems: false,
     axes: [
       { key: 'pack', labelKey: 'field.pack', placeholder: 'Bottle', quickPicks: BAR_PACKS, maxLength: 20 },
@@ -155,9 +142,7 @@ export const PROFILES: ShopProfile[] = [
     nameKey: 'profile.grocery',
     captionKey: 'profile.grocery.caption',
     legacyType: 'general',
-    barcodesAvailable: true,
     barcodesDefault: true,
-    trackStockDefault: true,
     uniqueItems: false,
     axes: [
       { key: 'size', labelKey: 'field.size', placeholder: '1 kg', quickPicks: GROCERY_SIZES, maxLength: 20 },
@@ -170,34 +155,12 @@ export const PROFILES: ShopProfile[] = [
     modules: ['expiry', 'discounts'],
   },
   {
-    id: 'hardware',
-    icon: 'handyman',
-    nameKey: 'profile.hardware',
-    captionKey: 'profile.hardware.caption',
-    legacyType: 'general',
-    barcodesAvailable: true,
-    barcodesDefault: false,
-    trackStockDefault: true,
-    uniqueItems: false,
-    axes: [
-      { key: 'size', labelKey: 'field.size', placeholder: '15 mm', quickPicks: HARDWARE_SIZES, maxLength: 20 },
-      { key: 'unit', labelKey: 'field.unit', placeholder: 'Piece', quickPicks: HARDWARE_UNITS, maxLength: 20 },
-    ],
-    categories: ['Tools', 'Electrical', 'Plumbing', 'Paint', 'Building', 'Fasteners'],
-    units: ['piece', 'metre', 'kilogram', 'bag', 'roll'],
-    defaultUnit: 'piece',
-    lowStockDefault: 3,
-    modules: ['discounts'],
-  },
-  {
     id: 'electronics',
     icon: 'devices',
     nameKey: 'profile.electronics',
     captionKey: 'profile.electronics.caption',
     legacyType: 'other',
-    barcodesAvailable: true,
     barcodesDefault: true,
-    trackStockDefault: true,
     uniqueItems: false,
     axes: [
       {
@@ -216,31 +179,12 @@ export const PROFILES: ShopProfile[] = [
     modules: ['saleWarning', 'discounts'],
   },
   {
-    id: 'salon',
-    icon: 'content_cut',
-    nameKey: 'profile.salon',
-    captionKey: 'profile.salon.caption',
-    legacyType: 'other',
-    barcodesAvailable: false,
-    barcodesDefault: false,
-    trackStockDefault: false,
-    uniqueItems: false,
-    axes: [],
-    categories: ['Hair', 'Nails', 'Barber', 'Beauty', 'Repairs'],
-    units: ['service'],
-    defaultUnit: 'service',
-    lowStockDefault: 0,
-    modules: [],
-  },
-  {
     id: 'general',
     icon: 'storefront',
     nameKey: 'profile.general',
     captionKey: 'profile.general.caption',
     legacyType: 'general',
-    barcodesAvailable: true,
     barcodesDefault: true,
-    trackStockDefault: true,
     uniqueItems: false,
     axes: [],
     categories: ['Food', 'Drinks', 'Household', 'Clothing', 'Electronics', 'Other'],
@@ -263,11 +207,6 @@ export function profileForShop(
   if (direct) return direct;
   if (shop.type === 'clothes' || shop.type === 'shoes') return PROFILE_BY_ID.fashion;
   return PROFILE_BY_ID.general;
-}
-
-/** Whether the shop gets barcode fields, scanning and labels: the trade must allow it and the owner must want it. */
-export function shopUsesBarcodes(profileId: ProfileId, ownerChoice: boolean): boolean {
-  return (PROFILE_BY_ID[profileId] ?? PROFILE_BY_ID.general).barcodesAvailable && ownerChoice;
 }
 
 export function legacyTypeForProfile(id: ProfileId): ShopType {

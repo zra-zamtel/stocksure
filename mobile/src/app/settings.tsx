@@ -6,7 +6,7 @@ import { useAuth } from '@/auth/session';
 import { displayName } from '@/components/auth';
 import { Toggle } from '@/components/charts';
 import { Button, Choice, Field, Icon, IconButton, Screen, SectionTitle, TextLink } from '@/components/ui';
-import { isValidTpin, PROFILE_BY_ID, PROFILES, profileForShop, trialDaysLeft, type ProfileId } from '@/core';
+import { isValidTpin, PROFILES, profileForShop, trialDaysLeft, type ProfileId } from '@/core';
 import { useShop, useSmartInvoiceLink } from '@/db/hooks';
 import { saveMoneySettings, saveShopDetails } from '@/db/repos';
 import { useSync } from '@/db/use-sync';
@@ -163,10 +163,7 @@ export default function SettingsScreen() {
                   <Choice
                     label={t(profile.nameKey)}
                     selected={profileId === profile.id}
-                    onPress={() => {
-                      setProfileId(profile.id);
-                      if (!profile.barcodesAvailable) setUsesBarcodes(false);
-                    }}
+                    onPress={() => setProfileId(profile.id)}
                   />
                 </View>
               ))}
@@ -195,27 +192,23 @@ export default function SettingsScreen() {
               maxLength={10}
             />
 
-            {PROFILE_BY_ID[profileId].barcodesAvailable ? (
-              <>
-                <Text style={styles.label}>{t('onboarding.shop.barcodes')}</Text>
-                <View style={styles.pair}>
-                  <View style={styles.pairItem}>
-                    <Choice
-                      label={t('common.yes')}
-                      selected={usesBarcodes}
-                      onPress={() => setUsesBarcodes(true)}
-                    />
-                  </View>
-                  <View style={styles.pairItem}>
-                    <Choice
-                      label={t('common.no')}
-                      selected={!usesBarcodes}
-                      onPress={() => setUsesBarcodes(false)}
-                    />
-                  </View>
-                </View>
-              </>
-            ) : null}
+            <Text style={styles.label}>{t('onboarding.shop.barcodes')}</Text>
+            <View style={styles.pair}>
+              <View style={styles.pairItem}>
+                <Choice
+                  label={t('common.yes')}
+                  selected={usesBarcodes}
+                  onPress={() => setUsesBarcodes(true)}
+                />
+              </View>
+              <View style={styles.pairItem}>
+                <Choice
+                  label={t('common.no')}
+                  selected={!usesBarcodes}
+                  onPress={() => setUsesBarcodes(false)}
+                />
+              </View>
+            </View>
 
             {error ? (
               <Text style={styles.error} accessibilityLiveRegion="polite">

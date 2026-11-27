@@ -250,22 +250,6 @@ describe('IT-ONB onboarding and account', () => {
     expect(JSON.parse(update?.payload ?? '{}')).toMatchObject({ type: 'other', profileId: 'bar' });
   });
 
-  it('IT-ONB-01d never turns barcodes on for a trade without them', async () => {
-    await saveShopDetails(db, { name: 'Cuts', profileId: 'salon', town: 'Lusaka', language: 'en', usesBarcodes: true });
-    expect((await getShop(db))?.usesBarcodes).toBe(false);
-    expect(await count(db, 'shop', 'uses_barcodes = 0')).toBe(1);
-    const queued = await db.getFirstAsync<{ payload: string }>("SELECT payload FROM sync_queue WHERE entity = 'shop'");
-    expect(JSON.parse(queued?.payload ?? '{}')).toMatchObject({ usesBarcodes: false });
-
-    // A stored flag that disagrees (e.g. pulled from an older phone) is overruled on read,
-    // so new products get no automatic barcode.
-    await db.runAsync('UPDATE shop SET uses_barcodes = 1');
-    expect((await getShop(db))?.usesBarcodes).toBe(false);
-    const { variantId } = await product(1, { name: 'Haircut' });
-    const row = await db.getFirstAsync<{ barcode: string | null }>('SELECT barcode FROM product_variant WHERE id = ?', variantId);
-    expect(row?.barcode).toBeNull();
-  });
-
   it('IT-ONB-01c falls back from the legacy type when a row has no usable profile', async () => {
     await saveShopDetails(db, { name: 'Old', profileId: 'fashion', town: 'Lusaka', language: 'en', usesBarcodes: false });
     await db.runAsync('UPDATE shop SET profile_id = NULL');
@@ -615,6 +599,95 @@ describe('IT-PROD products and stock', () => {
     await db.runAsync("UPDATE product SET discount_json = '{oops' WHERE id = ?", productId);
     const [listed] = await listProductsWithStock(db);
     expect(listed.discount).toBeUndefined();
+  });
+});
+
+describe('IT-PRODF trade-specific product fields', () => {
+  it('IT-PRODF-01 stores unit, sale warning, expiry and batch, and reads them back', async () => {
+    const { productId, variantId } = await product(5, {
+      name: 'Amoxil',
+      size: '500 mg',
+      colour: 'Strip of 10',
+      unit: 'strip',
+      saleWarning: ' Rx only ',
+      expiryDate: '2027-06-30',
+      batchNo: 'B12',
+    });
+    const listed = (await listProductsWithStock(db)).find((item) => item.id === productId);
+    expect(listed).toMatchObject({ unit: 'strip', saleWarning: 'Rx only' });
+    expect(listed?.variants[0]).toMatchObject({ id: variantId, expiryDate: '2027-06-30', batchNo: 'B12' });
+
+    const queuedProduct = await db.getFirstAsync<{ payload: string }>(
+      "SELECT payload FROM sync_queue WHERE entity = 'product' AND entity_id = ?",
+      productId
+    );
+    expect(JSON.parse(queuedProduct?.payload ?? '{}')).toMatchObject({ unit: 'strip', saleWarning: 'Rx only' });
+    const queuedVariant = await db.getFirstAsync<{ payload: string }>(
+      "SELECT payload FROM sync_queue WHERE entity = 'product_variant' AND entity_id = ?",
+      variantId
+    );
+    expect(JSON.parse(queuedVariant?.payload ?? '{}')).toMatchObject({ expiryDate: '2027-06-30', batchNo: 'B12' });
+  });
+
+  it('IT-PRODF-02 gives older products a piece unit and no expiry', async () => {
+    const { productId } = await product(2);
+    await db.runAsync('UPDATE product SET unit = NULL WHERE id = ?', productId);
+    const listed = (await listProductsWithStock(db)).find((item) => item.id === productId);
+    expect(listed).toMatchObject({ unit: 'piece' });
+    expect(listed?.saleWarning).toBeUndefined();
+    expect(listed?.variants[0].expiryDate).toBeUndefined();
+  });
+
+  it('IT-PRODF-04 refuses an impossible expiry date and saves nothing', async () => {
+    await expect(product(1, { name: 'Bad date', expiryDate: '2027-02-30' })).rejects.toThrow('Expiry date');
+    expect(await count(db, 'product')).toBe(0);
+  });
+
+  it('IT-PRODF-05 restock sets the new delivery expiry and batch, and queues only what changed', async () => {
+    const { variantId } = await product(3, { name: 'Panadol', expiryDate: '2026-12-01', batchNo: 'OLD' });
+    await restockVariant(db, { variantId, quantity: 10, expiryDate: '2027-12-01', batchNo: 'NEW' });
+    const row = await db.getFirstAsync<{ expiry_date: string; batch_no: string; buy_price: number }>(
+      'SELECT expiry_date, batch_no, buy_price FROM product_variant WHERE id = ?',
+      variantId
+    );
+    expect(row).toEqual({ expiry_date: '2027-12-01', batch_no: 'NEW', buy_price: 5000 });
+    const update = await db.getFirstAsync<{ payload: string }>(
+      "SELECT payload FROM sync_queue WHERE entity = 'product_variant' AND operation = 'update' AND entity_id = ?",
+      variantId
+    );
+    const payload = JSON.parse(update?.payload ?? '{}');
+    expect(payload).toMatchObject({ id: variantId, expiryDate: '2027-12-01', batchNo: 'NEW' });
+    expect(payload).not.toHaveProperty('buyPrice');
+
+    await expect(restockVariant(db, { variantId, quantity: 1, expiryDate: 'next year' })).rejects.toThrow('Expiry date');
+  });
+
+  it('IT-PRODF-06 upgrades a v10 phone without touching its products', async () => {
+    const old = openBlankDb();
+    try {
+      await old.execAsync('PRAGMA foreign_keys = ON;');
+      for (let version = 0; version < 10; version += 1) await old.execAsync(migrations[version]);
+      await old.execAsync('PRAGMA user_version = 10;');
+      await old.runAsync(
+        `INSERT INTO product (id, name, default_buy_price, default_sell_price, created_at, updated_at)
+         VALUES ('p1', 'Old shirt', 100, 200, 'x', 'x')`
+      );
+      await old.runAsync(
+        `INSERT INTO product_variant (id, product_id, size, buy_price, sell_price, created_at, updated_at)
+         VALUES ('v1', 'p1', 'M', 100, 200, 'x', 'x')`
+      );
+
+      await initializeDatabase(old);
+
+      expect(
+        await old.getFirstAsync('SELECT unit, sale_warning FROM product WHERE id = ?', 'p1')
+      ).toEqual({ unit: null, sale_warning: null });
+      expect(
+        await old.getFirstAsync('SELECT size, expiry_date, batch_no FROM product_variant WHERE id = ?', 'v1')
+      ).toEqual({ size: 'M', expiry_date: null, batch_no: null });
+    } finally {
+      old.close();
+    }
   });
 });
 

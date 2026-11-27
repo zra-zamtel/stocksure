@@ -20,9 +20,7 @@ export type ProfileId =
   | 'health_beauty'
   | 'bar'
   | 'grocery'
-  | 'hardware'
   | 'electronics'
-  | 'salon'
   | 'general';
 export type DiscountType = 'percent' | 'fixed';
 export type StockState = 'out' | 'low' | 'ok';
@@ -82,6 +80,9 @@ export interface ProductVariant extends BaseRecord {
   buyPrice: Ngwee;
   sellPrice: Ngwee;
   lowStockLevel: number;
+  /** YYYY-MM-DD; only trades with the expiry module set it. */
+  expiryDate?: string;
+  batchNo?: string;
 }
 
 export interface Product extends BaseRecord {
@@ -91,6 +92,10 @@ export interface Product extends BaseRecord {
   defaultBuyPrice: Ngwee;
   defaultSellPrice: Ngwee;
   discount?: ProductDiscount;
+  /** How it is counted and sold: 'piece', 'bottle', 'strip', 'kg'... */
+  unit: string;
+  /** Shown before the sale is recorded, e.g. 'Rx only' or '18+'. */
+  saleWarning?: string;
   variants: ProductVariant[];
 }
 

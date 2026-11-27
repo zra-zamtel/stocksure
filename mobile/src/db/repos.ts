@@ -9,7 +9,6 @@ import {
   newId,
   PROFILE_BY_ID,
   profileForShop,
-  shopUsesBarcodes,
   variantLabel,
   normaliseBarcode,
   normalisePhone,
@@ -27,6 +26,8 @@ import {
   type PaymentInput,
   type ProductDiscount,
   type ProfileId,
+  DEFAULT_UNIT,
+  isValidIsoDate,
   type Role,
   type ShopType,
   type StockMovement,
@@ -54,6 +55,8 @@ export interface VariantWithStock {
   lowStockLevel: number;
   quantity: number;
   state: StockState;
+  expiryDate?: string;
+  batchNo?: string;
 }
 
 export interface ProductWithStock {
@@ -63,6 +66,9 @@ export interface ProductWithStock {
   defaultBuyPrice: Ngwee;
   defaultSellPrice: Ngwee;
   discount?: ProductDiscount;
+  /** 'piece' for products saved before units existed. */
+  unit: string;
+  saleWarning?: string;
   stock: number;
   variants: VariantWithStock[];
 }
@@ -74,6 +80,8 @@ interface ProductRow {
   defaultBuyPrice: number;
   defaultSellPrice: number;
   discountJson: string | null;
+  unit: string | null;
+  saleWarning: string | null;
   variantId: string | null;
   size: string | null;
   colour: string | null;
@@ -82,6 +90,8 @@ interface ProductRow {
   sellPrice: number | null;
   lowStockLevel: number | null;
   quantity: number | null;
+  expiryDate: string | null;
+  batchNo: string | null;
 }
 
 /** A bad discount on one product must not stop every product screen loading. */
@@ -100,9 +110,11 @@ export async function listProductsWithStock(db: SQLiteDatabase): Promise<Product
             p.default_buy_price AS defaultBuyPrice,
             p.default_sell_price AS defaultSellPrice,
             p.discount_json AS discountJson,
+            p.unit, p.sale_warning AS saleWarning,
             v.id AS variantId, v.size, v.colour, v.barcode,
             v.buy_price AS buyPrice, v.sell_price AS sellPrice,
             v.low_stock_level AS lowStockLevel,
+            v.expiry_date AS expiryDate, v.batch_no AS batchNo,
             COALESCE(s.quantity, 0) AS quantity
        FROM product p
        LEFT JOIN product_variant v ON v.product_id = p.id
@@ -121,6 +133,8 @@ export async function listProductsWithStock(db: SQLiteDatabase): Promise<Product
         defaultBuyPrice: row.defaultBuyPrice,
         defaultSellPrice: row.defaultSellPrice,
         discount: parseDiscount(row.discountJson),
+        unit: row.unit || DEFAULT_UNIT,
+        saleWarning: row.saleWarning ?? undefined,
         stock: 0,
         variants: [],
       };
@@ -139,6 +153,8 @@ export async function listProductsWithStock(db: SQLiteDatabase): Promise<Product
         lowStockLevel,
         quantity,
         state: stockState(quantity, lowStockLevel),
+        expiryDate: row.expiryDate ?? undefined,
+        batchNo: row.batchNo ?? undefined,
       });
       product.stock += quantity;
     }
@@ -537,8 +553,7 @@ export async function getShop(db: SQLiteDatabase): Promise<ShopRecord | null> {
     profileId,
     town: row.town,
     language: row.language,
-    // A trade without barcodes (salon) never shows barcode UI, whatever the stored flag says.
-    usesBarcodes: shopUsesBarcodes(profileId, row.usesBarcodes === 1),
+    usesBarcodes: row.usesBarcodes === 1,
     lowStockDefault: row.lowStockDefault,
     turnoverTaxRegistered: row.turnoverTaxRegistered === 1,
     tpin: row.tpin ?? undefined,
@@ -957,7 +972,7 @@ export async function saveShopDetails(
   const stamp = nowIso();
   const profile = PROFILE_BY_ID[input.profileId] ?? PROFILE_BY_ID.general;
   const legacyType = profile.legacyType;
-  const usesBarcodes = shopUsesBarcodes(profile.id, input.usesBarcodes);
+  const usesBarcodes = input.usesBarcodes;
 
   await db.withTransactionAsync(async () => {
     if (current) {
@@ -1181,6 +1196,13 @@ export interface CreateProductInput {
   size?: string;
   /** Second profile axis value, stored in the legacy colour slot. */
   colour?: string;
+  /** Defaults to 'piece'. */
+  unit?: string;
+  /** e.g. 'Rx only' or '18+'; confirmed before each sale. */
+  saleWarning?: string;
+  /** YYYY-MM-DD. */
+  expiryDate?: string;
+  batchNo?: string;
 }
 
 /**
@@ -1213,23 +1235,32 @@ export async function createProduct(
   const lowStockLevel = input.lowStockLevel ?? 3;
   const size = input.size?.trim() || null;
   const colour = input.colour?.trim() || null;
+  const unit = input.unit?.trim() || DEFAULT_UNIT;
+  const saleWarning = input.saleWarning?.trim() || null;
+  const expiryDate = input.expiryDate?.trim() || null;
+  const batchNo = input.batchNo?.trim() || null;
+  if (expiryDate && !isValidIsoDate(expiryDate)) throw new Error('Expiry date must be a real date, YYYY-MM-DD');
 
   await db.withTransactionAsync(async () => {
     await db.runAsync(
-      `INSERT INTO product (id, name, category, default_buy_price, default_sell_price, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO product (id, name, category, default_buy_price, default_sell_price, unit, sale_warning,
+         created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       productId,
       name,
       input.category?.trim() || null,
       input.buyPrice,
       input.sellPrice,
+      unit,
+      saleWarning,
       stamp,
       stamp
     );
 
     await db.runAsync(
-      `INSERT INTO product_variant (id, product_id, size, colour, barcode, buy_price, sell_price, low_stock_level, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO product_variant (id, product_id, size, colour, barcode, buy_price, sell_price, low_stock_level,
+         expiry_date, batch_no, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       variantId,
       productId,
       size,
@@ -1238,6 +1269,8 @@ export async function createProduct(
       input.buyPrice,
       input.sellPrice,
       lowStockLevel,
+      expiryDate,
+      batchNo,
       stamp,
       stamp
     );
@@ -1261,6 +1294,8 @@ export async function createProduct(
       category: input.category?.trim() || null,
       defaultBuyPrice: input.buyPrice,
       defaultSellPrice: input.sellPrice,
+      unit,
+      saleWarning,
       createdAt: stamp,
       updatedAt: stamp,
     });
@@ -1273,6 +1308,8 @@ export async function createProduct(
       buyPrice: input.buyPrice,
       sellPrice: input.sellPrice,
       lowStockLevel,
+      expiryDate,
+      batchNo,
       createdAt: stamp,
       updatedAt: stamp,
     });
@@ -1354,6 +1391,10 @@ export interface RestockInput {
   quantity: number;
   buyPrice?: Ngwee;
   note?: string;
+  /** The new delivery's expiry (YYYY-MM-DD); replaces the variant's current one. */
+  expiryDate?: string;
+  /** The new delivery's batch number; replaces the variant's current one. */
+  batchNo?: string;
 }
 
 export interface RestockedStock {
@@ -1369,6 +1410,9 @@ export interface RestockedStock {
  */
 export async function restockVariant(db: SQLiteDatabase, input: RestockInput): Promise<RestockedStock> {
   const errors = validateRestock(input.quantity, input.buyPrice);
+  const expiryDate = input.expiryDate?.trim() || undefined;
+  const batchNo = input.batchNo?.trim() || undefined;
+  if (expiryDate && !isValidIsoDate(expiryDate)) errors.push('Expiry date must be a real date, YYYY-MM-DD');
   if (errors.length > 0) throw new Error(errors.join('. '));
 
   const variant = await db.getFirstAsync<{ buyPrice: number }>(
@@ -1402,6 +1446,22 @@ export async function restockVariant(db: SQLiteDatabase, input: RestockInput): P
         input.variantId
       );
     }
+    if (expiryDate) {
+      await db.runAsync(
+        'UPDATE product_variant SET expiry_date = ?, updated_at = ? WHERE id = ?',
+        expiryDate,
+        stamp,
+        input.variantId
+      );
+    }
+    if (batchNo) {
+      await db.runAsync(
+        'UPDATE product_variant SET batch_no = ?, updated_at = ? WHERE id = ?',
+        batchNo,
+        stamp,
+        input.variantId
+      );
+    }
 
     await enqueueSync(db, 'stock_movement', movementId, 'create', {
       id: movementId,
@@ -1413,10 +1473,13 @@ export async function restockVariant(db: SQLiteDatabase, input: RestockInput): P
       updatedAt: stamp,
     });
 
-    if (priceChanged) {
+    if (priceChanged || expiryDate || batchNo) {
+      // Only what changed: the server applies variant updates as partial changes.
       await enqueueSync(db, 'product_variant', input.variantId, 'update', {
         id: input.variantId,
-        buyPrice,
+        ...(priceChanged ? { buyPrice } : {}),
+        ...(expiryDate ? { expiryDate } : {}),
+        ...(batchNo ? { batchNo } : {}),
         updatedAt: stamp,
       });
     }

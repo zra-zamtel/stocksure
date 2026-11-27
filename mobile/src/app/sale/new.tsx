@@ -1,7 +1,7 @@
 import { useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useMemo, useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { usePermissionGuard } from '@/auth/permissions';
 import { useAuth } from '@/auth/session';
 import { BarcodeScanner } from '@/components/barcode-scanner';
@@ -21,7 +21,18 @@ import {
   SearchField,
   SectionTitle,
 } from '@/components/ui';
-import { maxSellable, priceSale, toNgwee, variantLabel, type LineInput, type PaymentInput, type Provider } from '@/core';
+import {
+  collectSaleWarnings,
+  hasSaleWarnings,
+  maxSellable,
+  priceSale,
+  todayLocal,
+  toNgwee,
+  variantLabel,
+  type LineInput,
+  type PaymentInput,
+  type Provider,
+} from '@/core';
 import { useProducts, useShop } from '@/db/hooks';
 import {
   addPaymentMessage,
@@ -97,7 +108,18 @@ export default function NewSaleScreen() {
   const [payOpen, setPayOpen] = useState(false);
 
   const index = useMemo(() => {
-    const map = new Map<string, { label: string; sellPrice: number; buyPrice: number; onHand: number; discount?: LineInput['productDiscount'] }>();
+    const map = new Map<
+      string,
+      {
+        label: string;
+        sellPrice: number;
+        buyPrice: number;
+        onHand: number;
+        discount?: LineInput['productDiscount'];
+        saleWarning?: string;
+        expiryDate?: string;
+      }
+    >();
     for (const product of products) {
       for (const variant of product.variants) {
         map.set(variant.id, {
@@ -106,6 +128,8 @@ export default function NewSaleScreen() {
           buyPrice: variant.buyPrice,
           onHand: variant.quantity,
           discount: product.discount,
+          saleWarning: product.saleWarning,
+          expiryDate: variant.expiryDate,
         });
       }
     }
@@ -224,10 +248,40 @@ export default function NewSaleScreen() {
     void submit(null, { manual: input });
   }
 
+  /**
+   * Prescription, age and expiry checks happen before any money is taken, so a
+   * cancelled sale never leaves a customer charged. The owner is warned, not
+   * blocked: "Sell anyway" carries on, "Cancel" keeps the basket as it is.
+   */
+  function confirmWarnings(proceed: () => void) {
+    const warnings = collectSaleWarnings(
+      lines.map((line) => {
+        const entry = index.get(line.variantId);
+        return { label: entry?.label ?? line.variantId, saleWarning: entry?.saleWarning, expiryDate: entry?.expiryDate };
+      }),
+      todayLocal()
+    );
+    if (!hasSaleWarnings(warnings)) {
+      proceed();
+      return;
+    }
+    const list = (labels: string[]) => labels.map((label) => `• ${label}`).join('\n');
+    const parts = [
+      warnings.rx.length > 0 ? `${t('sale.warning.rx')}\n${list(warnings.rx)}` : null,
+      warnings.age.length > 0 ? `${t('sale.warning.age')}\n${list(warnings.age)}` : null,
+      ...warnings.other.map(({ label, warning }) => `${warning}\n• ${label}`),
+      warnings.expired.length > 0 ? `${t('sale.warning.expired')}\n${list(warnings.expired)}` : null,
+    ].filter(Boolean);
+    Alert.alert(t('sale.warning.title'), parts.join('\n\n'), [
+      { text: t('common.cancel'), style: 'cancel' },
+      { text: t('sale.warning.continue'), onPress: proceed },
+    ]);
+  }
+
   function chooseMethod(next: 'cash' | 'mobile_money' | 'split') {
     setMethod(next);
     // Mobile money goes straight to the payment dialog once there is something to sell.
-    if (next === 'mobile_money' && lines.length > 0) setPayOpen(true);
+    if (next === 'mobile_money' && lines.length > 0) confirmWarnings(() => setPayOpen(true));
   }
 
   async function submit(
@@ -316,7 +370,7 @@ export default function NewSaleScreen() {
           }
           disabled={lines.length === 0}
           loading={submitting}
-          onPress={() => (needsMobileMoney ? setPayOpen(true) : submit(null))}
+          onPress={() => confirmWarnings(() => (needsMobileMoney ? setPayOpen(true) : void submit(null)))}
         />
       }
     >
