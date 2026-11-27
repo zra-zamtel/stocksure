@@ -148,29 +148,6 @@ export function StepDots({ count, current, label }: { count: number; current: nu
   );
 }
 
-export type Mood = 'good' | 'even' | 'bad';
-
-/**
- * A face for a number that is good, even or bad (profit, a cash count): the
- * face's shape says it as well as its colour.
- */
-export function StatusFace({ mood, size = touch.big }: { mood: Mood; size?: number }) {
-  const look = {
-    good: { icon: 'sentiment_satisfied', fg: colors.success, bg: colors.successSoft },
-    even: { icon: 'sentiment_neutral', fg: colors.warning, bg: colors.warningSoft },
-    bad: { icon: 'sentiment_dissatisfied', fg: colors.danger, bg: colors.dangerSoft },
-  }[mood] as { icon: AndroidSymbol; fg: string; bg: string };
-  return (
-    <View
-      accessibilityElementsHidden
-      importantForAccessibility="no-hide-descendants"
-      style={[styles.face, { width: size, height: size, backgroundColor: look.bg }]}
-    >
-      <Icon name={look.icon} size={Math.round(size * 0.66)} color={look.fg} />
-    </View>
-  );
-}
-
 /**
  * The product's photo, or until there is one a tinted square with an icon for
  * what the product is. Decorative, so screen readers skip it and read the name.
@@ -347,7 +324,6 @@ const styles = themed(() =>
     dot: { width: spacing.sm, height: spacing.sm, borderRadius: radii.pill, backgroundColor: colors.border },
     dotDone: { backgroundColor: colors.primaryInk },
     dotCurrent: { width: spacing.xl, backgroundColor: colors.primary },
-    face: { borderRadius: radii.pill, alignItems: 'center', justifyContent: 'center' },
     sheetRoot: { flex: 1, justifyContent: 'flex-end' },
     scrim: { backgroundColor: colors.scrim },
     sheet: {

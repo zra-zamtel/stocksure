@@ -7,7 +7,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { captureRef } from 'react-native-view-shot';
 import { usePermissionGuard } from '@/auth/permissions';
 import { BarcodeLabel } from '@/components/barcode-label';
-import { BigTile, PressScale, ProductTile, StatusFace, StepDots, type Mood } from '@/components/big-ui';
+import { BigTile, PressScale, ProductTile, StepDots } from '@/components/big-ui';
 import { Button, Card, Choice, Field, FormError, Icon, Screen } from '@/components/ui';
 import { VariantDraftCard } from '@/components/variant-draft-card';
 import {
@@ -83,11 +83,12 @@ export default function NewProductScreen() {
   const savedCode = single && single.barcode.trim() !== '' ? normaliseBarcode(single.barcode) : '';
   const scannable = savedCode !== '' && isValidEan13(savedCode);
 
-  // Profit per item while pricing, with a face, so a typo shows before saving.
+  // Profit per item while pricing, so a typo shows before saving.
   const buy = parsePrice(first.buyPrice);
   const sell = parsePrice(first.sellPrice);
   const margin = buy.ok && sell.ok ? sell.ngwee - buy.ngwee : null;
-  const mood: Mood | null = margin === null ? null : margin > 0 ? 'good' : margin === 0 ? 'even' : 'bad';
+  const mood: 'good' | 'even' | 'bad' | null =
+    margin === null ? null : margin > 0 ? 'good' : margin === 0 ? 'even' : 'bad';
 
   function updateFirst(patch: Partial<DraftVariant>) {
     setDrafts((current) => [{ ...current[0], ...patch }, ...current.slice(1)]);
@@ -366,7 +367,12 @@ export default function NewProductScreen() {
           />
           {mood && margin !== null ? (
             <View style={styles.profit} accessibilityLiveRegion="polite">
-              <StatusFace mood={mood} />
+              {/* An arrow, not only a colour: up for profit, down for a loss, flat for none. */}
+              <Icon
+                name={mood === 'good' ? 'trending_up' : mood === 'bad' ? 'trending_down' : 'trending_flat'}
+                size={iconSize.xl}
+                color={mood === 'good' ? colors.success : mood === 'bad' ? colors.danger : colors.warning}
+              />
               <Text style={[styles.profitText, mood === 'bad' && styles.loss, mood === 'even' && styles.even]}>
                 {mood === 'good'
                   ? t('product.profit.good', { amount: formatKwacha(margin) })
