@@ -77,8 +77,8 @@ Act like that person.
 - [ ] **No internet:** turn on airplane mode and do job 1 again. The sale
   must save and show the green tick.
 - [ ] **Nyanja:** Settings > language **Nyanja**, then do the five jobs
-  again. Write down every word still in English and every word that reads
-  oddly.
+  again. The Nyanja is a first-pass machine translation: write down every
+  line that is wrong, sounds unnatural, or is too long for its button.
 - [ ] **Dark mode:** Settings > theme **Dark**. Look at Today, Sell, Stock,
   Money and Tax. Note anything hard to read.
 - [ ] **Numbers add up:** the Today total equals the sales you made; stock
