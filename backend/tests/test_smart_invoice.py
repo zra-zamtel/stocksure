@@ -133,7 +133,7 @@ class SmartInvoiceTests(SyncBase, TestCase):
 
         self.connect()
         with self.captureOnCommitCallbacks(execute=True):
-            handle("0965551122", "1*150*2")
+            handle("0965551122", "4821*1*150*2*1*2")
 
         receipt = SmartInvoiceReceipt.objects.get()
         self.assertEqual(receipt.request["pmtTyCd"], "06")

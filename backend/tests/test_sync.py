@@ -21,6 +21,8 @@ from apps.sync.models import (
     TaxPotEntry,
 )
 
+from .helpers import give_ussd_pins
+
 NOW = "2026-11-18T08:00:00Z"
 DAY = "2026-11-18"
 
@@ -158,6 +160,7 @@ class SyncBase(TestCase):
         Membership.objects.create(user=self.owner, shop=domain, role="owner")
         self.staff = User.objects.create_user("0965551122", "staff pass 1234", full_name="Given")
         Membership.objects.create(user=self.staff, shop=domain, role="assistant")
+        give_ussd_pins(self.owner, self.staff)
 
     def push(self, changes, user=None):
         if user is None:
@@ -499,10 +502,10 @@ class SyncTestCase(SyncBase):
         self.push_schema()
 
         self.assertTrue(handle("0971234567", "").startswith("CON StockSure"))
-        self.assertTrue(handle("0971234567", "1*150*1").startswith("END Only staff"))
-        recorded = handle("0965551122", "1*150*1")
+        self.assertTrue(handle("0971234567", "4821*1*150*1").startswith("END Only staff"))
+        recorded = handle("0965551122", "4821*1*150*1")
         self.assertTrue(recorded.startswith("END Sale of K150.00"), recorded)
-        summary = handle("0971234567", "3")
+        summary = handle("0971234567", "4821*3")
         self.assertIn("K150.00", summary)
         self.assertEqual(Sale.objects.filter(shop_id="shop_1").count(), 1)
 
@@ -525,7 +528,7 @@ class SyncTestCase(SyncBase):
         self.push_schema()
         self.push([self.change("q_sale", "sale", "sale_1", sale_payload())])
 
-        answer = handle("0971234567", "4")
+        answer = handle("0971234567", "4821*4")
 
         self.assertIn("Estimated tax this month: K22.50", answer)
 
@@ -534,9 +537,9 @@ class SyncTestCase(SyncBase):
 
         self.push_schema()
         self.assertEqual(
-            handle("0971234567", "2"), "CON Check stock\n1. Low stock\n2. Find by barcode"
+            handle("0971234567", "4821*2"), "CON Check stock\n1. Low stock\n2. Find by barcode"
         )
-        self.assertIn("Stock OK", handle("0971234567", "2*1"))
+        self.assertIn("Stock OK", handle("0971234567", "4821*2*1"))
 
         self.push(
             [
@@ -549,7 +552,7 @@ class SyncTestCase(SyncBase):
             ]
         )
 
-        answer = handle("0971234567", "2*1")
+        answer = handle("0971234567", "4821*2*1")
         self.assertTrue(answer.startswith("END Low stock 1/1, 1 out"), answer)
         self.assertIn("Sneaker 41 Black: 0", answer)
 
@@ -755,7 +758,7 @@ class SyncTestCase(SyncBase):
                 ),
             ]
         )
-        self.assertIn("Lager Crate: 0", handle("0971234567", "2*1"))
+        self.assertIn("Lager Crate: 0", handle("0971234567", "4821*2*1"))
 
     def test_ussd_check_stock_by_barcode(self):
         from apps.ussd.services import handle
@@ -763,13 +766,13 @@ class SyncTestCase(SyncBase):
         self.push_schema()
         ProductVariant.objects.filter(id="var_1").update(barcode="6001234567890")
 
-        self.assertEqual(handle("0971234567", "2*2"), "CON Enter the item barcode")
+        self.assertEqual(handle("0971234567", "4821*2*2"), "CON Enter the item barcode")
         self.assertEqual(
-            handle("0971234567", "2*2*6001234567890"),
+            handle("0971234567", "4821*2*2*6001234567890"),
             "END Sneaker 41 Black: 10 left at K450.00.",
         )
         self.assertEqual(
-            handle("0971234567", "2*2*0000000000000"), "END No item with that barcode."
+            handle("0971234567", "4821*2*2*0000000000000"), "END No item with that barcode."
         )
 
     def test_push_requires_auth(self):

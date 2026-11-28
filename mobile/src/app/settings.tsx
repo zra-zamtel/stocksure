@@ -258,6 +258,11 @@ export default function SettingsScreen() {
             label={t('tr.title')}
             value={t('tr.settings')}
             onPress={() => router.push('/trading-record')}
+          />
+          <ListRow
+            label={t('ussd.title')}
+            value={t('ussd.settings')}
+            onPress={() => router.push('/ussd-pin')}
             last
           />
         </Group>

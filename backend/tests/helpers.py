@@ -41,3 +41,16 @@ class BaseTestCase(TestCase):
 
     def setUp(self):
         cache.clear()
+
+
+USSD_PIN = "4821"
+
+
+def give_ussd_pins(*users, pin=USSD_PIN):
+    """Give each user a USSD PIN so tests can dial in as them."""
+    from django.contrib.auth.hashers import make_password
+
+    from apps.ussd.models import UssdPin
+
+    for user in users:
+        UssdPin.objects.create(user=user, pin_hash=make_password(pin))

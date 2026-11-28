@@ -3,6 +3,7 @@ sales, balanced past closes, today still open (declare K200 less than expected t
 and a stock-take with exactly one pair missing."""
 from datetime import datetime, time, timedelta
 
+from django.contrib.auth.hashers import make_password
 from django.core.management import call_command
 from django.core.management.base import BaseCommand
 from django.db import transaction
@@ -23,8 +24,10 @@ from apps.tax import services as tax
 from apps.tax.models import TaxEstimate
 from apps.taxpot import services as pot
 from apps.taxpot.models import SavingsTarget, TaxPotTransaction
+from apps.ussd.models import UssdPin
 
 OWNER_PHONE, ASSISTANT_PHONE, ADMIN_PHONE = "260970000001", "260970000002", "260970000009"
+DEMO_USSD_PIN = "2468"
 OWNER_PASSWORD, ASSISTANT_PIN = "demo1234", "1234"
 
 
@@ -52,6 +55,9 @@ class Command(BaseCommand):
 
         owner = User.objects.create_user(OWNER_PHONE, OWNER_PASSWORD, full_name="Mwila Banda (demo owner)")
         assistant = User.objects.create_user(ASSISTANT_PHONE, ASSISTANT_PIN, full_name="Chanda (demo assistant)")
+        # Both can dial in over USSD straight away (normally set in the app).
+        for person in (owner, assistant):
+            UssdPin.objects.create(user=person, pin_hash=make_password(DEMO_USSD_PIN), set_by=owner)
         User.objects.create_superuser(ADMIN_PHONE, OWNER_PASSWORD, full_name="Demo admin")
         shop = Shop.objects.create(
             owner=owner, name="Kabwe Shoe Palace", town="Kabwe", mode=Shop.Mode.FULL,
@@ -174,6 +180,7 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS("Demo shop ready: Kabwe Shoe Palace (20 pairs, Full mode)."))
         self.stdout.write(f"  Owner      {OWNER_PHONE} / {OWNER_PASSWORD}")
         self.stdout.write(f"  Assistant  {ASSISTANT_PHONE} / {ASSISTANT_PIN}")
+        self.stdout.write(f"  USSD PIN   {DEMO_USSD_PIN} for the owner and the assistant")
         self.stdout.write(f"  Admin      {ADMIN_PHONE} / {OWNER_PASSWORD}  (also /admin/)")
         self.stdout.write(f"  Today's expected cash: K{preview['expected_cash']:.2f}. For the demo flag, declare "
                           f"K{max(preview['expected_cash'] - 200, 0):.2f} (K200 short) at daily close.")
