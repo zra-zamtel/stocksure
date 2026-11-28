@@ -101,6 +101,11 @@ class SyncPullView(APIView):
         limit = max(1, min(limit, 500))
         shop_id = request.headers.get("X-Shop-ID") or request.query_params.get("shop")
 
+        # Payment requests sent from USSD become sales once paid; settle them
+        # first so this pull carries the new sales. One query when none are open.
+        from apps.ussd.momo import settle_pending
+
+        settle_pending(user_shops(request.user))
         changes, next_cursor = pull_changes(
             request.user, cursor, limit, shop_id=shop_id
         )

@@ -17,22 +17,82 @@ when a session fails.
 The endpoint accepts Africa's Talking's `application/x-www-form-urlencoded`
 POST (`sessionId`, `serviceCode`, `phoneNumber`, `text`) and replies in plain
 text. A reply starting with `CON` keeps the session open; `END` closes it. State
-lives in `text` (`1*150*2` means option 1, amount 150, paid by mobile money), so
-the server keeps no session.
+lives in `text` (`4821*1*150*2` means PIN 4821, option 1, amount 150, paid by
+mobile money), so the server keeps no session.
 
-Menu for a registered owner:
+### Sign-in
+
+Every session signs in first:
+
+1. The caller's number picks the account. A number with no StockSure account
+   is told to sign up in the app; USSD no longer creates accounts.
+2. The first screen asks for that person's **USSD PIN** (4 digits). It is
+   separate from the app PIN, which never leaves the phone.
+3. The PIN is checked again on every step, because each step repeats it in
+   `text`. Five wrong PINs in a row lock dial-in for that number for 15 minutes
+   and email the owner.
+
+The owner sets the PINs in the app: **Settings > USSD PIN**. That screen lists
+the owner and every staff member. Staff sign in on the owner's connected phone
+and have no server session, so the owner sets their PINs too. App endpoints:
+
+| Call | Does |
+| --- | --- |
+| `GET /api/v1/ussd/pins` | Owner only: who has a PIN, and who is locked |
+| `POST /api/v1/ussd/pin {pin, userId?}` | Set or replace a PIN (no `userId` = the owner's own); clears a lock |
+| `DELETE /api/v1/ussd/pin?userId=` | Turn USSD off for that person |
+
+Menu for a signed-in owner (the first line is the shop name):
 
 ```
-CON StockSure
+CON Kabwe Shoe Palace
 1. Record a sale
 2. Check stock
 3. Today's summary
 4. Tax estimate
 5. Save to TaxPot
+6. Payment requests
 ```
 
-An unregistered number is offered shop registration (shop name, then a 4-digit
-PIN). An assistant's number gets options 1 to 3.
+An assistant's number gets 1. Record a sale, 2. Check stock, 3. Today's
+summary and 4. Payment requests. An owner whose shop has staff does not see
+option 1, because staff record the sales.
+
+### Mobile money (request to pay)
+
+After the amount, **2. Mobile money** asks for the network (MTN, Airtel,
+Zamtel), then:
+
+- **1. Send payment request:** type the customer's number and confirm. The
+  server sends a request to pay through `apps.collections` (simulated, or
+  Lipila), and the customer approves it with their PIN on their own phone. A
+  number on a different network from the one chosen is refused. Requests are
+  capped at K50,000, the same as the app, and any fee passed on to the
+  customer is shown before sending.
+- **2. Customer already paid:** the customer sent money on their own. The sale
+  is recorded with the network and is matched later against the payment
+  message on the shop phone.
+
+USSD cannot wait while the customer types their PIN, so the session ends once
+the request is sent. The **sale is written only when the provider says the
+customer paid**, the same rule as the app, so a declined or unanswered request
+never becomes turnover. That check (`apps.ussd.momo.settle_pending`) runs:
+
+- at the start of any USSD session for the shop (3 requests, 3 seconds at most,
+  to stay inside the gateway's 10 seconds);
+- on every sync pull, so the owner's phone gets the new sale;
+- when someone opens **Payment requests** (staff see their own, the owner
+  sees the whole shop's): `K150.00 0961234567: paid, sale saved`, `waiting`,
+  `declined` or `no answer`.
+
+When a request is paid, the sale and payment carry the provider and reference,
+and a received payment with the same reference is filed (as the app does), so
+the phone matches it at once. The request id is derived from the gateway's
+`sessionId`, so a retried last step never prompts the customer twice.
+
+With the simulated provider a request is approved after
+`COLLECTIONS_SIMULATED_DELAY_SECONDS` (6 by default). Numbers ending in `000`
+decline and numbers ending in `111` never answer.
 
 Option 2 opens a stock submenu: **Low stock** lists up to four items at or
 below their low-stock level (with the total and out-of-stock count) and
@@ -88,11 +148,11 @@ local debug mode.
    `*384*<number>#` and differ per account.
 4. Open the simulator, enter the phone number you want to call as, and dial the
    code. Use the seeded demo owner so the shop already exists:
-   `+260970000001` (owner, password `demo1234`) or `+260970000002` (assistant,
-   PIN `1234`) after `python manage.py seed_demo --reset`.
+   `+260970000001` (owner) or `+260970000002` (assistant) after
+   `python manage.py seed_demo --reset`. Both have the USSD PIN `2468`.
 
-The simulator lets you type any MSISDN, so this is also how you demo
-registration on a number that has never signed up.
+The simulator lets you type any MSISDN. That is why the PIN matters: a number
+alone no longer opens a shop.
 
 ### 4. Smoke-test without Africa's Talking
 
@@ -104,20 +164,26 @@ curl.exe -X POST "http://127.0.0.1:8000/api/ussd/" `
   -d "phoneNumber=+260970000001&text="
 ```
 
-You should get `CON StockSure …`. Then walk a sale:
-`text=1`, `text=1*25`, `text=1*25*1` (K25 cash).
+You should get `CON StockSure / Enter your USSD PIN`. Then sign in and walk a
+sale as the assistant (`+260970000002`): `text=2468`, `text=2468*1`,
+`text=2468*1*25`, `text=2468*1*25*1` (K25 cash).
 
 ## Demo path (scope sheet step 8)
 
 1. Sync the phone once so the shop, products and today's sales are on the
    backend.
-2. Dial the sandbox code as the owner.
+2. Dial the sandbox code as the owner and type the USSD PIN.
 3. Choose **Check stock**, then **Low stock** (or find an item by barcode), and
    compare it with the Products tab in the app.
 4. Choose **Today's summary** and compare it with Home.
-5. Choose **Record a sale**, enter an amount, pick cash, and show the `END`
-   confirmation.
+5. Dial again as the assistant, choose **Record a sale**, enter an amount,
+   pick cash, and show the `END` confirmation.
 6. Reopen the app and pull: the USSD sale appears in the sales list.
+7. Mobile money: as the assistant, **Record a sale**, an amount, **Mobile
+   money**, **MTN**, **Send payment request**, a customer number such as
+   `0961234567`, then **Send**. Wait about 6 seconds, dial again and choose
+   **4. Payment requests**: it shows `paid, sale saved`. Pull in the app and
+   the sale is there, already matched.
 
 ## Deploying the callback on Lambda
 
@@ -147,7 +213,9 @@ Two things to watch:
 | Simulator shows a generic error | The reply must be plain text starting exactly `CON ` or `END `; check the response with the curl smoke test. |
 | `END You are not linked to a shop` | The number is a staff account with no membership, or the owner's phone number differs from the registered one. |
 | Shop looks empty over USSD | USSD only reads synced data. Pull/push from the app first. |
-| Number registers a new shop unexpectedly | That MSISDN has no account yet, so the registration flow started. Dial with the seeded owner instead. |
+| `END This number has no StockSure account` | That MSISDN has no account. Sign up in the app, or dial as a seeded number. |
+| `END Set your USSD PIN first` / `Ask the shop owner` | No USSD PIN for that person. Set it in the app: Settings > USSD PIN. |
+| `END Too many wrong PINs` | Five wrong PINs locked dial-in for 15 minutes. Wait, or set a new PIN in the app (that clears the lock). |
 | Works locally, fails on Lambda | Host allow-list, secret parameter, or the 10-second timeout. Check CloudWatch under `JobFunction`/`ApiFunction`. |
 
 ## Security and limits
@@ -155,9 +223,12 @@ Two things to watch:
 - The token is a shared secret in a URL; it can appear in logs. Rotate it for
   the demo build and do not reuse the production value.
 - Rate limiting is already on the endpoint (`ussd` scope, 120/min).
-- USSD is not authenticated by PIN on entry, because the caller's MSISDN is the
-  identity. Moves that spend simulated money (TaxPot) ask for the account
-  password, which is the USSD registration PIN for shops created by USSD.
+- Every session needs the caller's number **and** their USSD PIN. Only a
+  Django password hash of the PIN is stored (`apps.ussd.models.UssdPin`).
+- The PIN travels in `text` on every step, as is normal for USSD, so it can
+  appear in gateway logs. That is one reason it is separate from the app PIN.
+- TaxPot asks for a confirm (1/2) instead of a password: the caller has
+  already signed in.
 - Each screen should stay under ~160 characters. Long replies are cut by the
   network, so keep menu text short.
 

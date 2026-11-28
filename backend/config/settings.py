@@ -217,6 +217,7 @@ REST_FRAMEWORK = {
         "sync-push": "120/min",
         "sync-pull": "120/min",
         "ussd": "120/min",
+        "ussd-pin": "20/min",
         "webhook": "300/min",
         "collections": "30/min",
         "collections_status": "240/min",

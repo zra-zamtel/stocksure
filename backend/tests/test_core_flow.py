@@ -4,6 +4,7 @@ from datetime import date
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
+from apps.accounts.models import User
 from apps.inventory.models import Item
 from apps.ledger.models import LedgerEntry
 from apps.notifications.models import Notification
@@ -13,7 +14,7 @@ from apps.sync.models import Shop as SyncShop
 from apps.tax.models import TaxRuleSet
 from apps.taxmate.models import ReviewedAnswer
 
-from .helpers import client_for, make_shop
+from .helpers import client_for, give_ussd_pins, make_shop
 
 
 class CoreMatchTests(TestCase):
@@ -203,6 +204,7 @@ class TaxMateAndUssdTests(TestCase):
     def setUp(self):
         self.shop, self.owner, self.assistant = make_shop(mode="lite")
         self.oc = client_for(self.owner)
+        give_ussd_pins(self.owner, self.assistant)
 
     def test_taxmate_only_answers_from_reviewed_content(self):
         ReviewedAnswer.objects.create(category="tpin", question="What is a TPIN?", keywords="tpin, taxpayer",
@@ -225,14 +227,15 @@ class TaxMateAndUssdTests(TestCase):
 
     def test_ussd_menu_sale_and_summary(self):
         self.assertTrue(self.ussd("0977000001", "").startswith("CON"))
-        self.assertTrue(self.ussd("0977000001", "2").startswith("CON Check stock"))
-        self.assertTrue(self.ussd("0977000001", "1*150*1").startswith("END Only staff record sales"))
-        self.assertTrue(self.ussd("0977000002", "1*150*1").startswith("END Sale of K150.00"))
-        self.assertIn("K150.00", self.ussd("0977000001", "3"))
-        self.assertTrue(self.ussd("0977000002", "4").startswith("END This option is for the shop owner"))
-        self.assertTrue(self.ussd("0977000002", "2").startswith("CON Check stock"))
+        self.assertTrue(self.ussd("0977000001", "4821*2").startswith("CON Check stock"))
+        self.assertTrue(self.ussd("0977000001", "4821*1*150*1").startswith("END Only staff record sales"))
+        self.assertTrue(self.ussd("0977000002", "4821*1*150*1").startswith("END Sale of K150.00"))
+        self.assertIn("K150.00", self.ussd("0977000001", "4821*3"))
+        self.assertTrue(self.ussd("0977000002", "4821*5").startswith("END This option is for the shop owner"))
+        self.assertEqual(self.ussd("0977000002", "4821*4"), "END No payment requests yet.")
+        self.assertTrue(self.ussd("0977000002", "4821*2").startswith("CON Check stock"))
 
-    def test_ussd_registration(self):
-        self.assertTrue(self.ussd("0977999999", "").startswith("CON Welcome"))
-        self.assertTrue(self.ussd("0977999999", "1*Mary Boutique*4321").startswith("END Mary Boutique is registered"))
-        self.assertTrue(self.ussd("0977999999", "").startswith("CON StockSure"))
+    def test_ussd_sends_unknown_numbers_to_the_app(self):
+        self.assertIn("no StockSure account", self.ussd("0977999999", ""))
+        self.assertIn("no StockSure account", self.ussd("0977999999", "1*Mary Boutique*4321"))
+        self.assertFalse(User.objects.filter(phone="260977999999").exists())

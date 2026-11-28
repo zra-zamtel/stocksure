@@ -790,6 +790,72 @@ export async function refreshDeviceTokenOnServer(
   throw new ApiError('server', 'The account service could not be reached.');
 }
 
+// ---- USSD PINs (signing in from a basic phone) ------------------------------
+
+export type UssdPinStatus = {
+  userId: string;
+  phone: string;
+  isSet: boolean;
+  /** Set while too many wrong PINs keep USSD closed for this person. */
+  lockedUntil: string | null;
+  updatedAt: string | null;
+  lastUsedAt: string | null;
+};
+
+async function readUssdPin<T>(response: Response): Promise<T> {
+  if (response.ok) return (await response.json()) as T;
+  const payload = await readErrorPayload(response);
+  if (response.status === 401) throw new ApiError('unauthorized', payload?.detail ?? 'Sign in again.');
+  if (response.status === 403) throw new ApiError('forbidden', payload?.detail ?? 'Only the owner can do this.');
+  if (response.status === 404) {
+    throw new ApiError('staff-not-found', payload?.detail ?? 'That person is not part of this shop.');
+  }
+  if (response.status === 400) throw new ApiError('validation', payload?.detail ?? 'The USSD PIN must be 4 digits.');
+  throw new ApiError('server', payload?.detail ?? 'The account service could not be reached.');
+}
+
+/** Whether the owner and each staff member can sign in over USSD. */
+export async function getUssdPinsOnServer(deviceToken: string): Promise<UssdPinStatus[]> {
+  const body = await readUssdPin<{ pins: UssdPinStatus[] }>(
+    await getJson('/api/v1/ussd/pins', { Authorization: `Bearer ${deviceToken}` })
+  );
+  return body.pins;
+}
+
+/** Sets or replaces a USSD PIN. Without userId it is the owner's own. */
+export async function setUssdPinOnServer(input: {
+  deviceToken: string;
+  pin: string;
+  userId?: string;
+}): Promise<UssdPinStatus> {
+  const { deviceToken, ...body } = input;
+  return readUssdPin<UssdPinStatus>(
+    await postJson('/api/v1/ussd/pin', body, { Authorization: `Bearer ${deviceToken}` })
+  );
+}
+
+/** Turns USSD sign-in off for one person. */
+export async function removeUssdPinOnServer(input: {
+  deviceToken: string;
+  userId: string;
+}): Promise<UssdPinStatus> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}/api/v1/ussd/pin?userId=${encodeURIComponent(input.userId)}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${input.deviceToken}` },
+      signal: controller.signal,
+    });
+  } catch {
+    throw new ApiError('offline', 'Could not reach the account service');
+  } finally {
+    clearTimeout(timer);
+  }
+  return readUssdPin<UssdPinStatus>(response);
+}
+
 // ---- Trading Record (proof of trading for a bank or MFI) --------------------
 
 export type TradingRecordMonth = {

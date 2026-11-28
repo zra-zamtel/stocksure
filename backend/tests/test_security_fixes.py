@@ -1,13 +1,16 @@
 from decimal import Decimal
 
 from django.test import TestCase, override_settings
+from django.utils import timezone
 from rest_framework.test import APIClient
 
+from apps.accounts.models import User
 from apps.inventory.models import Item
 from apps.sales.views import MAX_SYNC_ROWS
 from apps.shops.models import Membership
+from apps.sync.models import Shop as SyncShop
 
-from .helpers import client_for, make_shop
+from .helpers import client_for, give_ussd_pins, make_shop
 
 
 class UssdSecurityTests(TestCase):
@@ -42,6 +45,12 @@ class UssdSecurityTests(TestCase):
 
     @override_settings(USSD_SHARED_SECRET="gateway-secret", DEBUG=False)
     def test_africas_talking_form_post_gets_a_plain_text_menu(self):
+        # A known number with a USSD PIN, so the reply is the sign-in screen.
+        owner = User.objects.create_user("0970000001", "pass", full_name="Owner")
+        SyncShop.objects.create(
+            id="shop_at", owner=owner, name="AT Shop", created_at=timezone.now(), updated_at=timezone.now()
+        )
+        give_ussd_pins(owner)
         response = APIClient().post(
             "/api/ussd/?token=gateway-secret",
             "sessionId=ATUid_1&serviceCode=*384*1%23"

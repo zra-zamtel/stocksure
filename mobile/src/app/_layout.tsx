@@ -233,6 +233,7 @@ function RootNavigator() {
         <Stack.Screen name="settings" />
         <Stack.Screen name="smart-invoice" />
         <Stack.Screen name="hand-over" />
+        <Stack.Screen name="ussd-pin" />
       </Stack.Protected>
 
       <Stack.Protected redirectTo={gate} guard={ownerOnly && canAccessScreen(user?.role, 'staff')}>
