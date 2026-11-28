@@ -1176,3 +1176,92 @@ class MoreStaffTests(AuthTestCase):
         self.assertEqual(response.status_code, 401)
         self.assertEqual(response.json()["code"], "invalid_credentials")
 
+
+
+@override_settings(EXPOSE_EMAIL_TOKEN=True)
+class ChangeEmailTests(AuthTestCase):
+    url = "/api/v1/auth/email-change"
+
+    def setUp(self):
+        super().setUp()
+        self.owner, _ = make_owner(email="elton@exmaple.com", verified=False)
+
+    def change(self, email="elton@example.com", user=None):
+        return self.post(self.url, {"email": email}, auth(user or self.owner))
+
+    def test_moves_an_unconfirmed_email_and_sends_a_code_there(self):
+        old_code = issue_email_code(self.owner, EmailCode.Purpose.VERIFY)[1]
+
+        response = self.change()
+
+        self.assertEqual(response.status_code, 200, response.content)
+        body = response.json()
+        self.assertEqual(body["owner"]["email"], "elton@example.com")
+        self.assertTrue(body["verificationSent"])
+        self.assertEqual(mail.outbox[-1].to, ["elton@example.com"])
+        self.owner.refresh_from_db()
+        self.assertEqual(self.owner.email, "elton@example.com")
+        self.assertIsNone(self.owner.email_verified_at)
+        # The code sent to the mistyped address no longer works.
+        stale = self.post(
+            "/api/v1/auth/email-code/verify", {"email": "elton@example.com", "code": old_code}
+        )
+        self.assertEqual(stale.status_code, 400)
+        fresh = self.post(
+            "/api/v1/auth/email-code/verify",
+            {"email": "elton@example.com", "code": body["demoCode"]},
+        )
+        self.assertEqual(fresh.status_code, 200)
+        self.owner.refresh_from_db()
+        self.assertIsNotNone(self.owner.email_verified_at)
+
+    def test_needs_the_device_key(self):
+        response = self.post(self.url, {"email": "elton@example.com"})
+
+        self.assertEqual(response.status_code, 401)
+        self.owner.refresh_from_db()
+        self.assertEqual(self.owner.email, "elton@exmaple.com")
+
+    def test_a_confirmed_email_cannot_be_changed_here(self):
+        self.owner.email_verified_at = timezone.now()
+        self.owner.save(update_fields=["email_verified_at"])
+
+        response = self.change()
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["code"], "email_verified")
+        self.owner.refresh_from_db()
+        self.assertEqual(self.owner.email, "elton@exmaple.com")
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_another_owners_confirmed_email_is_refused(self):
+        make_owner(email="taken@example.com", phone="0977777777", shop=False)
+
+        response = self.change(email="taken@example.com")
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["code"], "email_taken")
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_replaces_another_unconfirmed_claim(self):
+        other, _ = make_owner(
+            email="elton@example.com", phone="0977777777", verified=False, shop=False
+        )
+
+        response = self.change()
+
+        self.assertEqual(response.status_code, 200, response.content)
+        other.refresh_from_db()
+        self.assertEqual(other.email, "")
+
+    def test_rejects_a_bad_email(self):
+        response = self.change(email="not-an-email")
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_staff_cannot_use_it(self):
+        staff, _, _ = make_staff(self.owner)
+
+        response = self.change(user=staff)
+
+        self.assertEqual(response.status_code, 403)

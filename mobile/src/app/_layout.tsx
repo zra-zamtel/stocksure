@@ -5,6 +5,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { useGateRoute } from '@/auth/gate';
 import { AuthProvider, useAuth } from '@/auth/session';
 import { AnimatedSplash } from '@/components/animated-splash';
 import { Button } from '@/components/ui';
@@ -128,6 +129,9 @@ function RootNavigator() {
     refresh,
     can,
   } = useAuth();
+  // Where a screen goes when its guard turns off, e.g. straight to sign-in on
+  // sign-out, instead of the navigator's anchor "/" (see auth/gate.ts).
+  const gate = useGateRoute();
 
   if (status === 'loading') {
     return (
@@ -157,33 +161,34 @@ function RootNavigator() {
       <Stack.Screen name="index" />
       {/* Open in every state: a signed-in owner taps the link to confirm their email. */}
 
-      <Stack.Protected guard={!hasAccount && pendingOwner === null}>
+      <Stack.Protected redirectTo={gate} guard={!hasAccount && pendingOwner === null}>
         <Stack.Screen name="onboarding/language" />
         <Stack.Screen name="onboarding/account" />
       </Stack.Protected>
 
-      <Stack.Protected guard={!signedIn}>
+      <Stack.Protected redirectTo={gate} guard={!signedIn}>
         <Stack.Screen name="email-sign-in" />
         <Stack.Screen name="staff-sign-in" />
       </Stack.Protected>
 
-      <Stack.Protected guard={pendingOwner !== null && !signedIn}>
+      <Stack.Protected redirectTo={gate} guard={pendingOwner !== null && !signedIn}>
         <Stack.Screen name="set-phone-pin" />
       </Stack.Protected>
 
-      <Stack.Protected guard={hasAccount && !signedIn && pendingOwner === null}>
+      <Stack.Protected redirectTo={gate} guard={hasAccount && !signedIn && pendingOwner === null}>
         <Stack.Screen name="sign-in" />
       </Stack.Protected>
 
-      <Stack.Protected guard={hasOwner && !signedIn && pendingOwner === null}>
+      <Stack.Protected redirectTo={gate} guard={hasOwner && !signedIn && pendingOwner === null}>
         <Stack.Screen name="pin-reset" />
       </Stack.Protected>
 
-      <Stack.Protected guard={signedIn && isOwner && emailPending !== null}>
+      <Stack.Protected redirectTo={gate} guard={signedIn && isOwner && emailPending !== null}>
         <Stack.Screen name="onboarding/verify-email" />
       </Stack.Protected>
 
       <Stack.Protected
+        redirectTo={gate}
         guard={signedIn && isOwner && !onboardingComplete && !shopRestorePending}
       >
         <Stack.Screen name="onboarding/shop" />
@@ -192,6 +197,7 @@ function RootNavigator() {
       </Stack.Protected>
 
       <Stack.Protected
+        redirectTo={gate}
         guard={
           signedIn &&
           ((user?.role === 'staff' && (!hasShop || !onboardingComplete)) ||
@@ -201,51 +207,51 @@ function RootNavigator() {
         <Stack.Screen name="shop-pending" />
       </Stack.Protected>
 
-      <Stack.Protected guard={signedIn && canAccessScreen(user?.role, 'productNew')}>
+      <Stack.Protected redirectTo={gate} guard={signedIn && canAccessScreen(user?.role, 'productNew')}>
         <Stack.Screen name="product/new" />
       </Stack.Protected>
 
-      <Stack.Protected guard={signedIn && canAccessScreen(user?.role, 'productDetail')}>
+      <Stack.Protected redirectTo={gate} guard={signedIn && canAccessScreen(user?.role, 'productDetail')}>
         <Stack.Screen name="product/[id]" />
       </Stack.Protected>
 
-      <Stack.Protected guard={signedIn && canAccessScreen(user?.role, 'scan')}>
+      <Stack.Protected redirectTo={gate} guard={signedIn && canAccessScreen(user?.role, 'scan')}>
         <Stack.Screen name="scan" />
       </Stack.Protected>
 
-      <Stack.Protected guard={signedIn && onboardingComplete && can('sales.record')}>
+      <Stack.Protected redirectTo={gate} guard={signedIn && onboardingComplete && can('sales.record')}>
         <Stack.Screen name="sale/new" />
       </Stack.Protected>
 
-      <Stack.Protected guard={signedIn && onboardingComplete}>
+      <Stack.Protected redirectTo={gate} guard={signedIn && onboardingComplete}>
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="sales" />
         <Stack.Screen name="sale/[id]" />
       </Stack.Protected>
 
-      <Stack.Protected guard={ownerOnly && canAccessScreen(user?.role, 'settings')}>
+      <Stack.Protected redirectTo={gate} guard={ownerOnly && canAccessScreen(user?.role, 'settings')}>
         <Stack.Screen name="settings" />
         <Stack.Screen name="smart-invoice" />
         <Stack.Screen name="hand-over" />
       </Stack.Protected>
 
-      <Stack.Protected guard={ownerOnly && canAccessScreen(user?.role, 'staff')}>
+      <Stack.Protected redirectTo={gate} guard={ownerOnly && canAccessScreen(user?.role, 'staff')}>
         <Stack.Screen name="staff" />
       </Stack.Protected>
 
-      <Stack.Protected guard={ownerOnly && canAccessScreen(user?.role, 'paymentMessage')}>
+      <Stack.Protected redirectTo={gate} guard={ownerOnly && canAccessScreen(user?.role, 'paymentMessage')}>
         <Stack.Screen name="payment-message" />
       </Stack.Protected>
 
-      <Stack.Protected guard={ownerOnly && canAccessScreen(user?.role, 'insights')}>
+      <Stack.Protected redirectTo={gate} guard={ownerOnly && canAccessScreen(user?.role, 'insights')}>
         <Stack.Screen name="insights" />
       </Stack.Protected>
 
-      <Stack.Protected guard={ownerOnly && canAccessScreen(user?.role, 'tradingRecord')}>
+      <Stack.Protected redirectTo={gate} guard={ownerOnly && canAccessScreen(user?.role, 'tradingRecord')}>
         <Stack.Screen name="trading-record" />
       </Stack.Protected>
 
-      <Stack.Protected guard={ownerOnly && canAccessScreen(user?.role, 'taxPot')}>
+      <Stack.Protected redirectTo={gate} guard={ownerOnly && canAccessScreen(user?.role, 'taxPot')}>
         <Stack.Screen name="tax/pot" />
       </Stack.Protected>
     </Stack>

@@ -1,7 +1,7 @@
 import { useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useEffect, useRef, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '@/auth/session';
 import type { AndroidSymbol } from 'expo-symbols';
 import { Button, Field, FormError } from '@/components/ui';
@@ -10,7 +10,7 @@ import { PROFILES, profileForShop, type ProfileId } from '@/core';
 import { useShop } from '@/db/hooks';
 import { saveShopDetails } from '@/db/repos';
 import { useI18n } from '@/i18n';
-import { spacing } from '@/theme/tokens';
+import { colors, spacing, themed, typeScale } from '@/theme/tokens';
 
 export default function ShopScreen() {
   const { t, language } = useI18n();
@@ -21,7 +21,8 @@ export default function ShopScreen() {
 
   const [name, setName] = useState('');
   const [town, setTown] = useState('');
-  const [profileId, setProfileId] = useState<ProfileId>('fashion');
+  const [profileId, setProfileId] = useState<ProfileId | null>(null);
+  const [typeError, setTypeError] = useState<string | null>(null);
   const [usesBarcodes, setUsesBarcodes] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [nameError, setNameError] = useState<string | null>(null);
@@ -47,7 +48,8 @@ export default function ShopScreen() {
     const missingTown = !town.trim();
     setNameError(missingName ? t('onboarding.shop.error.nameRequired') : null);
     setTownError(missingTown ? t('onboarding.shop.error.townRequired') : null);
-    if (missingName || missingTown) return;
+    setTypeError(profileId ? null : t('onboarding.shop.error.typeRequired'));
+    if (missingName || missingTown || !profileId) return;
 
     setSaving(true);
     try {
@@ -80,7 +82,7 @@ export default function ShopScreen() {
           }}
           hint={t('onboarding.shop.hint.name')}
           error={nameError}
-          placeholder="Chiwala Fashions"
+          placeholder="Mwila's Boutique"
           icon="storefront"
           autoCapitalize="words"
           required
@@ -112,12 +114,18 @@ export default function ShopScreen() {
             selected={profileId === profile.id}
             onPress={() => {
               setProfileId(profile.id);
-              // The trade suggests whether barcodes are used; the owner can still change it below.
+              setTypeError(null);
+              //The trade suggests whether barcodes are used; the owner can still change it below.
               setUsesBarcodes(profile.barcodesDefault);
             }}
           />
         ))}
       </OptionGrid>
+      {typeError ? (
+        <Text accessibilityLiveRegion="polite" style={styles.typeError}>
+          {typeError}
+        </Text>
+      ) : null}
 
       <StepSection>{t('onboarding.shop.howYouSell')}</StepSection>
       <OptionGrid>
@@ -142,6 +150,7 @@ export default function ShopScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   fields: { gap: spacing.md },
-});
+  typeError: { fontSize: typeScale.label, color: colors.danger },
+}));

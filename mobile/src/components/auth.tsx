@@ -44,6 +44,7 @@ export function PinBoxes({
   shakeKey,
   onSubmit,
   disabled,
+  error,
 }: {
   label: string;
   value: string;
@@ -54,6 +55,8 @@ export function PinBoxes({
   onSubmit?: () => void;
   /** Stops typing, e.g. while the PIN is locked after wrong tries. */
   disabled?: boolean;
+  /** A message right under the boxes; also outlines them in red. */
+  error?: string | null;
 }) {
   const shake = useSharedValue(0);
   const boxes = Math.min(MAX_PIN_LENGTH, Math.max(MIN_PIN, value.length + 1));
@@ -84,7 +87,7 @@ export function PinBoxes({
                 styles.pinBox,
                 filled && styles.pinBoxFilled,
                 active && styles.pinBoxActive,
-                invalid && styles.pinBoxInvalid,
+                (invalid || Boolean(error)) && styles.pinBoxInvalid,
               ]}
             >
               {filled ? <PinDot /> : null}
@@ -108,6 +111,11 @@ export function PinBoxes({
           style={styles.pinInput}
         />
       </Animated.View>
+      {error ? (
+        <Text style={styles.pinError} accessibilityLiveRegion="polite">
+          {error}
+        </Text>
+      ) : null}
     </View>
   );
 }
@@ -218,6 +226,7 @@ export function Avatar({ name, size = 56 }: { name: string; size?: number }) {
 const styles = themed(() => StyleSheet.create({
   pin: { gap: spacing.sm, alignSelf: 'stretch', width: '100%' },
   pinLabel: { fontSize: typeScale.label, color: colors.textMuted, fontWeight: '600' },
+  pinError: { fontSize: typeScale.label, color: colors.danger, fontWeight: '600' },
   // The row always spans the full width, so it can never shrink to its contents.
   pinRow: { flexDirection: 'row', gap: spacing.sm, alignSelf: 'stretch', width: '100%' },
   // Each box asks for 44px, may shrink to 36px and grows to 52px, so six always

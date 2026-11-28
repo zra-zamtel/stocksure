@@ -25,6 +25,8 @@ export default function SetPhonePinScreen() {
   const [pin, setPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [pinError, setPinError] = useState<string | null>(null);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
   const [shakeKey, setShakeKey] = useState(0);
   const [submitting, setSubmitting] = useState(false);
 
@@ -36,13 +38,15 @@ export default function SetPhonePinScreen() {
   async function handleSave() {
     if (submitting) return;
     setError(null);
+    setPinError(null);
+    setConfirmError(null);
 
     if (!isValidPin(pin)) {
-      setError(t('auth.devicePin.error.pinInvalid'));
+      setPinError(t('auth.devicePin.error.pinInvalid'));
       return;
     }
     if (pin !== confirmPin) {
-      setError(t('auth.devicePin.error.pinMismatch'));
+      setConfirmError(t('auth.devicePin.error.pinMismatch'));
       setShakeKey((key) => key + 1);
       setConfirmPin('');
       return;
@@ -85,6 +89,7 @@ export default function SetPhonePinScreen() {
       footer={
         <Button
           label={submitting ? t('auth.devicePin.saving') : t('auth.devicePin.action')}
+          loading={submitting}
           disabled={submitting || pin.length < 4 || confirmPin.length < 4}
           onPress={() => void handleSave()}
         />
@@ -96,8 +101,9 @@ export default function SetPhonePinScreen() {
           value={pin}
           onChange={(value) => {
             setPin(value);
-            if (error) setError(null);
+            if (pinError) setPinError(null);
           }}
+          error={pinError}
           autoFocus
         />
         <PinBoxes
@@ -105,9 +111,10 @@ export default function SetPhonePinScreen() {
           value={confirmPin}
           onChange={(value) => {
             setConfirmPin(value);
-            if (error) setError(null);
+            if (confirmError) setConfirmError(null);
           }}
-          invalid={Boolean(error) && confirmPin.length === 0}
+          invalid={Boolean(confirmError) && confirmPin.length === 0}
+          error={confirmError}
           shakeKey={shakeKey}
           onSubmit={() => void handleSave()}
         />

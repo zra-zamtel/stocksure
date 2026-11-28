@@ -47,6 +47,10 @@ export default function EmailSignInScreen() {
   const [newPassword, setNewPassword] = useState('');
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [emailError, setEmailError] = useState<string | null>(null);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [newPasswordError, setNewPasswordError] = useState<string | null>(null);
+  const [codeError, setCodeError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [demoCode, setDemoCode] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -57,6 +61,10 @@ export default function EmailSignInScreen() {
   function goTo(next: Step) {
     setStep(next);
     setError(null);
+    setEmailError(null);
+    setPasswordError(null);
+    setNewPasswordError(null);
+    setCodeError(null);
     setInfo(null);
     setDemoCode(null);
     setCode('');
@@ -71,7 +79,7 @@ export default function EmailSignInScreen() {
 
   function checkEmail(): boolean {
     if (!isValidEmail(email)) {
-      setError(t('auth.email.error.emailInvalid'));
+      setEmailError(t('auth.email.error.emailInvalid'));
       return false;
     }
     return true;
@@ -80,11 +88,16 @@ export default function EmailSignInScreen() {
   async function run(task: () => Promise<void>) {
     if (busy) return;
     setError(null);
+    setCodeError(null);
     setBusy(true);
     try {
       await task();
     } catch (cause) {
-      setError(describe(cause));
+      if (cause instanceof ApiError && (cause.code === 'invalid-code' || cause.code === 'expired-code')) {
+        setCodeError(describe(cause));
+      } else {
+        setError(describe(cause));
+      }
     } finally {
       setBusy(false);
     }
@@ -93,7 +106,7 @@ export default function EmailSignInScreen() {
   function handlePasswordSignIn() {
     if (!checkEmail()) return;
     if (!password) {
-      setError(t('auth.email.error.passwordRequired'));
+      setPasswordError(t('auth.email.error.passwordRequired'));
       return;
     }
     void run(async () => {
@@ -133,7 +146,7 @@ export default function EmailSignInScreen() {
 
   function handleResetConfirm() {
     if (newPassword.length < MIN_PASSWORD) {
-      setError(t('auth.code.error.passwordShort'));
+      setNewPasswordError(t('auth.code.error.passwordShort'));
       return;
     }
     void run(async () => {
@@ -147,6 +160,7 @@ export default function EmailSignInScreen() {
     password: (
       <Button
         label={busy ? t('auth.email.signingIn') : t('auth.email.action')}
+        loading={busy}
         disabled={busy || email.trim() === '' || password === ''}
         onPress={handlePasswordSignIn}
       />
@@ -154,6 +168,7 @@ export default function EmailSignInScreen() {
     confirm: (
       <Button
         label={busy ? t('auth.code.checking') : t('auth.code.confirmAction')}
+        loading={busy}
         disabled={busy || !codeReady}
         onPress={handleConfirmCode}
       />
@@ -161,6 +176,7 @@ export default function EmailSignInScreen() {
     'reset-request': (
       <Button
         label={busy ? t('auth.code.sending') : t('auth.code.sendReset')}
+        loading={busy}
         disabled={busy || email.trim() === ''}
         onPress={handleResetRequest}
       />
@@ -168,6 +184,7 @@ export default function EmailSignInScreen() {
     'reset-confirm': (
       <Button
         label={busy ? t('auth.code.checking') : t('auth.code.resetAction')}
+        loading={busy}
         disabled={busy || !codeReady || newPassword === ''}
         onPress={handleResetConfirm}
       />
@@ -180,7 +197,13 @@ export default function EmailSignInScreen() {
     <Field
       label={t('auth.code.label')}
       value={code}
-      onChangeText={(value) => setCode(value.replace(/\D/g, ''))}
+      onChangeText={(value) => {
+        setCode(value.replace(/\D/g, ''));
+        if (codeError) setCodeError(null);
+      }}
+      error={codeError}
+      autoComplete="one-time-code"
+      textContentType="oneTimeCode"
       placeholder="123456"
       keyboardType="numeric"
       icon="mail"
@@ -212,7 +235,13 @@ export default function EmailSignInScreen() {
           <Field
             label={t('auth.email.email')}
             value={email}
-            onChangeText={setEmail}
+            onChangeText={(value) => {
+              setEmail(value);
+              if (emailError) setEmailError(null);
+            }}
+            error={emailError}
+            autoComplete="email"
+            textContentType="emailAddress"
             placeholder="you@example.com"
             keyboardType="email-address"
             icon="mail"
@@ -224,7 +253,13 @@ export default function EmailSignInScreen() {
           <Field
             label={t('auth.email.password')}
             value={password}
-            onChangeText={setPassword}
+            onChangeText={(value) => {
+              setPassword(value);
+              if (passwordError) setPasswordError(null);
+            }}
+            error={passwordError}
+            autoComplete="current-password"
+            textContentType="password"
             placeholder="••••••••"
             icon="lock"
             secureTextEntry
@@ -239,7 +274,13 @@ export default function EmailSignInScreen() {
           <Field
             label={t('auth.code.newPassword')}
             value={newPassword}
-            onChangeText={setNewPassword}
+            onChangeText={(value) => {
+              setNewPassword(value);
+              if (newPasswordError) setNewPasswordError(null);
+            }}
+            error={newPasswordError}
+            autoComplete="new-password"
+            textContentType="newPassword"
             placeholder="••••••••"
             icon="lock"
             secureTextEntry

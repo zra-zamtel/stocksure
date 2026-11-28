@@ -18,17 +18,18 @@ import { colors, radii, spacing, themed, touch, typeScale } from '../theme/token
 
 /**
  * Setup runs as one stepped flow. Every numbered screen shares this frame so
- * the owner always sees how far along they are ("2 of 4"), and every "Next"
+ * the owner always sees how far along they are ("2 of 5"), and every "Next"
  * visibly moves something: the bar fills and the new step slides in. Choosing
  * a language comes before the count starts.
  */
 export const SETUP_STEPS = {
   account: 1,
-  shop: 2,
-  money: 3,
-  products: 4,
+  verify: 2,
+  shop: 3,
+  money: 4,
+  products: 5,
 } as const;
-export const SETUP_TOTAL = 4;
+export const SETUP_TOTAL = Object.keys(SETUP_STEPS).length;
 
 type Props = {
   /** Omit outside setup (e.g. sign-in): no progress bar or step count. */
@@ -164,7 +165,7 @@ export function OptionCard({
     <Animated.View style={[styles.optionWrap, cardStyle]}>
       <Pressable
         accessibilityRole="radio"
-        accessibilityState={{ selected }}
+        accessibilityState={{ checked: selected }}
         accessibilityLabel={caption ? `${title}. ${caption}` : title}
         onPress={onPress}
         onPressIn={() => {

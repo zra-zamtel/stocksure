@@ -22,6 +22,7 @@ from .emails import send_branded
 from .models import EmailCode, PinResetCode, StaffProfile, User
 from .serializers import (
     DevicePinSerializer,
+    EmailChangeSerializer,
     EmailCodeRequestSerializer,
     EmailCodeVerifySerializer,
     LoginSerializer,
@@ -467,6 +468,66 @@ class VerifyEmailCodeView(APIView):
                 user.save(update_fields=["email_verified_at"])
 
         return Response(auth_payload(user), status=status.HTTP_200_OK)
+
+
+class ChangeEmailView(APIView):
+    """POST /api/auth/email-change
+
+    A new owner who mistyped their email at sign-up fixes it here, before it is
+    confirmed. The device key from sign-up proves it is the same owner. A
+    confirmed address cannot be changed this way, and another owner's confirmed
+    address is never taken. A fresh code goes to the new address.
+    """
+
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "email-code"
+
+    def post(self, request):
+        serializer = EmailChangeSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data["email"]
+        user = request.user
+
+        if hasattr(user, "staff_profile"):
+            return error("forbidden", "Only the owner can change this email.", status.HTTP_403_FORBIDDEN)
+        if user.email_verified_at is not None:
+            return error(
+                "email_verified",
+                "This email is already confirmed and cannot be changed here.",
+                status.HTTP_409_CONFLICT,
+            )
+
+        email_owner = User.objects.filter(email=email).exclude(id=user.id).first()
+        if email_owner and email_owner.email_verified_at is not None:
+            return error(
+                "email_taken",
+                "That email address is already registered.",
+                status.HTTP_409_CONFLICT,
+            )
+
+        try:
+            with transaction.atomic():
+                if email_owner:
+                    # Same rule as sign-up: an unconfirmed claim is provisional.
+                    email_owner.email = ""
+                    email_owner.save(update_fields=["email"])
+                user.email = email
+                user.save(update_fields=["email"])
+                # Codes sent to the old address must not confirm the new one.
+                user.email_codes.filter(
+                    purpose=EmailCode.Purpose.VERIFY, used_at__isnull=True
+                ).update(used_at=timezone.now())
+        except IntegrityError:
+            return error(
+                "email_taken",
+                "That email address is already registered.",
+                status.HTTP_409_CONFLICT,
+            )
+
+        payload = {"owner": OwnerSerializer(user).data}
+        send_verify_code(user, payload)
+        return Response(payload, status=status.HTTP_200_OK)
 
 
 class RequestPasswordResetView(APIView):

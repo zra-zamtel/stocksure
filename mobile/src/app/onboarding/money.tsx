@@ -25,6 +25,7 @@ export default function MoneyScreen() {
   const [registered, setRegistered] = useState(false);
   const [tpin, setTpin] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [tpinError, setTpinError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   const hydrated = useRef(false);
@@ -44,8 +45,9 @@ export default function MoneyScreen() {
   async function handleNext() {
     if (saving) return;
     setError(null);
+    setTpinError(null);
     if (registered && tpin.trim() && !isValidTpin(tpin)) {
-      setError(t('onboarding.money.tpinInvalid'));
+      setTpinError(t('onboarding.money.tpinInvalid'));
       return;
     }
 
@@ -82,7 +84,7 @@ export default function MoneyScreen() {
           return (
             <Pressable
               key={provider}
-              accessibilityRole="button"
+              accessibilityRole="checkbox"
               accessibilityLabel={provider}
               accessibilityState={{ checked: selected }}
               android_ripple={{ color: colors.ripple }}
@@ -121,7 +123,12 @@ export default function MoneyScreen() {
         <Field
           label={t('onboarding.money.taxNumber')}
           value={tpin}
-          onChangeText={(value) => setTpin(value.replace(/\D/g, ''))}
+          onChangeText={(value) => {
+            setTpin(value.replace(/\D/g, ''));
+            setTpinError(null);
+          }}
+          error={tpinError}
+          autoComplete="off"
           keyboardType="numeric"
           maxLength={10}
           hint={t('onboarding.money.taxNumberHint')}
