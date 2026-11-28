@@ -5,16 +5,17 @@ import { colors, fonts, iconSize, radii, spacing, themed, touch, typeScale } fro
 import { Icon } from './ui';
 
 /**
- * Official network logos. Only the operators' own files go here, never a
- * redrawn or recoloured copy. Drop each PNG (square, at least 96px, on a
- * transparent or white background) into assets/images/networks/ and swap
- * `null` for its require(), e.g. MTN: require('../../assets/images/networks/mtn.png').
- * Until then the neutral tile below stands in.
+ * Official network logos, used as supplied: never redrawn or recoloured.
+ * Each sits on a tile of its own background colour, so a wide logo (MTN) or
+ * one with a coloured square (Airtel) fills the tile without a white band.
+ * `inset` is how much of the tile the picture covers.
  */
-const LOGOS: Record<Provider, ImageSourcePropType | null> = {
-  MTN: null,
-  Airtel: null,
-  Zamtel: null,
+type Logo = { source: ImageSourcePropType; background: string; inset: `${number}%` };
+
+const LOGOS: Record<Provider, Logo | null> = {
+  MTN: { source: require('../../assets/images/networks/mtn.jpg'), background: '#FFCB01', inset: '100%' },
+  Airtel: { source: require('../../assets/images/networks/airtel.png'), background: '#E30010', inset: '100%' },
+  Zamtel: { source: require('../../assets/images/networks/zamtel.jpg'), background: '#FFFFFF', inset: '92%' },
 };
 
 /** How each network's wallet is usually called at the counter. */
@@ -24,14 +25,14 @@ export const WALLET_NAMES: Record<Provider, string> = {
   Zamtel: 'Zamtel Kwacha',
 };
 
-/** A network's logo on a small white tile, or its name on a neutral tile until the logo is added. */
+/** A network's logo on a small tile, or its name on a neutral tile if a logo is missing. */
 export function NetworkMark({ provider, size = 32 }: { provider: Provider; size?: number }) {
   const logo = LOGOS[provider];
   const box = { width: size, height: size, borderRadius: Math.round(size * 0.25) };
   if (logo) {
     return (
-      <View style={[styles.logoTile, box]} accessible={false}>
-        <Image source={logo} style={styles.logo} resizeMode="contain" />
+      <View style={[styles.logoTile, box, { backgroundColor: logo.background }]} accessible={false}>
+        <Image source={logo.source} style={{ width: logo.inset, height: logo.inset }} resizeMode="contain" />
       </View>
     );
   }
@@ -88,16 +89,14 @@ export function NetworkOption({
 
 const styles = themed(() =>
   StyleSheet.create({
-    // Logos keep their own colours on white in both themes, as brand rules ask.
+    // Logos keep their own colours in both themes, as brand rules ask.
     logoTile: {
-      backgroundColor: '#FFFFFF',
       alignItems: 'center',
       justifyContent: 'center',
       overflow: 'hidden',
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.border,
     },
-    logo: { width: '86%', height: '86%' },
     fallback: {
       backgroundColor: colors.surfaceAlt,
       alignItems: 'center',
