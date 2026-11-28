@@ -15,6 +15,7 @@ export default function SignInScreen() {
   const { ownerPreview, signIn, pinLock, onboardingComplete, hasOwner, shopRestorePending } = useAuth();
   const [pin, setPin] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [pinError, setPinError] = useState<string | null>(null);
   const [shakeKey, setShakeKey] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   // Too many wrong PINs lock the PIN for a while, and finally until the owner
@@ -53,11 +54,12 @@ export default function SignInScreen() {
   async function handleSignIn() {
     if (submitting || locked || pin.length < 4) return;
     setError(null);
+    setPinError(null);
     setSubmitting(true);
     try {
       const result = await signIn(pin);
       if (result === 'wrong-pin') {
-        setError(t('auth.signIn.wrongPin'));
+        setPinError(t('auth.signIn.wrongPin'));
         setShakeKey((key) => key + 1);
         setPin('');
         return;
@@ -109,6 +111,7 @@ export default function SignInScreen() {
       footer={
         <Button
           label={t('auth.signIn.action')}
+          loading={submitting}
           disabled={pin.length < 4 || submitting || locked}
           onPress={() => void handleSignIn()}
         />
@@ -121,8 +124,10 @@ export default function SignInScreen() {
           onChange={(value) => {
             setPin(value);
             if (error) setError(null);
+            if (pinError) setPinError(null);
           }}
-          invalid={(Boolean(error) || locked) && pin.length === 0}
+          error={pinError}
+          invalid={(Boolean(error) || Boolean(pinError) || locked) && pin.length === 0}
           shakeKey={shakeKey}
           onSubmit={() => void handleSignIn()}
           disabled={locked}

@@ -143,6 +143,13 @@ class EmailCodeVerifySerializer(serializers.Serializer):
         return value.strip().lower()
 
 
+class EmailChangeSerializer(serializers.Serializer):
+    email = serializers.EmailField(max_length=254)
+
+    def validate_email(self, value: str) -> str:
+        return value.strip().lower()
+
+
 class PasswordResetRequestSerializer(serializers.Serializer):
     email = serializers.EmailField(max_length=254)
 

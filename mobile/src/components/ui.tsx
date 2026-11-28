@@ -1,4 +1,4 @@
-import { memo, useContext, useEffect, useState, type ReactNode } from 'react';
+import { memo, useContext, useEffect, useState, type ComponentRef, type ReactNode, type Ref } from 'react';
 import { useRouter } from 'expo-router';
 import { BottomTabBarHeightContext } from 'expo-router/tabs';
 import { useI18n } from '../i18n';
@@ -15,6 +15,7 @@ import {
   View,
   type ColorValue,
   type StyleProp,
+  type TextInputProps,
   type ViewStyle,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -614,6 +615,9 @@ export function Field({
   hint,
   error,
   trailing,
+  autoComplete,
+  textContentType,
+  inputRef,
 }: {
   label: string;
   value?: string;
@@ -637,6 +641,12 @@ export function Field({
   error?: string | null;
   /** Something inside the box after the text, e.g. the detected network's mark. */
   trailing?: ReactNode;
+  /** Lets the phone and password managers fill the box, e.g. 'email', 'new-password', 'one-time-code'. */
+  autoComplete?: TextInputProps['autoComplete'];
+  /** The iOS twin of autoComplete. */
+  textContentType?: TextInputProps['textContentType'];
+  /** For moving the cursor here, e.g. to the first box with a problem. */
+  inputRef?: Ref<ComponentRef<typeof TextInput>>;
 }) {
   const [revealed, setRevealed] = useState(false);
   const canReveal = Boolean(secureTextEntry && revealLabels);
@@ -659,8 +669,11 @@ export function Field({
           </View>
         ) : null}
         <TextInput
+          ref={inputRef}
           value={value}
           onChangeText={onChangeText}
+          autoComplete={autoComplete}
+          textContentType={textContentType}
           placeholder={placeholder}
           placeholderTextColor={colors.textMuted}
           keyboardType={keyboardType}
@@ -742,7 +755,7 @@ export function Choice({
   return (
     <Pressable
       accessibilityRole={kind}
-      accessibilityState={kind === 'checkbox' ? { checked: selected } : { selected }}
+      accessibilityState={{ checked: selected }}
       onPress={onPress}
       android_ripple={{ color: colors.ripple }}
       style={({ pressed }) => [

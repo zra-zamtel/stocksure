@@ -5,6 +5,7 @@ const REGISTER_PATH = '/api/v1/auth/register';
 const LOGIN_PATH = '/api/v1/auth/login';
 const EMAIL_CODE_REQUEST_PATH = '/api/v1/auth/email-code/request';
 const EMAIL_CODE_VERIFY_PATH = '/api/v1/auth/email-code/verify';
+const EMAIL_CHANGE_PATH = '/api/v1/auth/email-change';
 const PASSWORD_RESET_REQUEST_PATH = '/api/v1/auth/password-reset/request';
 const PASSWORD_RESET_CONFIRM_PATH = '/api/v1/auth/password-reset/confirm';
 const DEVICE_PIN_PATH = '/api/v1/auth/device-pin';
@@ -58,6 +59,8 @@ export type ApiErrorCode =
   | 'staff-not-found'
   | 'invalid-credentials'
   | 'email-unverified'
+  /** The email is already confirmed, so it cannot be changed before sign-up ends. */
+  | 'email-verified'
   | 'invalid-token'
   | 'expired-token'
   | 'invalid-code'
@@ -269,6 +272,57 @@ export async function requestEmailCodeOnServer(
 /** Check the emailed code; the email is confirmed and this phone gets a session. */
 export async function verifyEmailCodeOnServer(email: string, code: string): Promise<OwnerSession> {
   return readCodeSession(await postJson(EMAIL_CODE_VERIFY_PATH, { email, code }));
+}
+
+export type EmailChangeResult = {
+  owner: ServerOwner;
+  /** Whether the server managed to email a code to the new address. */
+  verificationSent: boolean;
+  /** Local demo servers only. */
+  demoCode?: string;
+};
+
+/**
+ * Fix a mistyped email before it is confirmed. The sign-up device key proves
+ * it is the same owner; a fresh code goes to the new address.
+ */
+export async function changeEmailOnServer(input: {
+  deviceToken: string;
+  email: string;
+}): Promise<EmailChangeResult> {
+  const response = await postJson(
+    EMAIL_CHANGE_PATH,
+    { email: input.email },
+    { Authorization: `Bearer ${input.deviceToken}` }
+  );
+  if (response.ok) {
+    const payload = (await response.json()) as Partial<EmailChangeResult> & { owner: ServerOwner };
+    return {
+      owner: payload.owner,
+      verificationSent: payload.verificationSent !== false,
+      demoCode: payload.demoCode,
+    };
+  }
+  const payload = await readErrorPayload(response);
+  if (response.status === 401) {
+    throw new ApiError('unauthorized', payload?.detail ?? 'Sign in again to change the email.');
+  }
+  if (response.status === 409 && payload?.code === 'email_taken') {
+    throw new ApiError('duplicate-email', payload.detail ?? 'That email address is already registered.');
+  }
+  if (response.status === 409 && payload?.code === 'email_verified') {
+    throw new ApiError('email-verified', payload.detail ?? 'This email is already confirmed.');
+  }
+  if (response.status === 403) {
+    throw new ApiError('forbidden', payload?.detail ?? 'Only the owner can change this email.');
+  }
+  if (response.status === 429) {
+    throw new ApiError('too-many-attempts', payload?.detail ?? 'Too many tries. Wait a minute.');
+  }
+  if (response.status === 400) {
+    throw new ApiError('validation', payload?.detail ?? 'Check the email address.');
+  }
+  throw new ApiError('server', payload?.detail ?? 'The account service could not change the email.');
 }
 
 /** Email a code for setting a new password. Generic for unknown emails. */

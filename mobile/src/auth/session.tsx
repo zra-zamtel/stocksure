@@ -43,6 +43,7 @@ import {
 } from '@/db/repos';
 import {
   ApiError,
+  changeEmailOnServer,
   confirmPinResetOnServer,
   loginOwnerOnServer,
   refreshDeviceTokenOnServer,
@@ -54,6 +55,7 @@ import {
   setOwnerDevicePinOnServer,
   verifyEmailCodeOnServer,
   verifyStaffSignInOnServer,
+  type EmailChangeResult,
   type EmailCodeRequestResult,
   type OwnerSession,
   type PinResetRequestResult,
@@ -152,6 +154,11 @@ type AuthValue = {
   /** Confirms the email of the owner already signed in on this phone. */
   confirmOwnerEmail: (input: { email: string; code: string }) => Promise<void>;
   requestOwnerEmailCode: (email: string, phone?: string) => Promise<EmailCodeRequestResult>;
+  /**
+   * Fixes a mistyped sign-up email before it is confirmed and emails a fresh
+   * code to the new address. This phone then remembers the new address.
+   */
+  changeOwnerEmail: (email: string) => Promise<EmailChangeResult>;
   /**
    * Reconnects this phone to the owner's online account with an emailed code,
    * without leaving the current screen or setting a new PIN. Throws
@@ -771,6 +778,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return renewing.current;
   }, []);
 
+  const changeOwnerEmail = useCallback(
+    async (email: string) => {
+      const owner = await getOwner(db);
+      if (!owner) throw new Error('No owner account is stored on this phone');
+      const next = email.trim().toLowerCase();
+      let token = deviceToken ?? (await readDeviceToken());
+      if (!token) token = await renewDeviceToken();
+      if (!token) throw new ApiError('unauthorized', 'Sign in with your email again.');
+      let result: EmailChangeResult;
+      try {
+        result = await changeEmailOnServer({ deviceToken: token, email: next });
+      } catch (cause) {
+        // The sign-up key lasts hours; renew it once and try again.
+        if (!(cause instanceof ApiError && cause.code === 'unauthorized')) throw cause;
+        const renewed = await renewDeviceToken();
+        if (!renewed) throw cause;
+        result = await changeEmailOnServer({ deviceToken: renewed, email: next });
+      }
+      const saved = result.owner.email ?? next;
+      await upsertOwnerFromServer(db, {
+        id: owner.id,
+        name: owner.name,
+        phone: owner.phone,
+        email: saved,
+        pinHash: owner.pinHash,
+      });
+      markEmailPending(saved, result.verificationSent);
+      setEmailPending({ email: saved, sent: result.verificationSent });
+      setOwnerPreview({ name: owner.name, phone: owner.phone, email: saved });
+      return result;
+    },
+    [db, deviceToken, renewDeviceToken]
+  );
+
   const signOut = useCallback(() => setUser(null), []);
 
   const handOverPhone = useCallback(
@@ -831,6 +872,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       confirmOwnerEmail,
       connectOwnerDevice,
       requestOwnerEmailCode,
+      changeOwnerEmail,
       requestOwnerPasswordReset,
       beginOwnerPasswordReset,
       completeDeviceSetup,
@@ -849,6 +891,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     beginOwnerEmailCode,
     beginOwnerPasswordReset,
     cancelOwnerLogin,
+    changeOwnerEmail,
     confirmOwnerEmail,
     connectOwnerDevice,
     completeDeviceSetup,

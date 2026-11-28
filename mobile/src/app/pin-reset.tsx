@@ -42,6 +42,9 @@ export default function PinResetScreen() {
   const [demoCode, setDemoCode] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [codeError, setCodeError] = useState<string | null>(null);
+  const [pinError, setPinError] = useState<string | null>(null);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
   const [requesting, setRequesting] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
@@ -75,10 +78,18 @@ export default function PinResetScreen() {
   async function handleReset() {
     if (submitting || requesting) return;
     setError(null);
+    setCodeError(null);
+    setPinError(null);
+    setConfirmError(null);
 
     const errors = validatePinReset({ code, pin, confirmPin });
     if (errors.length > 0) {
-      setError(errors.map((item) => t(RESET_ERROR_KEYS[item])).join(' '));
+      for (const item of errors) {
+        const message = t(RESET_ERROR_KEYS[item]);
+        if (item === 'code-invalid') setCodeError(message);
+        else if (item === 'pin-invalid') setPinError(message);
+        else setConfirmError(message);
+      }
       return;
     }
 
@@ -87,7 +98,11 @@ export default function PinResetScreen() {
       await resetPin({ code, pin });
       router.replace('/');
     } catch (cause) {
-      setError(describeError(cause));
+      if (cause instanceof ApiError && (cause.code === 'invalid-code' || cause.code === 'expired-code')) {
+        setCodeError(describeError(cause));
+      } else {
+        setError(describeError(cause));
+      }
     } finally {
       setSubmitting(false);
     }
@@ -104,12 +119,14 @@ export default function PinResetScreen() {
         stage === 'confirm' ? (
           <Button
             label={submitting ? t('auth.reset.submitting') : t('auth.reset.submit')}
+            loading={submitting}
             disabled={submitting || requesting || code.length < 6 || pin.length < 4 || confirmPin.length < 4}
             onPress={handleReset}
           />
         ) : (
           <Button
             label={requesting ? t('auth.reset.sending') : t('auth.reset.request')}
+            loading={requesting}
             disabled={requesting}
             onPress={handleRequest}
           />
@@ -135,7 +152,13 @@ export default function PinResetScreen() {
             <Field
               label={t('auth.reset.code')}
               value={code}
-              onChangeText={(value) => setCode(value.replace(/\D/g, ''))}
+              onChangeText={(value) => {
+                setCode(value.replace(/\D/g, ''));
+                if (codeError) setCodeError(null);
+              }}
+              error={codeError}
+              autoComplete="one-time-code"
+              textContentType="oneTimeCode"
               placeholder="123456"
               keyboardType="numeric"
               icon="sms"
@@ -143,11 +166,23 @@ export default function PinResetScreen() {
               autoFocus
               required
             />
-            <PinBoxes label={t('auth.reset.newPin')} value={pin} onChange={setPin} />
+            <PinBoxes
+              label={t('auth.reset.newPin')}
+              value={pin}
+              onChange={(value) => {
+                setPin(value);
+                if (pinError) setPinError(null);
+              }}
+              error={pinError}
+            />
             <PinBoxes
               label={t('auth.reset.confirmPin')}
               value={confirmPin}
-              onChange={setConfirmPin}
+              onChange={(value) => {
+                setConfirmPin(value);
+                if (confirmError) setConfirmError(null);
+              }}
+              error={confirmError}
               onSubmit={handleReset}
             />
           </View>

@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { useRef, useState, type ComponentRef } from 'react';
+import { StyleSheet, TextInput, View } from 'react-native';
 import { useAuth } from '@/auth/session';
 import { SETUP_STEPS, SetupStep } from '@/components/onboarding';
 import { Button, Field, FormError, HelpTip, TextLink } from '@/components/ui';
@@ -72,6 +72,18 @@ export default function AccountScreen() {
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<FieldName, string>>>({});
   const [saving, setSaving] = useState(false);
 
+  const nameRef = useRef<ComponentRef<typeof TextInput>>(null);
+  const phoneRef = useRef<ComponentRef<typeof TextInput>>(null);
+  const emailRef = useRef<ComponentRef<typeof TextInput>>(null);
+  const passwordRef = useRef<ComponentRef<typeof TextInput>>(null);
+  const pinRef = useRef<ComponentRef<typeof TextInput>>(null);
+  const focusFirst = (bad: Partial<Record<FieldName, unknown>>) => {
+    const order: FieldName[] = ['name', 'phone', 'email', 'password', 'pin'];
+    const first = order.find((field) => bad[field]);
+    const target = { name: nameRef, phone: phoneRef, email: emailRef, password: passwordRef, pin: pinRef }[first ?? 'name'];
+    if (first) target.current?.focus();
+  };
+
   // Typing in a box clears its own message, so the owner sees the fix land.
   const edit = (field: FieldName, set: (value: string) => void) => (value: string) => {
     set(value);
@@ -99,6 +111,7 @@ export default function AccountScreen() {
       setFieldErrors(next);
       // The footer button can be far below the first bad box, so say where to look.
       setError(t('onboarding.account.error.checkFields'));
+      focusFirst(next);
       return;
     }
 
@@ -114,6 +127,7 @@ export default function AccountScreen() {
         const field = API_ERROR_FIELDS[cause.code];
         if (field) {
           setFieldErrors({ [field]: message });
+          focusFirst({ [field]: message });
           setError(t('onboarding.account.error.checkFields'));
         } else {
           setError(message);
@@ -150,7 +164,10 @@ export default function AccountScreen() {
           onChangeText={edit('name', setName)}
           hint={t('onboarding.account.hint.name')}
           error={fieldErrors.name}
-          placeholder="Elton Chiwala"
+          placeholder="Mwila Phiri"
+          inputRef={nameRef}
+          autoComplete="name"
+          textContentType="name"
           icon="person"
           autoCapitalize="words"
           required
@@ -163,7 +180,10 @@ export default function AccountScreen() {
           error={fieldErrors.phone}
           placeholder="97 123 4567"
           keyboardType="phone-pad"
-          prefix="🇿🇲 +260"
+          prefix="+260"
+          inputRef={phoneRef}
+          autoComplete="tel"
+          textContentType="telephoneNumber"
           required
         />
         <Field
@@ -174,6 +194,9 @@ export default function AccountScreen() {
           error={fieldErrors.email}
           placeholder="you@example.com"
           keyboardType="email-address"
+          inputRef={emailRef}
+          autoComplete="email"
+          textContentType="emailAddress"
           icon="mail"
           required
         />
@@ -186,6 +209,9 @@ export default function AccountScreen() {
           placeholder={t('onboarding.account.passwordHint')}
           icon="lock"
           secureTextEntry
+          inputRef={passwordRef}
+          autoComplete="new-password"
+          textContentType="newPassword"
           revealLabels={reveal}
           required
         />
@@ -199,6 +225,8 @@ export default function AccountScreen() {
           keyboardType="numeric"
           icon="dialpad"
           secureTextEntry
+          inputRef={pinRef}
+          autoComplete="off"
           revealLabels={reveal}
           maxLength={MAX_PIN_LENGTH}
           required

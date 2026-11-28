@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { useRef, useState, type ComponentRef } from 'react';
+import { StyleSheet, TextInput, View } from 'react-native';
 import { StaffWrongShopError, useAuth } from '@/auth/session';
 import { Hint, Notice, PinBoxes } from '@/components/auth';
 import { SetupStep } from '@/components/onboarding';
@@ -31,17 +31,25 @@ export default function StaffSignInScreen() {
   const [error, setError] = useState<string | null>(null);
   const [shakeKey, setShakeKey] = useState(0);
   const [submitting, setSubmitting] = useState(false);
+  const [phoneError, setPhoneError] = useState<string | null>(null);
+  const [pinError, setPinError] = useState<string | null>(null);
+  const [newPinError, setNewPinError] = useState<string | null>(null);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
+  const phoneRef = useRef<ComponentRef<typeof TextInput>>(null);
 
   async function handleSignIn() {
     if (submitting) return;
     setError(null);
+    setPhoneError(null);
+    setPinError(null);
 
     if (!isValidPhone(phone)) {
-      setError(t('staff.signIn.error.phoneInvalid'));
+      setPhoneError(t('staff.signIn.error.phoneInvalid'));
+      phoneRef.current?.focus();
       return;
     }
     if (!isValidPin(pin)) {
-      setError(t('staff.signIn.error.pinInvalid'));
+      setPinError(t('staff.signIn.error.pinInvalid'));
       return;
     }
 
@@ -59,18 +67,20 @@ export default function StaffSignInScreen() {
   async function handleChoosePin() {
     if (submitting || !staffPinChange) return;
     setError(null);
+    setNewPinError(null);
+    setConfirmError(null);
     if (!isValidPin(newPin)) {
-      setError(t('staff.signIn.error.pinInvalid'));
+      setNewPinError(t('staff.signIn.error.pinInvalid'));
       return;
     }
     if (newPin !== confirmPin) {
-      setError(t('staff.choosePin.error.mismatch'));
+      setConfirmError(t('staff.choosePin.error.mismatch'));
       setConfirmPin('');
       setShakeKey((key) => key + 1);
       return;
     }
     if (newPin === staffPinChange.pin) {
-      setError(t('staff.choosePin.error.same'));
+      setNewPinError(t('staff.choosePin.error.same'));
       setNewPin('');
       setConfirmPin('');
       return;
@@ -89,10 +99,12 @@ export default function StaffSignInScreen() {
 
   function showError(cause: unknown) {
     if (cause instanceof ApiError) {
-      setError(t(ERROR_KEYS[cause.code] ?? 'staff.signIn.error.server'));
       if (cause.code === 'unauthorized') {
+        setPinError(t('staff.signIn.error.wrongPin'));
         setShakeKey((key) => key + 1);
         setPin('');
+      } else {
+        setError(t(ERROR_KEYS[cause.code] ?? 'staff.signIn.error.server'));
       }
     } else if (cause instanceof StaffWrongShopError) {
       setError(t('staff.signIn.error.wrongShop', { owner: cause.otherOwnerName }));
@@ -116,6 +128,7 @@ export default function StaffSignInScreen() {
           <Button
             label={submitting ? t('staff.signIn.submitting') : t('staff.choosePin.action')}
             disabled={submitting || newPin.length < 4 || confirmPin.length < 4}
+            loading={submitting}
             onPress={() => void handleChoosePin()}
           />
         }
@@ -127,7 +140,10 @@ export default function StaffSignInScreen() {
             onChange={(value) => {
               setNewPin(value);
               if (error) setError(null);
+              if (newPinError) setNewPinError(null);
             }}
+            error={newPinError}
+            invalid={Boolean(newPinError)}
           />
           <PinBoxes
             label={t('staff.choosePin.confirmPin')}
@@ -135,8 +151,10 @@ export default function StaffSignInScreen() {
             onChange={(value) => {
               setConfirmPin(value);
               if (error) setError(null);
+              if (confirmError) setConfirmError(null);
             }}
-            invalid={Boolean(error) && confirmPin.length === 0}
+            error={confirmError}
+            invalid={Boolean(confirmError)}
             shakeKey={shakeKey}
             onSubmit={() => void handleChoosePin()}
           />
@@ -158,6 +176,7 @@ export default function StaffSignInScreen() {
         <Button
           label={submitting ? t('staff.signIn.submitting') : t('staff.signIn.action')}
           disabled={submitting || phone.trim() === '' || pin.length < 4}
+          loading={submitting}
           onPress={() => void handleSignIn()}
         />
       }
@@ -166,10 +185,17 @@ export default function StaffSignInScreen() {
         <Field
           label={t('staff.phone')}
           value={phone}
-          onChangeText={setPhone}
+          onChangeText={(value) => {
+            setPhone(value);
+            if (phoneError) setPhoneError(null);
+          }}
+          error={phoneError}
+          inputRef={phoneRef}
+          autoComplete="tel"
+          textContentType="telephoneNumber"
           placeholder="96 555 1122"
           keyboardType="phone-pad"
-          prefix="🇿🇲 +260"
+          prefix="+260"
           autoFocus
           required
         />
@@ -179,8 +205,10 @@ export default function StaffSignInScreen() {
           onChange={(value) => {
             setPin(value);
             if (error) setError(null);
+            if (pinError) setPinError(null);
           }}
-          invalid={Boolean(error) && pin.length === 0}
+          error={pinError}
+          invalid={Boolean(pinError)}
           shakeKey={shakeKey}
           onSubmit={() => void handleSignIn()}
         />
