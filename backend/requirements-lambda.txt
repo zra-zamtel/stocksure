@@ -11,6 +11,7 @@ dj-database-url>=2.3,<4.0
 psycopg[binary]>=3.2,<4.0
 Pillow>=10.4
 python-dotenv>=1.1,<2.0
+httpx>=0.28,<1.0
 whitenoise>=6.7
 # Trading Record verification QR code (pure Python, no native deps)
 segno>=1.6,<2.0
